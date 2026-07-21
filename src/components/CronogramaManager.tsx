@@ -40,7 +40,7 @@ export default function CronogramaManager() {
 
   const saveWeight = (id: string) => {
     const val = parseFloat(weightValue)
-    if (!isNaN(val) && val >= 0.1 && val <= 10) {
+    if (!isNaN(val) && val > 0) {
       updateCronograma(currentProject.id, id, { peso: val })
     }
     setEditingWeight(null)
@@ -186,8 +186,7 @@ export default function CronogramaManager() {
                     {editingWeight === c.id ? (
                       <input
                         type="number"
-                        min={0.1}
-                        max={10}
+                        min={0.01}
                         step={0.1}
                         value={weightValue}
                         onChange={(e) => setWeightValue(e.target.value)}

@@ -2,7 +2,7 @@ import type { CalculationUnit, CurvePeriod } from '@/lib/curve-utils'
 
 interface SCurveWideTableProps {
   curveData: CurvePeriod[]
-  projectName: string
+  cronogramaNames: string
   selectedBLInfo: { id: string; label: string } | undefined
   unit: CalculationUnit
 }
@@ -17,7 +17,7 @@ function fmtNum(v: number): string {
 const COL1_WIDTH = 180
 const COL2_WIDTH = 260
 
-export function SCurveWideTable({ curveData, projectName, selectedBLInfo, unit }: SCurveWideTableProps) {
+export function SCurveWideTable({ curveData, cronogramaNames, selectedBLInfo, unit }: SCurveWideTableProps) {
   if (curveData.length === 0) return null
 
   const unitSuffix = unit === 'HH' ? 'h' : 'R$'
@@ -54,7 +54,7 @@ export function SCurveWideTable({ curveData, projectName, selectedBLInfo, unit }
                 className="sticky left-0 top-0 z-20 bg-white dark:bg-gray-800 text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase"
                 style={{ minWidth: COL1_WIDTH, maxWidth: COL1_WIDTH }}
               >
-                Nome do projeto
+                Cronogramas
               </th>
               <th
                 className="sticky top-0 z-20 bg-white dark:bg-gray-800 text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase"
@@ -79,7 +79,7 @@ export function SCurveWideTable({ curveData, projectName, selectedBLInfo, unit }
                   className="sticky left-0 z-10 bg-white dark:bg-gray-800 py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap"
                   style={{ minWidth: COL1_WIDTH, maxWidth: COL1_WIDTH }}
                 >
-                  {projectName}
+                  {cronogramaNames}
                 </td>
                 <td
                   className="sticky z-10 bg-white dark:bg-gray-800 py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap"

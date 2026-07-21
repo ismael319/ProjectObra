@@ -181,11 +181,10 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
               </select>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Peso (0.1 - 10.0)</label>
+              <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Peso (peso contratual/orçamentário)</label>
               <input
                 type="number"
-                min={0.1}
-                max={10}
+                min={0.01}
                 step={0.1}
                 value={peso}
                 onChange={(e) => setPeso(parseFloat(e.target.value) || 1)}

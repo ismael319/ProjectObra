@@ -423,6 +423,16 @@ export function consolidateCurves(
     const blCum: Record<string, number> = {}
     const blPeriod: Record<string, number> = {}
 
+    // Usar a data/label da curva MAIS LONGA neste índice para evitar
+    // duplicatas quando curvas têm comprimentos diferentes (clamped).
+    let maxLenCurveIdx = 0
+    let maxLenAtI = 0
+    for (let ci = 0; ci < curves.length; ci++) {
+      if (curves[ci].length > maxLenAtI) { maxLenAtI = curves[ci].length; maxLenCurveIdx = ci }
+    }
+    const dateRef = curves[maxLenCurveIdx][i]
+    if (dateRef) { date = dateRef.date; label = dateRef.label }
+
     if (method === 'critico') {
       let maxPlanned = 0
       let maxActual = 0
@@ -433,11 +443,14 @@ export function consolidateCurves(
           maxPlanned = Math.max(maxPlanned, w.planned)
           maxActual = Math.max(maxActual, w.actual)
           maxForecast = Math.max(maxForecast, w.forecast)
-          date = w.date
-          label = w.label
-          const peso = totalPeso > 0 ? pesos[ci] / totalPeso : 1 / curves.length
-          for (const [k, v] of Object.entries(w.blCum)) blCum[k] = (blCum[k] || 0) + v * peso
-          for (const [k, v] of Object.entries(w.blPeriod)) blPeriod[k] = (blPeriod[k] || 0) + v * peso
+          for (const [k, v] of Object.entries(w.blCum)) {
+            const blIdx = k.includes('__') ? k.split('__').pop()! : k
+            blCum[blIdx] = (blCum[blIdx] || 0) + v
+          }
+          for (const [k, v] of Object.entries(w.blPeriod)) {
+            const blIdx = k.includes('__') ? k.split('__').pop()! : k
+            blPeriod[blIdx] = (blPeriod[blIdx] || 0) + v
+          }
         }
       }
       planned = maxPlanned
@@ -449,18 +462,22 @@ export function consolidateCurves(
         if (!w) continue
         const peso = totalPeso > 0 ? pesos[ci] / totalPeso : 1 / curves.length
         if (method === 'soma') {
-          planned += w.planned * pesos[ci]
-          actual += w.actual * pesos[ci]
-          forecast += w.forecast * pesos[ci]
+          planned += w.planned * peso
+          actual += w.actual * peso
+          forecast += w.forecast * peso
         } else {
           planned += w.planned * peso
           actual += w.actual * peso
           forecast += w.forecast * peso
         }
-        date = w.date
-        label = w.label
-        for (const [k, v] of Object.entries(w.blCum)) blCum[k] = (blCum[k] || 0) + v * peso
-        for (const [k, v] of Object.entries(w.blPeriod)) blPeriod[k] = (blPeriod[k] || 0) + v * peso
+        for (const [k, v] of Object.entries(w.blCum)) {
+          const blIdx = k.includes('__') ? k.split('__').pop()! : k
+          blCum[blIdx] = (blCum[blIdx] || 0) + v * peso
+        }
+        for (const [k, v] of Object.entries(w.blPeriod)) {
+          const blIdx = k.includes('__') ? k.split('__').pop()! : k
+          blPeriod[blIdx] = (blPeriod[blIdx] || 0) + v * peso
+        }
       }
     }
 

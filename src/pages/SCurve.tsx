@@ -1,7 +1,7 @@
 import { useMemo, useState, useCallback, useEffect } from 'react'
 import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, Check, FileCode } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
-import { useProjects, type ConsolidationMethod } from '@/lib/project-store'
+import { useProjects } from '@/lib/project-store'
 import { exportToExcel, exportToPDF, exportSCurveToExcel } from '@/lib/export-utils'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
@@ -27,7 +27,6 @@ import type { BaselineInfo } from '@/lib/xml-parser'
 
 const UNIT_KEY = 'obracontrol_scurve_unit'
 const BL_KEY = 'obracontrol_scurve_baseline'
-const CONSOL_KEY = 'obracontrol_scurve_consol'
 const CRONSEL_KEY = 'obracontrol_scurve_cronsel'
 const ACTIVITY_EXCL_KEY = 'obracontrol_scurve_activity_excl'
 const GRANULARITY_KEY = 'obracontrol_scurve_granularity'
@@ -56,7 +55,6 @@ export default function SCurve() {
   const { currentProject } = useProjects()
   const [unit] = useState<CalculationUnit>(loadSaved(UNIT_KEY, 'HH'))
   const [selectedBL, setSelectedBL] = useState<string>(loadSaved(BL_KEY, 'BL0'))
-  const [consolidationMethod, setConsolidationMethod] = useState<ConsolidationMethod>(loadSaved(CONSOL_KEY, 'soma'))
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(loadSaved(CRONSEL_KEY, []))
   const [granularity, setGranularity] = useState<CurveGranularity>(loadSaved(GRANULARITY_KEY, 'week'))
   const [activityExclusions, setActivityExclusions] = useState<Record<string, number[]>>(loadSaved(ACTIVITY_EXCL_KEY, {}))
@@ -162,11 +160,6 @@ export default function SCurve() {
     }
   }, [hiddenBLs, selectedBL, availableBLs, handleBLChange])
 
-  const handleConsolChange = useCallback((m: ConsolidationMethod) => {
-    setConsolidationMethod(m)
-    localStorage.setItem(CONSOL_KEY, JSON.stringify(m))
-  }, [])
-
   const handleGranularityChange = useCallback((g: CurveGranularity) => {
     setGranularity(g)
     localStorage.setItem(GRANULARITY_KEY, JSON.stringify(g))
@@ -214,18 +207,18 @@ export default function SCurve() {
         ? cronCurves[0].curve
         : consolidateCurves(
             cronCurves.map((c) => c.curve),
-            consolidationMethod,
+            'soma',
             cronCurves.map((c) => c.peso),
           )
-  }, [cronCurves, consolidationMethod])
+  }, [cronCurves])
 
   const curveDataFull = useMemo(() => {
     return cronCurvesFull.length === 0
       ? []
       : cronCurvesFull.length === 1
         ? cronCurvesFull[0]
-        : consolidateCurves(cronCurvesFull, consolidationMethod, cronCurves.map((c) => c.peso))
-  }, [cronCurvesFull, consolidationMethod, cronCurves])
+        : consolidateCurves(cronCurvesFull, 'soma', cronCurves.map((c) => c.peso))
+  }, [cronCurvesFull, cronCurves])
 
   const overallPace = useMemo(
     () => computeOverallPace(curveDataFull, granularity, weekStartDay),
@@ -245,10 +238,24 @@ export default function SCurve() {
   )
 
   const lastPeriod = curveData.length > 0 ? curveData[curveData.length - 1] : null
-  const bl0Total = availableBLs
-    .filter((bl) => bl.id.endsWith('__BL0'))
-    .reduce((sum, bl) => sum + (lastPeriod?.blCum[bl.id] || 0), 0)
-  const finalPlanned = bl0Total > 0 ? bl0Total : (lastPeriod?.planned || 0)
+  const finalPlanned = lastPeriod?.planned || 1
+
+  const consolidatedBLs = useMemo(() => {
+    if (!lastPeriod) return []
+    return Object.keys(lastPeriod.blCum).map((rawId, idx) => {
+      const id = rawId.includes('__') ? rawId.split('__').pop()! : rawId
+      return {
+        id,
+        rawKey: rawId,
+        label: id,
+        index: idx,
+        available: true,
+        hasTimephased: true,
+        totalWork: (lastPeriod.blCum[rawId] || 0) * 60,
+        totalCost: 0,
+      }
+    }).filter((bl, _i, arr) => arr.findIndex((b) => b.id === bl.id) === _i)
+  }, [lastPeriod])
 
   const chartData = useMemo(() => {
     return curveData.map((w) => {
@@ -261,10 +268,10 @@ export default function SCurve() {
         actualPeriod: pct(w.actualPeriod, finalPlanned),
         forecastPeriod: pct(w.forecastPeriod, finalPlanned),
       }
-      for (const bl of availableBLs) {
-        const value = w.blCum[bl.id] || 0
+      for (const bl of consolidatedBLs) {
+        const value = w.blCum[bl.rawKey] || 0
         row[bl.id] = pct(value, finalPlanned)
-        const periodValue = w.blPeriod[bl.id] || 0
+        const periodValue = w.blPeriod[bl.rawKey] || 0
         row[`${bl.id}_period`] = pct(periodValue, finalPlanned)
       }
       for (const cc of cronCurves) {
@@ -275,7 +282,7 @@ export default function SCurve() {
       }
       return row
     })
-  }, [curveData, availableBLs, cronCurves, finalPlanned])
+  }, [curveData, consolidatedBLs, cronCurves, finalPlanned, lastPeriod])
 
   const statusX = useMemo(() => {
     if (curveData.length === 0) return null
@@ -397,31 +404,13 @@ export default function SCurve() {
                         )
                       })}
                     </div>
+                  </div>
+                )}
 
-                    {selectedCronogramas.length > 1 && (
-                      <div className="mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-                        <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Método de consolidação</span>
-                        <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-                          {([
-                            { value: 'soma', label: 'Soma' },
-                            { value: 'media_ponderada', label: 'Média Ponderada' },
-                            { value: 'critico', label: 'Crítico' },
-                          ] as const).map((m) => (
-                            <button
-                              key={m.value}
-                              onClick={() => handleConsolChange(m.value)}
-                              className={`flex-1 px-2 py-1.5 text-xs font-medium transition ${
-                                consolidationMethod === m.value
-                                  ? 'bg-blue-600 text-white'
-                                  : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                              }`}
-                            >
-                              {m.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                {selectedCronogramasData.length > 1 && (
+                  <div className="flex items-center gap-2 mb-2">
+                    <Filter size={14} className="text-gray-400" />
+                    <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Filtros por Atividade</span>
                   </div>
                 )}
 
@@ -461,30 +450,20 @@ export default function SCurve() {
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
               <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
-                {baselinesByCronograma.length > 0 && (
+                {consolidatedBLs.length > 0 && (
                   <div>
                     <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Linhas de base</span>
-                    <div className="space-y-2">
-                      {baselinesByCronograma.map((group) => (
-                        <div key={group.cronogramaId}>
-                          <div className="flex items-center gap-1.5 mb-1">
-                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: group.cor }} />
-                            <span className="text-[10px] font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wide">{group.cronogramaName}</span>
-                          </div>
-                          <div className="space-y-0.5 ml-3.5">
-                            {group.baselines.map((bl) => (
-                              <label key={bl.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={!hiddenBLs.includes(bl.id)}
-                                  onChange={() => toggleBLVisibility(bl.id)}
-                                  className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
-                                />
-                                {bl.label.split(' — ')[1]}
-                              </label>
-                            ))}
-                          </div>
-                        </div>
+                    <div className="space-y-0.5">
+                      {consolidatedBLs.map((bl) => (
+                        <label key={bl.id} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={!hiddenBLs.includes(bl.id)}
+                            onChange={() => toggleBLVisibility(bl.id)}
+                            className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                          />
+                          {bl.label}
+                        </label>
                       ))}
                     </div>
                   </div>
@@ -521,7 +500,7 @@ export default function SCurve() {
                 </button>
                 <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button
-                  onClick={() => { exportSCurveToExcel(curveData, availableBLs.map((b) => b.id), unitLabel, project.nome, advances || undefined, periodColLabel); setOpenPanel(null) }}
+                   onClick={() => { exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances || undefined, periodColLabel); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                 >
                   <BarChart3 size={16} className="text-blue-600" /> Curva S Excel
@@ -553,7 +532,6 @@ export default function SCurve() {
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           {selectedBLInfo?.label} | Percentual acumulado em relação ao total planejado
-          {cronCurves.length > 1 && ` | Consolidação: ${consolidationMethod === 'soma' ? 'Soma' : consolidationMethod === 'media_ponderada' ? 'Média Ponderada' : 'Crítico'}`}
           {cronCurves.some((c) => c.source === 'timephased') && (
             <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-green-50 dark:bg-green-900/20 text-green-600 dark:text-green-400 font-medium">
               <span className="w-1.5 h-1.5 rounded-full bg-green-500" />
@@ -576,14 +554,14 @@ export default function SCurve() {
         <SCurveChart
           chartData={chartData}
           curveData={curveData}
-          availableBLs={availableBLs}
+          availableBLs={consolidatedBLs}
           selectedBL={selectedBL}
           selectedBLInfo={selectedBLInfo ? { ...selectedBLInfo, index: selectedBLInfo.index } : undefined}
           unit={unit}
           unitLabel={unitLabel}
           granularity={granularity}
           weekStartDay={weekStartDay}
-          consolidationMethod={consolidationMethod}
+          consolidationMethod="soma"
           cronCurves={cronCurves}
           hasActivityFilter={hasActivityFilter}
           hiddenBLs={hiddenBLs}
@@ -597,14 +575,14 @@ export default function SCurve() {
         <>
           <SCurveWideTable
             curveData={curveData}
-            projectName={project.nome}
+            cronogramaNames={selectedCronogramasData.map((c) => c.nome).join(', ')}
             selectedBLInfo={selectedBLInfo ? { id: selectedBLInfo.id, label: selectedBLInfo.label } : undefined}
             unit={unit}
           />
           <SCurveTable
             curveData={curveData}
             tableRows={tableRows}
-            availableBLs={availableBLs}
+            availableBLs={consolidatedBLs}
             unit={unit}
             unitLabel={unitLabel}
             granularity={granularity}
