@@ -99,14 +99,16 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const resourceUids = new Set<number>()
 
     for (const p of projs) {
-      allActivities.push(...p.activities)
+      // Loop em vez de push(...array): cronogramas grandes podem ter milhares de
+      // atividades/alocações e estourar a pilha de chamadas do JS com spread.
+      for (const a of p.activities) allActivities.push(a)
       for (const r of p.resources) {
         if (!resourceUids.has(r.uid)) {
           allResources.push(r)
           resourceUids.add(r.uid)
         }
       }
-      allAssignments.push(...p.assignments)
+      for (const a of p.assignments) allAssignments.push(a)
     }
 
     setProjectState(merged)

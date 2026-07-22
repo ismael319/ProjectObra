@@ -1,18 +1,26 @@
 import { ArrowUp, ArrowDown, Minus } from 'lucide-react'
-import { fmtVal, BL_COLORS, type CalculationUnit } from '@/lib/curve-utils'
+import { fmtVal, type CalculationUnit } from '@/lib/curve-utils'
 
-interface AdvanceMetrics {
-  statusDate: string
-  statusDateFormatted: string
-  real: { percent: number; absolute: number; deltaPP: number }
-  previsto: { percent: number; absolute: number; deltaPP: number }
-  baseline: { percent: number; absolute: number; deltaPP: number }
+interface AdvanceMetric {
+  percent: number
+  absolute: number
+  deltaPP: number
+}
+
+interface BaselineAdvance {
+  id: string
+  label: string
+  color: string
+  metric: AdvanceMetric
 }
 
 interface SCurveAdvanceCardProps {
-  advances: AdvanceMetrics
+  statusDate: string
+  statusDateFormatted: string
+  statusEndDateFormatted: string
+  real: AdvanceMetric
+  baselines: BaselineAdvance[]
   unit: CalculationUnit
-  selectedBLInfo: { id: string; index: number } | undefined
   periodColLabel: string
 }
 
@@ -34,48 +42,41 @@ function DeltaIndicator({ deltaPP, periodLabel }: { deltaPP: number; periodLabel
   )
 }
 
-export function SCurveAdvanceCard({ advances, unit, selectedBLInfo, periodColLabel }: SCurveAdvanceCardProps) {
-  const blColor = BL_COLORS[selectedBLInfo?.index ?? 0] || '#00AA00'
-
+export function SCurveAdvanceCard({ statusDate, statusDateFormatted, statusEndDateFormatted, real, baselines, unit, periodColLabel }: SCurveAdvanceCardProps) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
       <div className="flex items-center justify-between px-6 py-3 bg-gray-50 dark:bg-gray-750 border-b border-gray-200 dark:border-gray-700">
         <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wider">Avanço Atual</h3>
-        <span className="text-xs text-gray-500 dark:text-gray-400">Data de Status: {advances.statusDate} ({advances.statusDateFormatted} a {advances.statusEndDateFormatted})</span>
+        <span className="text-xs text-gray-500 dark:text-gray-400">Data de Status: {statusDate} ({statusDateFormatted} a {statusEndDateFormatted})</span>
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-3 divide-y md:divide-y-0 md:divide-x divide-gray-200 dark:divide-gray-700">
+      <div className="flex flex-wrap divide-y md:divide-y-0 divide-gray-200 dark:divide-gray-700">
         {/* AVANÇO REAL */}
-        <div className="p-5 bg-[#9933FF]/[0.06] dark:bg-[#9933FF]/[0.1]">
+        <div className="flex-1 min-w-[220px] p-5 bg-[#9933FF]/[0.06] dark:bg-[#9933FF]/[0.1] md:border-r border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-3">
             <div className="w-1 h-6 rounded-full bg-[#9933FF]" />
             <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avanço Real</h4>
           </div>
-          <p className="text-3xl font-bold text-[#9933FF]">{advances.real.percent.toFixed(1)}%</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{fmtVal(advances.real.absolute, unit)}</p>
-          <DeltaIndicator deltaPP={advances.real.deltaPP} periodLabel={periodColLabel} />
+          <p className="text-3xl font-bold text-[#9933FF]">{real.percent.toFixed(1)}%</p>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{fmtVal(real.absolute, unit)}</p>
+          <DeltaIndicator deltaPP={real.deltaPP} periodLabel={periodColLabel} />
         </div>
 
-        {/* AVANÇO PREVISTO */}
-        <div className="p-5 bg-[#0066CC]/[0.06] dark:bg-[#0066CC]/[0.1]">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-6 rounded-full bg-[#0066CC]" />
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avanço Previsto</h4>
+        {/* AVANÇO POR LINHA DE BASE — uma coluna por LB marcada em Opções */}
+        {baselines.map((bl, i) => (
+          <div
+            key={bl.id}
+            className={`flex-1 min-w-[220px] p-5 ${i < baselines.length - 1 ? 'md:border-r border-gray-200 dark:border-gray-700' : ''}`}
+            style={{ backgroundColor: bl.color + '0d' }}
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-1 h-6 rounded-full" style={{ backgroundColor: bl.color }} />
+              <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avanço Planejado {bl.label}</h4>
+            </div>
+            <p className="text-3xl font-bold" style={{ color: bl.color }}>{bl.metric.percent.toFixed(1)}%</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{fmtVal(bl.metric.absolute, unit)}</p>
+            <DeltaIndicator deltaPP={bl.metric.deltaPP} periodLabel={periodColLabel} />
           </div>
-          <p className="text-3xl font-bold text-[#0066CC]">{advances.previsto.percent.toFixed(1)}%</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{fmtVal(advances.previsto.absolute, unit)}</p>
-          <DeltaIndicator deltaPP={advances.previsto.deltaPP} periodLabel={periodColLabel} />
-        </div>
-
-        {/* AVANÇO LINHA BASE */}
-        <div className="p-5" style={{ backgroundColor: blColor + '0d' }}>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-1 h-6 rounded-full" style={{ backgroundColor: blColor }} />
-            <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{selectedBLInfo?.id || 'Linha Base'}</h4>
-          </div>
-          <p className="text-3xl font-bold" style={{ color: blColor }}>{advances.baseline.percent.toFixed(1)}%</p>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-1 font-mono">{fmtVal(advances.baseline.absolute, unit)}</p>
-          <DeltaIndicator deltaPP={advances.baseline.deltaPP} periodLabel={periodColLabel} />
-        </div>
+        ))}
       </div>
     </div>
   )

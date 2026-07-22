@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, Upload, FileText } from 'lucide-react'
-import { parseMSProjectXML } from '@/lib/xml-parser'
+import { parseMSProjectXML, decodeXmlBytes } from '@/lib/xml-parser'
 import type { CronogramaInfo } from '@/lib/project-store'
 import { CRON_COLORS_CONST } from '@/lib/project-store'
 
@@ -13,12 +13,17 @@ interface Props {
 
 const TIPOS = ['Geral', 'Frente', 'Disciplina', 'Contratado', 'Outro'] as const
 
+type FileStage = 'idle' | 'reading' | 'parsing' | 'done'
+
 export default function CronogramaUploadModal({ open, onClose, onUpload, existingCount }: Props) {
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [tipo, setTipo] = useState<CronogramaInfo['tipo']>('Geral')
   const [peso, setPeso] = useState(1)
   const [fileName, setFileName] = useState('')
+  const [fileSizeMB, setFileSizeMB] = useState(0)
+  const [stage, setStage] = useState<FileStage>('idle')
+  const [progressPct, setProgressPct] = useState(0)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -48,24 +53,51 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
+    setFileSizeMB(file.size / 1024 / 1024)
     setError('')
+    setStage('reading')
+    setProgressPct(0)
+    parsedRef.current = null
 
     // Preencher nome automaticamente com o nome do arquivo (sem .xml)
     const nomeFromFileName = file.name.replace(/\.xml$/i, '')
     setNome(nomeFromFileName)
 
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const text = ev.target?.result as string
-        parsedRef.current = parseMSProjectXML(text)
-      } catch {
-        setError('Erro ao parsear o arquivo XML. Verifique se é um arquivo MSPDI válido.')
-        parsedRef.current = null
-        setFileName('')
-      }
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable) setProgressPct(Math.round((ev.loaded / ev.total) * 100))
     }
-    reader.readAsText(file)
+    reader.onload = (ev) => {
+      setStage('parsing')
+      setProgressPct(100)
+      // Adia pro próximo tick — deixa o React pintar "Processando..." antes do parse
+      // síncrono (pode ser pesado em arquivos grandes) travar a thread principal.
+      setTimeout(() => {
+        try {
+          // Detecta o encoding pelo BOM em vez de assumir UTF-8 — exports do MS
+          // Project costumam vir em UTF-16, e ler como UTF-8 corrompe o arquivo.
+          const buffer = ev.target?.result as ArrayBuffer
+          const text = decodeXmlBytes(buffer)
+          parsedRef.current = parseMSProjectXML(text)
+          setStage('done')
+        } catch (err) {
+          console.error('[CronogramaUpload] Falha ao parsear XML:', err)
+          const detail = err instanceof Error ? err.message : String(err)
+          setError(`Erro ao parsear o arquivo XML: ${detail}`)
+          parsedRef.current = null
+          setFileName('')
+          setStage('idle')
+        }
+      }, 30)
+    }
+    reader.onerror = () => {
+      console.error('[CronogramaUpload] Falha ao ler o arquivo:', reader.error)
+      setError(`Erro ao ler o arquivo (${(file.size / 1024 / 1024).toFixed(1)} MB): ${reader.error?.message || 'motivo desconhecido'}.`)
+      parsedRef.current = null
+      setFileName('')
+      setStage('idle')
+    }
+    reader.readAsArrayBuffer(file)
   }
 
   const handleUpload = () => {
@@ -97,6 +129,9 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
     setTipo('Geral')
     setPeso(1)
     setFileName('')
+    setFileSizeMB(0)
+    setStage('idle')
+    setProgressPct(0)
     setError('')
     parsedRef.current = null
   }
@@ -124,15 +159,16 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
           {/* Upload da arquivo */}
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Arquivo XML *</label>
-            <input ref={fileRef} type="file" accept=".xml" onChange={handleFile} className="hidden" />
+            <input ref={fileRef} type="file" accept=".xml" onChange={handleFile} className="hidden" disabled={stage === 'reading' || stage === 'parsing'} />
             <button
               onClick={() => fileRef.current?.click()}
-              className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition"
+              disabled={stage === 'reading' || stage === 'parsing'}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:text-gray-600"
             >
               {fileName ? (
                 <>
-                  <FileText size={18} className="text-green-500" />
-                  <span className="text-green-600 dark:text-green-400">{fileName}</span>
+                  <FileText size={18} className={stage === 'done' ? 'text-green-500' : 'text-blue-500'} />
+                  <span className={stage === 'done' ? 'text-green-600 dark:text-green-400' : 'text-gray-700 dark:text-gray-300'}>{fileName}</span>
                 </>
               ) : (
                 <>
@@ -141,6 +177,27 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
                 </>
               )}
             </button>
+
+            {fileName && stage !== 'idle' && (
+              <div className="mt-2">
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1">
+                  <span>{fileSizeMB.toFixed(1)} MB</span>
+                  <span>
+                    {stage === 'reading' && `Lendo arquivo... ${progressPct}%`}
+                    {stage === 'parsing' && 'Processando cronograma...'}
+                    {stage === 'done' && 'Concluído'}
+                  </span>
+                </div>
+                <div className="w-full h-2 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all ${
+                      stage === 'done' ? 'bg-green-500' : stage === 'parsing' ? 'bg-blue-500 animate-pulse' : 'bg-blue-500'
+                    }`}
+                    style={{ width: stage === 'reading' ? `${progressPct}%` : '100%' }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           <div>

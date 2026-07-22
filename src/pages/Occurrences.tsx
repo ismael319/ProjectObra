@@ -145,8 +145,8 @@ export default function Occurrences() {
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Nenhuma</option>
-                  {activities.filter((a) => !a.isSummary).map((a) => (
-                    <option key={a.uid} value={a.uid}>{a.wbs} - {a.name}</option>
+                  {activities.filter((a) => !a.isSummary).map((a, index) => (
+                    <option key={`${a.uid}-${index}`} value={a.uid}>{a.wbs} - {a.name}</option>
                   ))}
                 </select>
               </div>

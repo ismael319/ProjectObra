@@ -1,8 +1,10 @@
 import { useState, useRef } from 'react'
-import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock, Upload, RefreshCw, FileUp } from 'lucide-react'
+import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock, Upload, RefreshCw, FileUp, Save, X } from 'lucide-react'
 import { useProjects, type CronogramaInfo } from '@/lib/project-store'
-import { parseMSProjectXML } from '@/lib/xml-parser'
+import { parseMSProjectXML, decodeXmlBytes } from '@/lib/xml-parser'
 import CronogramaUploadModal from './CronogramaUploadModal'
+
+type PendingChange = Partial<Pick<CronogramaInfo, 'peso' | 'dados' | 'dataUpload'>>
 
 export default function CronogramaManager() {
   const { currentProject, addCronograma, removeCronograma, toggleCronograma, updateCronograma, recalculateAllDates } = useProjects()
@@ -12,12 +14,19 @@ export default function CronogramaManager() {
   const [weightValue, setWeightValue] = useState('')
   const [editingName, setEditingName] = useState<string | null>(null)
   const [nameValue, setNameValue] = useState('')
+  const [updateProgress, setUpdateProgress] = useState<Record<string, { stage: 'reading' | 'parsing'; pct: number }>>({})
+  // Peso e atualização de arquivo ficam "em rascunho" aqui até o usuário clicar em
+  // Salvar — só nesse momento é que a Curva S e as outras abas (que leem direto do
+  // project-store) enxergam a mudança. Nome/ativo/exclusão continuam imediatos.
+  const [pendingChanges, setPendingChanges] = useState<Record<string, PendingChange>>({})
   const updateFileRefs = useRef<Record<string, HTMLInputElement>>({})
 
   if (!currentProject) return null
 
   const cronogramas = currentProject.cronogramas || []
+  const displayCronogramas = cronogramas.map((c) => (pendingChanges[c.id] ? { ...c, ...pendingChanges[c.id] } : c))
   const activeCount = cronogramas.filter((c) => c.ativo).length
+  const hasPendingChanges = Object.keys(pendingChanges).length > 0
 
   const handleUpload = (cronograma: CronogramaInfo) => {
     addCronograma(currentProject.id, cronograma)
@@ -41,7 +50,7 @@ export default function CronogramaManager() {
   const saveWeight = (id: string) => {
     const val = parseFloat(weightValue)
     if (!isNaN(val) && val > 0) {
-      updateCronograma(currentProject.id, id, { peso: val })
+      setPendingChanges((prev) => ({ ...prev, [id]: { ...prev[id], peso: val } }))
     }
     setEditingWeight(null)
   }
@@ -59,7 +68,7 @@ export default function CronogramaManager() {
     setEditingName(null)
   }
 
-  const totalPeso = cronogramas
+  const totalPeso = displayCronogramas
     .filter((c) => c.ativo)
     .reduce((sum, c) => sum + c.peso, 0)
 
@@ -67,21 +76,64 @@ export default function CronogramaManager() {
     recalculateAllDates(currentProject.id)
   }
 
+  const handleSaveChanges = () => {
+    for (const [id, change] of Object.entries(pendingChanges)) {
+      updateCronograma(currentProject.id, id, change)
+    }
+    setPendingChanges({})
+  }
+
+  const handleDiscardChanges = () => {
+    setPendingChanges({})
+  }
+
   const handleUpdateFile = (cronogramaId: string, e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
+    setUpdateProgress((prev) => ({ ...prev, [cronogramaId]: { stage: 'reading', pct: 0 } }))
+
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      try {
-        const text = ev.target?.result as string
-        const parsed = parseMSProjectXML(text)
-        updateCronograma(currentProject.id, cronogramaId, { dados: parsed, dataUpload: new Date().toISOString() })
-      } catch {
-        alert('Erro ao parsear o arquivo XML. Verifique se é um arquivo MSPDI válido.')
+    reader.onprogress = (ev) => {
+      if (ev.lengthComputable) {
+        setUpdateProgress((prev) => ({ ...prev, [cronogramaId]: { stage: 'reading', pct: Math.round((ev.loaded / ev.total) * 100) } }))
       }
     }
-    reader.readAsText(file)
+    reader.onload = (ev) => {
+      setUpdateProgress((prev) => ({ ...prev, [cronogramaId]: { stage: 'parsing', pct: 100 } }))
+      // Adia pro próximo tick — deixa o React pintar "Processando..." antes do parse
+      // síncrono (pode ser pesado em arquivos grandes) travar a thread principal.
+      setTimeout(() => {
+        try {
+          // Detecta o encoding pelo BOM em vez de assumir UTF-8 — exports do MS
+          // Project costumam vir em UTF-16, e ler como UTF-8 corrompe o arquivo.
+          const buffer = ev.target?.result as ArrayBuffer
+          const text = decodeXmlBytes(buffer)
+          const parsed = parseMSProjectXML(text)
+          setPendingChanges((prev) => ({ ...prev, [cronogramaId]: { ...prev[cronogramaId], dados: parsed, dataUpload: new Date().toISOString() } }))
+        } catch (err) {
+          console.error('[CronogramaManager] Falha ao parsear XML:', err)
+          const detail = err instanceof Error ? err.message : String(err)
+          alert(`Erro ao parsear o arquivo XML: ${detail}`)
+        } finally {
+          setUpdateProgress((prev) => {
+            const next = { ...prev }
+            delete next[cronogramaId]
+            return next
+          })
+        }
+      }, 30)
+    }
+    reader.onerror = () => {
+      console.error('[CronogramaManager] Falha ao ler o arquivo:', reader.error)
+      alert(`Erro ao ler o arquivo (${(file.size / 1024 / 1024).toFixed(1)} MB): ${reader.error?.message || 'motivo desconhecido'}.`)
+      setUpdateProgress((prev) => {
+        const next = { ...prev }
+        delete next[cronogramaId]
+        return next
+      })
+    }
+    reader.readAsArrayBuffer(file)
     e.target.value = ''
   }
 
@@ -115,6 +167,30 @@ export default function CronogramaManager() {
         </button>
       </div>
 
+      {hasPendingChanges && (
+        <div className="flex items-center justify-between gap-3 px-6 py-3 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">
+          <span className="text-sm text-amber-800 dark:text-amber-300">
+            Você tem alterações de peso/arquivo não salvas — a Curva S e as outras abas só vão refletir depois de salvar.
+          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={handleDiscardChanges}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-amber-800 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/40 rounded-lg transition"
+            >
+              <X size={16} />
+              Descartar
+            </button>
+            <button
+              onClick={handleSaveChanges}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition"
+            >
+              <Save size={16} />
+              Salvar alterações
+            </button>
+          </div>
+        </div>
+      )}
+
       {cronogramas.length === 0 ? (
         <div className="p-12 text-center">
           <Layers size={48} className="mx-auto text-gray-300 dark:text-gray-600 mb-3" />
@@ -129,12 +205,13 @@ export default function CronogramaManager() {
         </div>
       ) : (
         <ul className="divide-y divide-gray-100 dark:divide-gray-700/50">
-          {cronogramas.map((c) => {
+          {displayCronogramas.map((c) => {
             const isExpanded = expandedId === c.id
             const actCount = c.dados?.activities?.length || 0
             const resCount = c.dados?.resources?.length || 0
             const start = c.dados?.startDate
             const finish = c.dados?.finishDate
+            const isPending = !!pendingChanges[c.id]
 
             return (
               <li key={c.id} className="transition-colors">
@@ -180,6 +257,24 @@ export default function CronogramaManager() {
                     <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5 truncate">
                       {c.descricao || `${actCount} atividades · ${resCount} recursos`}
                     </p>
+                    {updateProgress[c.id] && (
+                      <div className="mt-1.5 flex items-center gap-2">
+                        <div className="flex-1 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden max-w-[200px]">
+                          <div
+                            className={`h-full rounded-full bg-blue-500 transition-all ${updateProgress[c.id].stage === 'parsing' ? 'animate-pulse' : ''}`}
+                            style={{ width: updateProgress[c.id].stage === 'reading' ? `${updateProgress[c.id].pct}%` : '100%' }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                          {updateProgress[c.id].stage === 'reading' ? `Lendo... ${updateProgress[c.id].pct}%` : 'Processando...'}
+                        </span>
+                      </div>
+                    )}
+                    {!updateProgress[c.id] && isPending && (
+                      <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                        Alterações não salvas — clique em "Salvar alterações" no topo
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2 shrink-0">
@@ -198,8 +293,12 @@ export default function CronogramaManager() {
                     ) : (
                       <button
                         onClick={() => startEditWeight(c)}
-                        className="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600 transition"
-                        title="Editar peso"
+                        className={`text-xs px-2 py-1 rounded transition ${
+                          pendingChanges[c.id]?.peso !== undefined
+                            ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 ring-1 ring-amber-400'
+                            : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
+                        }`}
+                        title={pendingChanges[c.id]?.peso !== undefined ? 'Peso alterado (não salvo)' : 'Editar peso'}
                       >
                         {c.peso.toFixed(1)}
                       </button>
@@ -214,10 +313,11 @@ export default function CronogramaManager() {
                     />
                     <button
                       onClick={() => updateFileRefs.current[c.id]?.click()}
-                      className="p-1 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition group"
+                      disabled={!!updateProgress[c.id]}
+                      className="p-1 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition group disabled:cursor-not-allowed"
                       title="Atualizar dados do cronograma (re-upload XML)"
                     >
-                      <FileUp size={16} className="text-gray-300 dark:text-gray-600 group-hover:text-blue-500 transition" />
+                      <FileUp size={16} className={`text-gray-300 dark:text-gray-600 group-hover:text-blue-500 transition ${updateProgress[c.id] ? 'animate-pulse text-blue-500' : ''}`} />
                     </button>
 
                     <button
@@ -283,6 +383,13 @@ export default function CronogramaManager() {
             )
           })}
         </ul>
+      )}
+
+      {cronogramas.length > 0 && (
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+          <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Soma dos pesos (cronogramas ativos)</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{totalPeso.toFixed(1)}</span>
+        </div>
       )}
 
       <CronogramaUploadModal

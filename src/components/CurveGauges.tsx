@@ -7,6 +7,7 @@ import {
   fmtVal,
   findStatusIndex,
   sumBL0,
+  lookupBL,
   PERIOD_LABEL,
   BL_COLORS,
   COLOR_REAL,
@@ -147,20 +148,31 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
   const isStatusPeriod = idx === findStatusIndex(curveData)
 
   // Denominador: total da Linha Base 0 (BL0). Fallback para planned se BL0 ausente.
+  // lookupBL (não acesso direto por []) porque blCum pode estar chaveado com o id
+  // composto do cronograma ("cronId__BL0", cronograma único) ou já normalizado
+  // ("BL0", síntese ponderada) — acesso direto por bl.id/selectedBL falha num dos
+  // dois casos e zera as linhas de base no card.
   const bl0Total = sumBL0(lastPeriod.blCum)
   const bac = bl0Total > 0 ? bl0Total : lastPeriod.planned
-  const blTotalFinal = lastPeriod.blCum[selectedBL] || 0
+  const blTotalFinal = lookupBL(lastPeriod.blCum, selectedBL)
 
   const pctRealAcum = pct(period.actual, bac)
   const pctRealAcumPrev = pct(prevPeriod.actual, bac)
   const realDeltaPP = round2(pctRealAcum - pctRealAcumPrev)
 
-  const pctBLAcum = pct(period.blCum[selectedBL] || 0, blTotalFinal)
-  const pctBLAcumPrev = pct(prevPeriod.blCum[selectedBL] || 0, blTotalFinal)
+  const pctBLAcum = pct(lookupBL(period.blCum, selectedBL), blTotalFinal)
+  const pctBLAcumPrev = pct(lookupBL(prevPeriod.blCum, selectedBL), blTotalFinal)
   const blDeltaPP = round2(pctBLAcum - pctBLAcumPrev)
 
   const aderencia = pctBLAcum > 0 ? round2((pctRealAcum / pctBLAcum) * 100) : null
   const desvioVsBase = blTotalFinal > 0 ? round2(pctRealAcum - pctBLAcum) : null
+
+  // Ritmo do período = Real do período / LB de referência do MESMO período (não mais
+  // Real/Planejado do cronograma atual). Quando a LB não distribuiu nada nesse
+  // período específico (comum após replanejamento — o trabalho foi remanejado para
+  // outra semana), o ritmo fica indefinido (null) em vez de virar um pico artificial.
+  const blPeriodRef = lookupBL(period.blPeriod, selectedBL)
+  const ritmo = blPeriodRef > 0 ? round2(period.actualPeriod / blPeriodRef) : null
 
   const periodColLabel = PERIOD_LABEL[granularity]
 
@@ -170,9 +182,9 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
       key: bl.id,
       color: BL_COLORS[bl.index],
       name: bl.label,
-      value: period.blCum[bl.id] || 0,
-      prevValue: prevPeriod.blCum[bl.id] || 0,
-      total: lastPeriod.blCum[bl.id] || 0,
+      value: lookupBL(period.blCum, bl.id),
+      prevValue: lookupBL(prevPeriod.blCum, bl.id),
+      total: lookupBL(lastPeriod.blCum, bl.id),
     })
   }
   rows.push({ key: 'forecast', color: COLOR_FORECAST, name: 'Forecast', value: period.forecast, prevValue: prevPeriod.forecast, total: bac })
@@ -190,7 +202,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
       </div>
 
       <div className="flex items-center justify-center gap-6 mb-1 pb-1 border-b border-gray-100 dark:border-gray-700">
-        <SemiGauge value={period.spiPeriod} label={`Ritmo ${periodColLabel}`} />
+        <SemiGauge value={ritmo} label={`Ritmo ${periodColLabel}`} />
         <AdherenceBar value={aderencia} label="Aderência Base" />
       </div>
       <div className="text-center text-[11px] text-gray-400 dark:text-gray-500 mb-3 pb-3 border-b border-gray-100 dark:border-gray-700">

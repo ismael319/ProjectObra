@@ -146,8 +146,8 @@ export default function LaborTracking() {
                   required
                 >
                   <option value={0}>Selecione...</option>
-                  {activities.filter((a) => !a.isSummary).map((a) => (
-                    <option key={a.uid} value={a.uid}>{a.wbs} - {a.name}</option>
+                  {activities.filter((a) => !a.isSummary).map((a, index) => (
+                    <option key={`${a.uid}-${index}`} value={a.uid}>{a.wbs} - {a.name}</option>
                   ))}
                 </select>
               </div>

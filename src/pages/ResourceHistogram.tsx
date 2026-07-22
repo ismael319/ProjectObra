@@ -21,9 +21,18 @@ export default function ResourceHistogram() {
   const histogramData = useMemo(() => {
     if (activities.length === 0 || resources.length === 0) return []
 
-    const allDates = activities.flatMap((a) => [toDate(a.start), toDate(a.finish)])
-    const minDate = new Date(Math.min(...allDates.map((d) => d.getTime())))
-    const maxDate = new Date(Math.max(...allDates.map((d) => d.getTime())))
+    // Loop em vez de Math.min/max(...array): projetos com muitas atividades podem
+    // estourar a pilha de chamadas do JS com spread num array grande.
+    let minMs = Infinity
+    let maxMs = -Infinity
+    for (const a of activities) {
+      const s = toDate(a.start).getTime()
+      const f = toDate(a.finish).getTime()
+      if (s < minMs) minMs = s
+      if (f > maxMs) maxMs = f
+    }
+    const minDate = new Date(minMs)
+    const maxDate = new Date(maxMs)
 
     // Semanas alinhadas ao calendário do cronograma (weekStartDay do XML,
     // padrão sexta-feira), em vez de blocos relativos de 7 dias a partir do

@@ -2,6 +2,24 @@
 // Suporta formato MSPDI (Microsoft Project Data Interchange)
 // Extração de TimephasedData para Curva S
 
+/**
+ * Decodifica os bytes de um arquivo XML detectando o encoding pelo BOM (Byte Order
+ * Mark). Exports do MS Project frequentemente vêm em UTF-16 (com BOM), não UTF-8 —
+ * ler sempre como UTF-8 corrompe os primeiros bytes e o DOMParser rejeita o XML como
+ * inválido ("Start tag expected, '<' not found"), mesmo o arquivo sendo válido.
+ */
+export function decodeXmlBytes(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le').decode(buffer)
+  }
+  if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be').decode(buffer)
+  }
+  // UTF-8 (com ou sem BOM) — TextDecoder remove o BOM automaticamente por padrão.
+  return new TextDecoder('utf-8').decode(buffer)
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // INTERFACES
 // ═══════════════════════════════════════════════════════════════════
@@ -357,7 +375,13 @@ function extractTimephasedFromAssignment(
 
   if (assignmentUid <= 0) return { points }
 
-  const allTpElements = assignment.querySelectorAll('TimephasedData')
+  // :scope > (não querySelectorAll('TimephasedData') puro) — sem o escopo, a busca
+  // pega QUALQUER <TimephasedData> em qualquer profundidade, inclusive os aninhados
+  // dentro de <Baseline> (processados separadamente abaixo). O código só tinha uma
+  // proteção manual contra esse vazamento para os Types 4 e 5; qualquer outro tipo
+  // aninhado em <Baseline> (ex.: Types de baselines específicas além da 0) vazava
+  // pra cá sem contexto de baselineIndex, inflando os totais e duplicando pontos.
+  const allTpElements = assignment.querySelectorAll(':scope > TimephasedData')
 
   allTpElements.forEach((tp) => {
     const type = parseInt(tp.querySelector('Type')?.textContent || '0') as TimephasedDataType
@@ -383,24 +407,16 @@ function extractTimephasedFromAssignment(
       valueHours,
     }
 
-    // Type 4 em <TimephasedData> direto do Assignment → fallback BL0
-    // (dados de baseline sem contexto de <Baseline> aninhado)
+    // Type 4 direto do Assignment → fallback BL0 (dados de baseline sem contexto de
+    // <Baseline> aninhado — só ocorre aqui porque o seletor já garante que não é
+    // um <TimephasedData> dentro de <Baseline>).
     if (type === 4) {
-      const parentTag = tp.parentElement?.tagName
-      if (parentTag === 'Baseline') {
-        // Será processado na seção de Baseline aninhados abaixo — ignorar aqui
-        return
-      }
       point.baselineIndex = 0
     }
 
-    // Type 5 em <TimephasedData> direto do Assignment → fallback BL0
-    // (alguns exports MSPDI usam Type 5 em vez de Type 4 para Baseline Work)
+    // Type 5 direto do Assignment → fallback BL0 (alguns exports MSPDI usam Type 5
+    // em vez de Type 4 para Baseline Work).
     if (type === 5) {
-      const parentTag = tp.parentElement?.tagName
-      if (parentTag === 'Baseline') {
-        return
-      }
       point.baselineIndex = 0
       point.type = 4 // normaliza para Type 4 (Baseline Work) no restante do pipeline
     }
@@ -414,7 +430,7 @@ function extractTimephasedFromAssignment(
   const baselineElements = assignment.querySelectorAll(':scope > Baseline')
   baselineElements.forEach((bl) => {
     const blIndex = parseInt(bl.querySelector('Number')?.textContent || '0')
-    const blTpElements = bl.querySelectorAll('TimephasedData')
+    const blTpElements = bl.querySelectorAll(':scope > TimephasedData')
 
     blTpElements.forEach((tp) => {
       const type = parseInt(tp.querySelector('Type')?.textContent || '0') as TimephasedDataType
@@ -467,7 +483,7 @@ function extractTimephasedData(
   const assignments = doc.querySelectorAll('Assignment')
   assignments.forEach((assignment) => {
     const { points } = extractTimephasedFromAssignment(assignment, minutesPerDay)
-    allPoints.push(...points)
+    for (const p of points) allPoints.push(p)
   })
 
   // Se não encontrou TimephasedData no XML, retorna indisponível
@@ -483,11 +499,19 @@ function extractTimephasedData(
     }
   }
 
-  // Determinar período coberto
-  const allStarts = allPoints.map((p) => p.start.getTime())
-  const allEnds = allPoints.map((p) => p.finish.getTime())
-  const rangeStart = new Date(Math.min(...allStarts))
-  const rangeEnd = new Date(Math.max(...allEnds))
+  // Determinar período coberto — loop em vez de Math.min/max(...array): projetos
+  // grandes podem ter dezenas/centenas de milhares de pontos timephased, e espalhar
+  // um array desse tamanho como argumentos de função estoura a pilha de chamadas do JS.
+  let rangeStartMs = Infinity
+  let rangeEndMs = -Infinity
+  for (const p of allPoints) {
+    const s = p.start.getTime()
+    const f = p.finish.getTime()
+    if (s < rangeStartMs) rangeStartMs = s
+    if (f > rangeEndMs) rangeEndMs = f
+  }
+  const rangeStart = new Date(rangeStartMs)
+  const rangeEnd = new Date(rangeEndMs)
 
   // Agrupar por período
   const grouped: Record<string, TimephasedWeek> = {}
@@ -653,7 +677,10 @@ function synthesizeMissingBaselineDistributions(
 
     if (syntheticPoints.length === 0) continue
 
-    timephased.rawPoints.push(...syntheticPoints)
+    // Loop em vez de push(...syntheticPoints): com muitas atividades e até
+    // MAX_SYNTHETIC_SPAN_DAYS pontos diários cada, esse array pode chegar a milhões
+    // de elementos — espalhar como argumentos de função estoura a pilha do JS.
+    for (const p of syntheticPoints) timephased.rawPoints.push(p)
     timephased.baselineIndices.add(i)
     const total = syntheticPoints.reduce((sum, p) => sum + p.valueHours, 0)
     timephased.totals.baselineHours[i] = (timephased.totals.baselineHours[i] || 0) + total

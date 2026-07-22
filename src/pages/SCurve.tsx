@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from 'react'
-import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, Check, FileCode } from 'lucide-react'
+import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, Check, FileCode, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
 import { exportToExcel, exportToPDF, exportSCurveToExcel } from '@/lib/export-utils'
@@ -19,9 +19,11 @@ import {
   computeOverallPace,
   findStatusIndex,
   fmtK,
+  sumBL0,
   PERIOD_LABEL,
   type CurveGranularity,
   type CalculationUnit,
+  type BLSynthMap,
 } from '@/lib/curve-utils'
 import type { BaselineInfo } from '@/lib/xml-parser'
 
@@ -32,6 +34,10 @@ const ACTIVITY_EXCL_KEY = 'obracontrol_scurve_activity_excl'
 const GRANULARITY_KEY = 'obracontrol_scurve_granularity'
 const HIDDEN_BLS_KEY = 'obracontrol_scurve_hidden_bls'
 const SHOW_TABLE_KEY = 'obracontrol_scurve_show_table'
+const BL_SYNTH_MAP_KEY = 'obracontrol_scurve_bl_synth_map'
+const SYNTH_SLOTS_KEY = 'obracontrol_scurve_synth_slots'
+const EXCLUDED_SLOT = ''
+const DEFAULT_SYNTH_SLOTS = ['BL0']
 
 type OpenPanel = 'filtros' | 'opcoes' | 'ferramentas' | null
 
@@ -59,6 +65,10 @@ export default function SCurve() {
   const [granularity, setGranularity] = useState<CurveGranularity>(loadSaved(GRANULARITY_KEY, 'week'))
   const [activityExclusions, setActivityExclusions] = useState<Record<string, number[]>>(loadSaved(ACTIVITY_EXCL_KEY, {}))
   const [hiddenBLs, setHiddenBLs] = useState<string[]>(loadSaved(HIDDEN_BLS_KEY, []))
+  const [blSynthMap, setBlSynthMap] = useState<BLSynthMap>(loadSaved(BL_SYNTH_MAP_KEY, {}))
+  const [synthSlotIds, setSynthSlotIds] = useState<string[]>(loadSaved(SYNTH_SLOTS_KEY, DEFAULT_SYNTH_SLOTS))
+  const [collapsedSynthSlots, setCollapsedSynthSlots] = useState<Set<string>>(new Set(loadSaved(SYNTH_SLOTS_KEY, DEFAULT_SYNTH_SLOTS)))
+  const [collapsedFilterCronogramas, setCollapsedFilterCronogramas] = useState<Set<string>>(new Set())
   const [showTable, setShowTable] = useState<boolean>(loadSaved(SHOW_TABLE_KEY, true))
   const [showDiagnostic, setShowDiagnostic] = useState(false)
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null)
@@ -70,7 +80,24 @@ export default function SCurve() {
   } | null>(null)
 
   const togglePanel = useCallback((panel: OpenPanel) => {
-    setOpenPanel((prev) => (prev === panel ? null : panel))
+    setOpenPanel((prev) => {
+      const next = prev === panel ? null : panel
+      // Toda vez que o painel Opções é aberto, as LBs sintéticas começam fechadas —
+      // não fica lembrando se estavam expandidas da última vez.
+      if (next === 'opcoes') setCollapsedSynthSlots((s) => new Set([...s, ...synthSlotIds]))
+      // Mesma ideia para Filtros: os blocos de cronograma sempre começam fechados.
+      if (next === 'filtros') setCollapsedFilterCronogramas((s) => new Set([...s, ...selectedCronogramas]))
+      return next
+    })
+  }, [synthSlotIds, selectedCronogramas])
+
+  const toggleFilterCronogramaCollapse = useCallback((cronogramaId: string) => {
+    setCollapsedFilterCronogramas((prev) => {
+      const next = new Set(prev)
+      if (next.has(cronogramaId)) next.delete(cronogramaId)
+      else next.add(cronogramaId)
+      return next
+    })
   }, [])
 
   const cronogramas = useMemo(() => currentProject?.cronogramas || [], [currentProject])
@@ -148,6 +175,93 @@ export default function SCurve() {
     return availableBLs.find((b) => b.id === selectedBL) || availableBLs[0]
   }, [availableBLs, selectedBL])
 
+  // Sufixo "cru" da baseline selecionada (ex.: "BL0"), usado para localizar a
+  // baseline equivalente dentro de cada cronograma individual e na curva síntese.
+  const rawBLSuffix = useMemo(() => {
+    if (!selectedBLInfo) return undefined
+    return selectedBLInfo.id.includes('__') ? selectedBLInfo.id.split('__').pop() : selectedBLInfo.id
+  }, [selectedBLInfo])
+
+  // Slots de LB sintética: só existem os que o usuário criou (LB0/LB1 por padrão).
+  // Diferente de antes, NÃO é derivado automaticamente das baselines disponíveis —
+  // "criadas conforme necessidade" via botão, não uma por baseline encontrada.
+  const synthSlots = useMemo(() => {
+    return synthSlotIds.map((id) => ({ id, label: `LB${id.replace(/^BL/i, '')} Sintética` }))
+  }, [synthSlotIds])
+
+  const addSynthSlot = useCallback(() => {
+    setSynthSlotIds((prev) => {
+      const nums = prev.map((id) => parseInt(id.replace(/^BL/i, ''), 10)).filter((n) => !isNaN(n))
+      const nextNum = nums.length > 0 ? Math.max(...nums) + 1 : 0
+      const next = [...prev, `BL${nextNum}`]
+      localStorage.setItem(SYNTH_SLOTS_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const removeSynthSlot = useCallback((slotId: string) => {
+    setSynthSlotIds((prev) => {
+      const next = prev.filter((id) => id !== slotId)
+      localStorage.setItem(SYNTH_SLOTS_KEY, JSON.stringify(next))
+      return next
+    })
+    // Baselines que estavam atribuídas ao slot removido voltam a ficar "não incluídas"
+    // em vez de reaparecer implicitamente em outro slot.
+    setBlSynthMap((prev) => {
+      let changed = false
+      const next = { ...prev }
+      for (const [k, v] of Object.entries(next)) {
+        if (v === slotId) { next[k] = EXCLUDED_SLOT; changed = true }
+      }
+      if (changed) localStorage.setItem(BL_SYNTH_MAP_KEY, JSON.stringify(next))
+      return changed ? next : prev
+    })
+    setCollapsedSynthSlots((prev) => {
+      if (!prev.has(slotId)) return prev
+      const next = new Set(prev)
+      next.delete(slotId)
+      return next
+    })
+  }, [])
+
+  const handleBlSynthMapChange = useCallback((compositeBLId: string, slot: string) => {
+    setBlSynthMap((prev) => {
+      const next = { ...prev, [compositeBLId]: slot }
+      localStorage.setItem(BL_SYNTH_MAP_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  const toggleSynthSlotCollapse = useCallback((slotId: string) => {
+    setCollapsedSynthSlots((prev) => {
+      const next = new Set(prev)
+      if (next.has(slotId)) next.delete(slotId)
+      else next.add(slotId)
+      return next
+    })
+  }, [])
+
+  // Resolve, para cada baseline composta disponível, o slot sintético efetivo — o
+  // que o usuário escolheu em Opções, ou o sufixo cru por padrão SE esse slot ainda
+  // existir na lista atual. Se o cronograma tem uma baseline cujo sufixo não
+  // corresponde a nenhuma LB sintética criada, ela fica de fora da síntese até o
+  // usuário criar o slot e marcá-la manualmente — em vez de "vazar" para um slot
+  // fantasma que não aparece na UI.
+  const resolvedBlSynthMap = useMemo(() => {
+    const slotIdSet = new Set(synthSlotIds)
+    const map: BLSynthMap = {}
+    for (const bl of availableBLs) {
+      const raw = bl.id.includes('__') ? bl.id.split('__').pop()! : bl.id
+      const explicit = blSynthMap[bl.id]
+      if (explicit !== undefined) {
+        map[bl.id] = explicit === EXCLUDED_SLOT || slotIdSet.has(explicit) ? explicit : EXCLUDED_SLOT
+      } else {
+        map[bl.id] = slotIdSet.has(raw) ? raw : EXCLUDED_SLOT
+      }
+    }
+    return map
+  }, [availableBLs, blSynthMap, synthSlotIds])
+
   const handleBLChange = useCallback((blId: string) => {
     setSelectedBL(blId)
     localStorage.setItem(BL_KEY, JSON.stringify(blId))
@@ -182,7 +296,14 @@ export default function SCurve() {
     return selectedCronogramasData.map((c) => {
       const excluded = new Set(activityExclusions[c.id] || [])
       const rawPoints = filterRawPointsByExcludedActivities(c.dados?.timephased?.rawPoints, c.dados?.assignments, excluded)
-      const curve = buildCurveFromRawPoints(rawPoints, granularity, unit, availableBLs, c.dados?.weekStartDay ?? 5)
+      // Só as próprias baselines do cronograma — usar availableBLs (global) faria um
+      // cronograma "herdar" a baseline de outro que compartilhe o mesmo índice (BL0 etc).
+      const ownBLs = availableBLs.filter((bl) => bl.id.startsWith(`${c.id}__`))
+      // Id composto da LB de referência DENTRO deste cronograma — usado só pra decidir
+      // onde a curva "começa" (corte de semanas vazias), pra não considerar outras
+      // baselines (BL1, BL2...) que não estão sendo exibidas na tabela/gráfico.
+      const referenceBLId = rawBLSuffix ? ownBLs.find((bl) => bl.id.endsWith(`__${rawBLSuffix}`))?.id : undefined
+      const curve = buildCurveFromRawPoints(rawPoints, granularity, unit, ownBLs, c.dados?.weekStartDay ?? 5, referenceBLId)
       return {
         id: c.id,
         nome: c.nome,
@@ -192,13 +313,15 @@ export default function SCurve() {
         source: curve.length > 0 ? 'timephased' as const : 'synthetic' as const,
       }
     })
-  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions])
+  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, rawBLSuffix])
 
   const cronCurvesFull = useMemo(() => {
-    return selectedCronogramasData.map((c) =>
-      buildCurveFromRawPoints(c.dados?.timephased?.rawPoints, granularity, unit, availableBLs, c.dados?.weekStartDay ?? 5),
-    )
-  }, [selectedCronogramasData, unit, availableBLs, granularity])
+    return selectedCronogramasData.map((c) => {
+      const ownBLs = availableBLs.filter((bl) => bl.id.startsWith(`${c.id}__`))
+      const referenceBLId = rawBLSuffix ? ownBLs.find((bl) => bl.id.endsWith(`__${rawBLSuffix}`))?.id : undefined
+      return buildCurveFromRawPoints(c.dados?.timephased?.rawPoints, granularity, unit, ownBLs, c.dados?.weekStartDay ?? 5, referenceBLId)
+    })
+  }, [selectedCronogramasData, unit, availableBLs, granularity, rawBLSuffix])
 
   const curveData = useMemo(() => {
     return cronCurves.length === 0
@@ -209,21 +332,47 @@ export default function SCurve() {
             cronCurves.map((c) => c.curve),
             'soma',
             cronCurves.map((c) => c.peso),
+            resolvedBlSynthMap,
+            rawBLSuffix,
           )
-  }, [cronCurves])
+  }, [cronCurves, resolvedBlSynthMap, rawBLSuffix])
 
   const curveDataFull = useMemo(() => {
     return cronCurvesFull.length === 0
       ? []
       : cronCurvesFull.length === 1
         ? cronCurvesFull[0]
-        : consolidateCurves(cronCurvesFull, 'soma', cronCurves.map((c) => c.peso))
-  }, [cronCurvesFull, cronCurves])
+        : consolidateCurves(cronCurvesFull, 'soma', cronCurves.map((c) => c.peso), resolvedBlSynthMap, rawBLSuffix)
+  }, [cronCurvesFull, cronCurves, resolvedBlSynthMap, rawBLSuffix])
 
   const overallPace = useMemo(
     () => computeOverallPace(curveDataFull, granularity, weekStartDay),
     [curveDataFull, granularity, weekStartDay],
   )
+
+  // Início/Término do cronograma atual (replanejado) e término da BL0 original, um
+  // por cronograma selecionado no filtro. Término da BL0 vem das atividades
+  // (BaselineFinish), não do <FinishDate> do projeto — esse só existe para o
+  // cronograma atual.
+  const scheduleInfo = useMemo(() => {
+    if (selectedCronogramasData.length === 0) return []
+    return selectedCronogramasData.map((c) => {
+      let blFinish: Date | null = null
+      for (const act of c.dados?.activities || []) {
+        if (act.isSummary) continue
+        const blf = act.baselines?.[0]?.finish
+        if (blf && (!blFinish || blf > blFinish)) blFinish = blf
+      }
+      return {
+        id: c.id,
+        nome: c.nome,
+        cor: c.cor,
+        start: c.dados?.startDate ?? null,
+        finish: c.dados?.finishDate ?? null,
+        blFinish,
+      }
+    })
+  }, [selectedCronogramasData])
 
   const unitLabel = unit === 'HH' ? 'Horas de Trabalho' : 'Custo (R$)'
 
@@ -232,13 +381,27 @@ export default function SCurve() {
     return unit === 'HH' ? selectedBLInfo.totalWork / 60 : selectedBLInfo.totalCost
   }, [selectedBLInfo, unit])
 
-  const advances = useMemo(
-    () => computeAdvanceMetrics(curveData, selectedBL),
-    [curveData, selectedBL],
+  const localBLInfoFor = useCallback(
+    (cronogramaId: string): { id: string; label: string } | undefined => {
+      if (!rawBLSuffix) return undefined
+      const group = baselinesByCronograma.find((g) => g.cronogramaId === cronogramaId)
+      const bl = group?.baselines.find((b) => b.id.endsWith(`__${rawBLSuffix}`))
+      return bl ? { id: bl.id, label: bl.label } : undefined
+    },
+    [rawBLSuffix, baselinesByCronograma],
   )
 
   const lastPeriod = curveData.length > 0 ? curveData[curveData.length - 1] : null
-  const finalPlanned = lastPeriod?.planned || 1
+  // Mesmo denominador usado pelo card (computeAdvanceMetrics): total de BL0 quando
+  // disponível, senão o planejado (PV) do cronograma atual. Usar sempre o PV aqui
+  // fazia o gráfico e o eixo Y (0-100%) baterem com um total diferente do que o card
+  // mostra, sempre que o cronograma foi replanejado com mais/menos trabalho que a
+  // linha de base original.
+  const finalPlanned = useMemo(() => {
+    if (!lastPeriod) return 1
+    const bl0Total = sumBL0(lastPeriod.blCum)
+    return bl0Total > 0 ? bl0Total : (lastPeriod.planned || 1)
+  }, [lastPeriod])
 
   const consolidatedBLs = useMemo(() => {
     if (!lastPeriod) return []
@@ -256,6 +419,39 @@ export default function SCurve() {
       }
     }).filter((bl, _i, arr) => arr.findIndex((b) => b.id === bl.id) === _i)
   }, [lastPeriod])
+
+  // LBs visíveis (não ocultadas em Opções) — o card "Avanço Atual" mostra uma coluna
+  // de avanço por cada uma dessas, em vez do antigo "Avanço Previsto" (PV do
+  // cronograma atual), que confundia mais do que ajudava quando o cronograma foi
+  // replanejado com um total diferente da baseline.
+  const visibleBLs = useMemo(
+    () => consolidatedBLs.filter((bl) => !hiddenBLs.includes(bl.id)),
+    [consolidatedBLs, hiddenBLs],
+  )
+
+  const advances = useMemo(
+    () => computeAdvanceMetrics(curveData, visibleBLs.map((b) => b.id)),
+    [curveData, visibleBLs],
+  )
+
+  const advanceBaselines = useMemo(() => {
+    if (!advances) return []
+    return advances.baselines.map((ab) => {
+      const info = visibleBLs.find((b) => b.id === ab.id)
+      return {
+        id: ab.id,
+        label: info?.label || ab.id,
+        color: BL_COLORS[info?.index ?? 0] || '#00AA00',
+        metric: ab.metric,
+      }
+    })
+  }, [advances, visibleBLs])
+
+  const syntheticBLInfo = useMemo(() => {
+    if (!rawBLSuffix) return undefined
+    const bl = consolidatedBLs.find((b) => b.id === rawBLSuffix)
+    return bl ? { id: bl.id, label: bl.label } : undefined
+  }, [rawBLSuffix, consolidatedBLs])
 
   const chartData = useMemo(() => {
     return curveData.map((w) => {
@@ -277,7 +473,9 @@ export default function SCurve() {
       for (const cc of cronCurves) {
         const cw = cc.curve.find((c) => c.date === w.date)
         const value = cw?.actual || 0
-        const finalCronPlanned = cc.curve[cc.curve.length - 1]?.planned || 0
+        const ccLast = cc.curve[cc.curve.length - 1]
+        const ccBL0 = ccLast ? sumBL0(ccLast.blCum) : 0
+        const finalCronPlanned = ccBL0 > 0 ? ccBL0 : (ccLast?.planned || 0)
         row[`cron_${cc.id}`] = pct(value, finalCronPlanned)
       }
       return row
@@ -315,15 +513,19 @@ export default function SCurve() {
         projectName={project.nome}
         unit={unit}
         overallPace={overallPace}
+        scheduleInfo={scheduleInfo}
         selectedBLInfo={selectedBLInfo ? { label: selectedBLInfo.label } : undefined}
         selectedBLTotal={selectedBLTotal}
       />
 
       {advances && (
         <SCurveAdvanceCard
-          advances={advances}
+          statusDate={advances.statusDate}
+          statusDateFormatted={advances.statusDateFormatted}
+          statusEndDateFormatted={advances.statusEndDateFormatted}
+          real={advances.real}
+          baselines={advanceBaselines}
           unit={unit}
-          selectedBLInfo={selectedBLInfo ? { id: selectedBLInfo.id, index: selectedBLInfo.index } : undefined}
           periodColLabel={periodColLabel}
         />
       )}
@@ -414,21 +616,38 @@ export default function SCurve() {
                   </div>
                 )}
 
-                {selectedCronogramasData.map((c) => (
-                  <div key={c.id} className="pt-3 border-t border-gray-100 dark:border-gray-700">
-                    {selectedCronogramasData.length > 1 && (
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: c.cor }} />
-                        <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">{c.nome}</span>
-                      </div>
-                    )}
-                    <ActivityFilterTree
-                      activities={c.dados?.activities || []}
-                      excluded={new Set(activityExclusions[c.id] || [])}
-                      onChange={(next) => handleActivityExclusionChange(c.id, next)}
-                    />
-                  </div>
-                ))}
+                {selectedCronogramasData.map((c) => {
+                  const isMulti = selectedCronogramasData.length > 1
+                  const isCollapsed = isMulti && collapsedFilterCronogramas.has(c.id)
+                  return (
+                    <div key={c.id} className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                      {isMulti && (
+                        <button
+                          type="button"
+                          onClick={() => toggleFilterCronogramaCollapse(c.id)}
+                          className="w-full flex items-center justify-between gap-1.5 mb-2 group"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.cor }} />
+                            <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">{c.nome}</span>
+                          </span>
+                          {isCollapsed ? (
+                            <ChevronDown size={14} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
+                          ) : (
+                            <ChevronUp size={14} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300" />
+                          )}
+                        </button>
+                      )}
+                      {!isCollapsed && (
+                        <ActivityFilterTree
+                          activities={c.dados?.activities || []}
+                          excluded={new Set(activityExclusions[c.id] || [])}
+                          onChange={(next) => handleActivityExclusionChange(c.id, next)}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </>
           )}
@@ -449,7 +668,24 @@ export default function SCurve() {
           {openPanel === 'opcoes' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-              <div className="absolute top-full left-0 mt-1 w-64 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
+              <div className="absolute top-full left-0 mt-1 w-64 max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
+                {consolidatedBLs.length > 0 && (
+                  <div>
+                    <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">LB de referência</span>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-1.5">
+                      Usada no Ritmo e na Aderência do card ao passar o mouse no gráfico.
+                    </p>
+                    <select
+                      value={consolidatedBLs.some((bl) => bl.id === selectedBL) ? selectedBL : consolidatedBLs[0]?.id}
+                      onChange={(e) => handleBLChange(e.target.value)}
+                      className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                    >
+                      {consolidatedBLs.map((bl) => (
+                        <option key={bl.id} value={bl.id}>{bl.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
                 {consolidatedBLs.length > 0 && (
                   <div>
                     <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Linhas de base</span>
@@ -466,6 +702,82 @@ export default function SCurve() {
                         </label>
                       ))}
                     </div>
+                  </div>
+                )}
+
+                {cronCurves.length > 1 && (
+                  <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">
+                      Composição das LBs sintéticas
+                    </span>
+                    <p className="text-[10px] text-gray-400 dark:text-gray-500 mb-2">
+                      Marque quais baselines de cada cronograma entram em cada LB sintética. Crie mais LBs sintéticas conforme a necessidade.
+                    </p>
+                    <div className="space-y-3">
+                      {synthSlots.map((slot) => {
+                        const membersOfSlot = availableBLs.filter((bl) => resolvedBlSynthMap[bl.id] === slot.id)
+                        const isCollapsed = collapsedSynthSlots.has(slot.id)
+                        const isDefault = DEFAULT_SYNTH_SLOTS.includes(slot.id)
+                        return (
+                        <div key={slot.id}>
+                          <div className="w-full flex items-center justify-between gap-2 group">
+                            <button
+                              type="button"
+                              onClick={() => toggleSynthSlotCollapse(slot.id)}
+                              className="flex-1 flex items-center justify-between gap-2 min-w-0"
+                            >
+                              <span className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                                {slot.label}{' '}
+                                <span className="text-gray-400 dark:text-gray-500 font-normal">
+                                  ({membersOfSlot.length})
+                                </span>
+                              </span>
+                              {isCollapsed ? (
+                                <ChevronDown size={14} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+                              ) : (
+                                <ChevronUp size={14} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+                              )}
+                            </button>
+                            {!isDefault && (
+                              <button
+                                type="button"
+                                onClick={() => removeSynthSlot(slot.id)}
+                                title="Remover LB sintética"
+                                className="p-0.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 shrink-0"
+                              >
+                                <X size={13} className="text-gray-300 dark:text-gray-600 hover:text-red-500" />
+                              </button>
+                            )}
+                          </div>
+                          {!isCollapsed && (
+                            <div className="space-y-1 mt-1 pl-1">
+                              {availableBLs.map((bl) => {
+                                const checked = resolvedBlSynthMap[bl.id] === slot.id
+                                return (
+                                  <label key={bl.id} className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={checked}
+                                      onChange={() => handleBlSynthMapChange(bl.id, checked ? EXCLUDED_SLOT : slot.id)}
+                                      className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                                    />
+                                    {bl.label}
+                                  </label>
+                                )
+                              })}
+                            </div>
+                          )}
+                        </div>
+                        )
+                      })}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={addSynthSlot}
+                      className="mt-3 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-dashed border-gray-300 dark:border-gray-600 text-xs font-medium text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-700 hover:text-gray-700 dark:hover:text-gray-200 transition"
+                    >
+                      <Plus size={13} /> Adicionar LB sintética
+                    </button>
                   </div>
                 )}
               </div>
@@ -500,7 +812,7 @@ export default function SCurve() {
                 </button>
                 <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button
-                   onClick={() => { exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances || undefined, periodColLabel); setOpenPanel(null) }}
+                   onClick={() => { exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances ? { statusDate: advances.statusDate, statusDateFormatted: advances.statusDateFormatted, real: advances.real, baselines: advanceBaselines } : undefined, periodColLabel); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                 >
                   <BarChart3 size={16} className="text-blue-600" /> Curva S Excel
@@ -529,6 +841,34 @@ export default function SCurve() {
           )}
         </div>
         </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          {selectedCronogramasData.map((c) => (
+            <span
+              key={c.id}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border"
+              style={{ backgroundColor: c.cor + '15', borderColor: c.cor + '40', color: c.cor }}
+            >
+              <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: c.cor }} />
+              {c.nome}
+            </span>
+          ))}
+          {selectedBLInfo && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+              LB: {selectedBLInfo.label}
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+            {GRANULARITY_OPTIONS.find((g) => g.value === granularity)?.title}
+          </span>
+          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+            {unitLabel}
+          </span>
+          {hasActivityFilter && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+              Filtro de atividade ativo
+            </span>
+          )}
         </div>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           {selectedBLInfo?.label} | Percentual acumulado em relação ao total planejado
@@ -573,12 +913,25 @@ export default function SCurve() {
 
       {curveData.length > 0 && showTable && (
         <>
-          <SCurveWideTable
-            curveData={curveData}
-            cronogramaNames={selectedCronogramasData.map((c) => c.nome).join(', ')}
-            selectedBLInfo={selectedBLInfo ? { id: selectedBLInfo.id, label: selectedBLInfo.label } : undefined}
-            unit={unit}
-          />
+          {cronCurves.map((cc) => (
+            <SCurveWideTable
+              key={cc.id}
+              title={cc.nome}
+              color={cc.cor}
+              curveData={cc.curve}
+              selectedBLInfo={localBLInfoFor(cc.id)}
+              unit={unit}
+            />
+          ))}
+          {cronCurves.length > 1 && (
+            <SCurveWideTable
+              title="Síntese ponderada (todos os cronogramas)"
+              curveData={curveData}
+              selectedBLInfo={syntheticBLInfo}
+              unit={unit}
+              defaultOpen
+            />
+          )}
           <SCurveTable
             curveData={curveData}
             tableRows={tableRows}

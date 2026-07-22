@@ -113,7 +113,7 @@ export default function WBSTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {visibleActivities.map((activity) => {
+              {visibleActivities.map((activity, index) => {
                 const hasChildren = activities.some(
                   (a) => a.wbs.startsWith(activity.wbs + '.') && a.uid !== activity.uid
                 )
@@ -122,7 +122,8 @@ export default function WBSTable() {
 
                 return (
                   <tr
-                    key={activity.uid}
+                    // uid não é único entre cronogramas combinados — o índice desempata.
+                    key={`${activity.uid}-${index}`}
                     className={`hover:bg-gray-50 ${
                       activity.isSummary ? 'bg-gray-50/50' : ''
                     }`}

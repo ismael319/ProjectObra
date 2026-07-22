@@ -19,11 +19,11 @@ export const COLOR_REAL = '#9933FF'
 export const COLOR_FORECAST = '#FF0000'
 export const COLOR_PLANNED = '#64748b'
 
-/** Soma todos os blCum que terminam com '__BL0' (IDs compostos cronograma+BL). */
+/** Soma todos os blCum que representam BL0 (chave exata 'BL0' ou composta 'cronId__BL0'). */
 export function sumBL0(blCum: Record<string, number>): number {
   let sum = 0
   for (const [k, v] of Object.entries(blCum)) {
-    if (k.endsWith('__BL0')) sum += v
+    if (k === 'BL0' || k.endsWith('__BL0')) sum += v
   }
   return sum
 }
@@ -178,6 +178,13 @@ export function filterRawPointsByExcludedActivities(
  * reagregando por dia/semana ISO/mês/ano no cliente (sem reparsear o XML).
  * Custo real (AC) não existe na estrutura timephased — quando unit='R$', o valor
  * "realizado" do período permanece 0, igual ao comportamento pré-existente.
+ *
+ * referenceBLId (opcional): id composto da LB de referência exibida (ex.:
+ * "cronId__BL0"). Quando informado, o corte de semanas vazias no início/fim só
+ * considera essa baseline — sem isso, um cronograma pode ter até 11 baselines
+ * (BL0-BL10) e o corte considerava QUALQUER uma delas ter valor, mesmo as que não
+ * aparecem na tabela/gráfico, fazendo a curva "começar" numa semana onde tudo que é
+ * exibido (planejado, real, LB de referência) está zerado.
  */
 export function buildCurveFromRawPoints(
   rawPoints: TimephasedDataPoint[] | undefined,
@@ -185,6 +192,7 @@ export function buildCurveFromRawPoints(
   unit: CalculationUnit,
   availableBLs: BaselineInfo[],
   weekStartDay = 5,
+  referenceBLId?: string,
 ): CurvePeriod[] {
   if (!rawPoints || rawPoints.length === 0) return []
 
@@ -355,26 +363,92 @@ export function buildCurveFromRawPoints(
     }
   }
 
-  // Trim leading: remover períodos no início que não têm trabalho nenhum
-  // (planejado, realizado ou baseline) — evita mostrar semanas vazias de 2025 etc.
+  // Considera só a LB de referência (quando informada) pra decidir se um período
+  // "tem trabalho" de baseline — sem isso, qualquer uma das até 11 baselines
+  // possíveis (BL0-BL10) contava, mesmo as que não aparecem na tabela/gráfico.
+  const blHasWork = (blPeriod: Record<string, number>): boolean => {
+    if (referenceBLId) return (blPeriod[referenceBLId] || 0) !== 0
+    return Object.values(blPeriod).some((v) => v !== 0)
+  }
+
+  // Onde o trabalho REAL começa (mesmo critério do trim leading, mas calculado
+  // adiantado) — precisamos disso já aqui para o ritmo médio abaixo não ser diluído
+  // por semanas vazias no início dos dados brutos (comum quando o XML cobre um
+  // intervalo de datas bem maior que o trabalho em si).
   let firstWorkIdx = 0
   for (let i = 0; i < periods.length; i++) {
     const p = periods[i]
-    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0
-      || Object.values(p.blPeriod).some((v) => v !== 0)
+    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0 || blHasWork(p.blPeriod)
     if (hasWork) { firstWorkIdx = i; break }
   }
+
+  // Terceiro passo: se o atraso acumulado até a data de status ainda deixa o
+  // Forecast abaixo do total planejado no fim do cronograma original, o forecast
+  // "trava" abaixo de 100% pra sempre — ele nunca recupera o déficit, só absorve o
+  // trabalho que já estava agendado pra depois do status. Em vez disso, estende a
+  // projeção com períodos extras no ritmo médio real (actual acumulado / períodos
+  // decorridos DESDE que o trabalho começou) até o forecast fechar o total
+  // planejado — reprojeta o término em vez de subestimar o avanço final. Contar
+  // "períodos decorridos" desde o índice 0 (em vez de firstWorkIdx) sub-estimaria o
+  // ritmo real sempre que há semanas vazias antes do início do trabalho, fazendo a
+  // extensão precisar de semanas de mais pra fechar — na prática, nunca fechando
+  // dentro do limite de segurança abaixo. Sem histórico de ritmo (avgPace = 0) não
+  // há como extrapolar; o forecast permanece como está.
+  {
+    const finalBAC = periods[periods.length - 1].planned
+    const forecastAtEnd = periods[periods.length - 1].forecast
+    const remainingDeficit = round2(finalBAC - forecastAtEnd)
+    const elapsedPeriods = Math.max(1, statusIdx - firstWorkIdx + 1)
+    const avgPace = actualAtStatus / elapsedPeriods
+
+    if (remainingDeficit > 0.01 && avgPace > 0) {
+      const last = periods[periods.length - 1]
+      let cumForecast = last.forecast
+      let cursorTime = parseISODateStr(last.date).getTime()
+      const flatPlanned = last.planned
+      const flatActual = last.actual
+      const flatBLCum = { ...last.blCum }
+      const zeroBLPeriod = Object.fromEntries(Object.keys(flatBLCum).map((k) => [k, 0]))
+
+      let guard = 0
+      while (cumForecast < finalBAC - 0.01 && guard < 520) {
+        guard++
+        cursorTime += periodMs
+        const stepForecast = round2(Math.min(avgPace, finalBAC - cumForecast))
+        cumForecast = round2(cumForecast + stepForecast)
+        const { label, sortDate } = bucketKey(new Date(cursorTime), granularity, weekStartDay)
+        periods.push({
+          date: format(sortDate, 'yyyy-MM-dd'),
+          label,
+          planned: flatPlanned,
+          actual: flatActual,
+          forecast: cumForecast,
+          plannedPeriod: 0,
+          actualPeriod: 0,
+          forecastPeriod: stepForecast,
+          spiPeriod: null,
+          blCum: { ...flatBLCum },
+          blPeriod: { ...zeroBLPeriod },
+        })
+      }
+    }
+  }
+
+  // Trim leading: remover períodos no início que não têm trabalho nenhum
+  // (planejado, realizado ou baseline) — evita mostrar semanas vazias de 2025 etc.
+  // firstWorkIdx já foi calculado acima (usado no ritmo médio da reprojeção do forecast).
   if (firstWorkIdx > 0) {
     periods.splice(0, firstWorkIdx)
   }
 
   // Trim trailing: remover períodos após o último que tem trabalho alocado (planejado,
-  // realizado ou baseline). A Curva S deve exibir apenas até o fim do projeto.
+  // realizado, baseline OU forecast — este último cobre os períodos extras que a
+  // reprojeção do forecast adiciona além do fim do cronograma original). A Curva S
+  // deve exibir apenas até o fim do projeto (ou do término reprojetado).
   let lastWorkIdx = periods.length - 1
   for (let i = periods.length - 1; i >= 0; i--) {
     const p = periods[i]
-    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0
-      || Object.values(p.blPeriod).some((v) => v !== 0)
+    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0 || p.forecastPeriod !== 0 || blHasWork(p.blPeriod)
     if (hasWork) { lastWorkIdx = i; break }
   }
   if (lastWorkIdx < periods.length - 1) {
@@ -401,90 +475,146 @@ export function buildCurveFromRawPoints(
   return periods
 }
 
+/**
+ * Mapeia a chave composta de uma baseline (ex.: "cronA__BL0") para o "slot" sintético
+ * ao qual ela deve pertencer na consolidação (ex.: "BL0"). Por padrão o slot é o
+ * sufixo cru da própria chave (BL0 de A junta com BL0 de B), mas o usuário pode
+ * reatribuir manualmente em "Opções" — útil quando cronogramas numeram baselines de
+ * forma diferente (BL0 de um corresponde à BL1 de outro). Valor '' = excluir a
+ * baseline da síntese.
+ */
+export type BLSynthMap = Record<string, string>
+
+function resolveBlSlot(compositeKey: string, blSynthMap?: BLSynthMap): string {
+  if (blSynthMap && compositeKey in blSynthMap) return blSynthMap[compositeKey]
+  return compositeKey.includes('__') ? compositeKey.split('__').pop()! : compositeKey
+}
+
 export function consolidateCurves(
   curves: CurvePeriod[][],
   method: ConsolidationMethod,
   pesos: number[],
+  blSynthMap?: BLSynthMap,
+  referenceBLSlot?: string,
 ): CurvePeriod[] {
   if (curves.length === 0) return []
   if (curves.length === 1) return curves[0]
 
-  const maxLen = Math.max(...curves.map((c) => c.length))
   const totalPeso = pesos.reduce((s, p) => s + p, 0)
+
+  // BAC (Trabalho Planejado total, Type1/PV) de cada cronograma — TODAS as grandezas
+  // (planned, actual, forecast E blCum/BL0) são normalizadas por esse MESMO BAC antes
+  // de ponderar, igual ao que o app já faz para um cronograma isolado (finalPlanned é
+  // sempre o PV total; o % de BL0 exibido no gráfico é BL0/PV, não BL0/BL0).
+  // Usar um total diferente para o BL0 (o próprio BL0 daquele cronograma) quebraria
+  // essa relação: Real e BL0 ficariam em escalas sintéticas diferentes ao reconverter
+  // para valores absolutos, podendo mostrar Real > BL0 mesmo quando, por cronograma,
+  // o Real nunca ultrapassa o BL0 (ele é limitado ao orçamento de baseline de cada
+  // assignment — ver capActualByAssignmentBaseline).
+  //
+  // Ponderar pelo % (em vez do valor absoluto) evita que o peso configurado seja
+  // ofuscado pela escala de HH de cada cronograma — um cronograma pequeno com peso
+  // alto passa a pesar de fato o que o peso diz.
+  const bacByCurve = curves.map((c) => c[c.length - 1]?.planned || 0)
+
+  // Total "sintético" (escala de exibição) = média ponderada dos BACs de cada
+  // cronograma. Serve só para converter os % combinados de volta a uma grandeza em
+  // HH/R$ plausível para a tabela — o que importa para o cálculo é o % acima.
+  const syntheticBAC = curves.reduce((sum, _c, ci) => {
+    const peso = totalPeso > 0 ? pesos[ci] / totalPeso : 1 / curves.length
+    return sum + bacByCurve[ci] * peso
+  }, 0)
+
+  // União ordenada de todas as datas de período entre os cronogramas. Cada curva é
+  // "acumulada" (planned/actual/forecast/blCum já são somas cumulativas) — então para
+  // qualquer data pegamos o ÚLTIMO período de cada curva com data <= essa data: antes
+  // do cronograma começar, sua contribuição é 0; depois de terminar, ela "segura" o
+  // valor final (não decresce).
+  const dateSet = new Set<string>()
+  const labelByDate = new Map<string, string>()
+  for (const c of curves) {
+    for (const p of c) {
+      dateSet.add(p.date)
+      if (!labelByDate.has(p.date)) labelByDate.set(p.date, p.label)
+    }
+  }
+  const unionDates = Array.from(dateSet).sort()
+
+  const pointers = curves.map(() => -1)
+  const startTimes = curves.map((c) => (c.length > 0 ? parseISODateStr(c[0].date).getTime() : Infinity))
 
   const result: CurvePeriod[] = []
 
-  for (let i = 0; i < maxLen; i++) {
+  for (const date of unionDates) {
+    const targetTime = parseISODateStr(date).getTime()
     let planned = 0
     let actual = 0
     let forecast = 0
-    let date = ''
-    let label = ''
     const blCum: Record<string, number> = {}
-    const blPeriod: Record<string, number> = {}
-
-    // Usar a data/label da curva MAIS LONGA neste índice para evitar
-    // duplicatas quando curvas têm comprimentos diferentes (clamped).
-    let maxLenCurveIdx = 0
-    let maxLenAtI = 0
-    for (let ci = 0; ci < curves.length; ci++) {
-      if (curves[ci].length > maxLenAtI) { maxLenAtI = curves[ci].length; maxLenCurveIdx = ci }
-    }
-    const dateRef = curves[maxLenCurveIdx][i]
-    if (dateRef) { date = dateRef.date; label = dateRef.label }
 
     if (method === 'critico') {
       let maxPlanned = 0
       let maxActual = 0
       let maxForecast = 0
       for (let ci = 0; ci < curves.length; ci++) {
-        const w = curves[ci][Math.min(i, curves[ci].length - 1)]
-        if (w) {
-          maxPlanned = Math.max(maxPlanned, w.planned)
-          maxActual = Math.max(maxActual, w.actual)
-          maxForecast = Math.max(maxForecast, w.forecast)
-          for (const [k, v] of Object.entries(w.blCum)) {
-            const blIdx = k.includes('__') ? k.split('__').pop()! : k
-            blCum[blIdx] = (blCum[blIdx] || 0) + v
-          }
-          for (const [k, v] of Object.entries(w.blPeriod)) {
-            const blIdx = k.includes('__') ? k.split('__').pop()! : k
-            blPeriod[blIdx] = (blPeriod[blIdx] || 0) + v
-          }
+        const c = curves[ci]
+        while (pointers[ci] + 1 < c.length && parseISODateStr(c[pointers[ci] + 1].date).getTime() <= targetTime) pointers[ci]++
+        if (targetTime < startTimes[ci] || pointers[ci] < 0) continue
+        const w = c[pointers[ci]]
+        maxPlanned = Math.max(maxPlanned, w.planned)
+        maxActual = Math.max(maxActual, w.actual)
+        maxForecast = Math.max(maxForecast, w.forecast)
+        for (const [k, v] of Object.entries(w.blCum)) {
+          const blIdx = resolveBlSlot(k, blSynthMap)
+          if (!blIdx) continue
+          blCum[blIdx] = (blCum[blIdx] || 0) + v
         }
       }
       planned = maxPlanned
       actual = maxActual
       forecast = maxForecast
     } else {
+      let pctPlanned = 0
+      let pctActual = 0
+      let pctForecast = 0
+      const blPct: Record<string, number> = {}
+
       for (let ci = 0; ci < curves.length; ci++) {
-        const w = curves[ci][Math.min(i, curves[ci].length - 1)]
-        if (!w) continue
+        const c = curves[ci]
+        while (pointers[ci] + 1 < c.length && parseISODateStr(c[pointers[ci] + 1].date).getTime() <= targetTime) pointers[ci]++
+        if (targetTime < startTimes[ci] || pointers[ci] < 0) continue // cronograma ainda não começou: contribui 0
+        const w = c[pointers[ci]]
         const peso = totalPeso > 0 ? pesos[ci] / totalPeso : 1 / curves.length
-        if (method === 'soma') {
-          planned += w.planned * peso
-          actual += w.actual * peso
-          forecast += w.forecast * peso
-        } else {
-          planned += w.planned * peso
-          actual += w.actual * peso
-          forecast += w.forecast * peso
-        }
+        const bac = bacByCurve[ci]
+        if (bac <= 0) continue
+        pctPlanned += (w.planned / bac) * peso
+        pctActual += (w.actual / bac) * peso
+        pctForecast += (w.forecast / bac) * peso
         for (const [k, v] of Object.entries(w.blCum)) {
-          const blIdx = k.includes('__') ? k.split('__').pop()! : k
-          blCum[blIdx] = (blCum[blIdx] || 0) + v * peso
-        }
-        for (const [k, v] of Object.entries(w.blPeriod)) {
-          const blIdx = k.includes('__') ? k.split('__').pop()! : k
-          blPeriod[blIdx] = (blPeriod[blIdx] || 0) + v * peso
+          const blIdx = resolveBlSlot(k, blSynthMap)
+          if (!blIdx) continue
+          blPct[blIdx] = (blPct[blIdx] || 0) + (v / bac) * peso
         }
       }
+
+      planned = pctPlanned * syntheticBAC
+      actual = pctActual * syntheticBAC
+      forecast = pctForecast * syntheticBAC
+      for (const [blIdx, p] of Object.entries(blPct)) blCum[blIdx] = p * syntheticBAC
     }
 
-    const prev = i > 0 ? result[i - 1] : undefined
+    // blPeriod é derivado como delta do blCum entre períodos consecutivos (igual ao
+    // que já se fazia para plannedPeriod/actualPeriod/forecastPeriod) — evita somar o
+    // blPeriod "cru" de cada curva num índice que não corresponde à mesma data.
+    const prev = result.length > 0 ? result[result.length - 1] : undefined
+    const blPeriod: Record<string, number> = {}
+    for (const [k, v] of Object.entries(blCum)) {
+      blPeriod[k] = round2(v - (prev?.blCum[k] || 0))
+    }
+
     result.push({
       date,
-      label,
+      label: labelByDate.get(date) || date,
       planned: round2(planned),
       actual: round2(actual),
       forecast: round2(forecast),
@@ -501,12 +631,16 @@ export function consolidateCurves(
     p.spiPeriod = p.plannedPeriod > 0 ? round2(p.actualPeriod / p.plannedPeriod) : null
   }
 
-  // Trim: remover períodos após o último com trabalho (mesma lógica de buildCurveFromRawPoints)
+  // Trim: remover períodos após o último com trabalho (mesma lógica de buildCurveFromRawPoints,
+  // incluindo forecastPeriod — cobre os períodos extras da reprojeção do forecast).
+  // Considera só a LB de referência quando informada, pelo mesmo motivo de
+  // buildCurveFromRawPoints: outra LB sintética (não exibida) não deve decidir onde a
+  // curva combinada termina.
   let lastWorkIdx = result.length - 1
   for (let i = result.length - 1; i >= 0; i--) {
     const p = result[i]
-    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0
-      || Object.values(p.blPeriod).some((v) => v !== 0)
+    const hasBLWork = referenceBLSlot ? (p.blPeriod[referenceBLSlot] || 0) !== 0 : Object.values(p.blPeriod).some((v) => v !== 0)
+    const hasWork = p.plannedPeriod !== 0 || p.actualPeriod !== 0 || p.forecastPeriod !== 0 || hasBLWork
     if (hasWork) { lastWorkIdx = i; break }
   }
   if (lastWorkIdx < result.length - 1) {
@@ -527,8 +661,7 @@ export interface AdvanceMetrics {
   statusDateFormatted: string
   statusEndDateFormatted: string
   real: AdvanceMetric
-  previsto: AdvanceMetric
-  baseline: AdvanceMetric
+  baselines: Array<{ id: string; metric: AdvanceMetric }>
 }
 
 /**
@@ -565,9 +698,33 @@ export function findStatusIndex(periods: CurvePeriod[]): number {
   return statusIdx
 }
 
+/**
+ * Busca valor de uma baseline em blCum, suportando tanto chaves compostas
+ * ("cronId__BL0") quanto chaves simples ("BL0") — em qualquer direção: blId pode
+ * vir composto enquanto blCum está normalizado (síntese ponderada) ou vice-versa
+ * (cronograma único). Compara sempre pelo sufixo cru para cobrir as duas formas.
+ */
+export function lookupBL(blCum: Record<string, number>, blId: string): number {
+  if (blId in blCum) return blCum[blId]
+  const suffix = blId.includes('__') ? blId.split('__').pop()! : blId
+  for (const [k, v] of Object.entries(blCum)) {
+    const kSuffix = k.includes('__') ? k.split('__').pop()! : k
+    if (kSuffix === suffix) return v
+  }
+  return 0
+}
+
+/**
+ * "Avanço Previsto" (PV do cronograma ATUAL/replanejado no status) foi removido do
+ * card — ele confundia mais do que ajudava sempre que o cronograma foi replanejado
+ * com um total diferente da BL0 (o "previsto" e a "linha de base" divergiam sem
+ * motivo óbvio pra quem olha o card). "Previsto", em EVM, já É a baseline — por isso
+ * o card mostra Real + o avanço de cada LB marcada em Opções, sem essa 3ª métrica
+ * redundante/confusa.
+ */
 export function computeAdvanceMetrics(
   curveData: CurvePeriod[],
-  selectedBLId: string,
+  baselineIds: string[],
 ): AdvanceMetrics | null {
   if (curveData.length < 2) return null
 
@@ -582,26 +739,14 @@ export function computeAdvanceMetrics(
   const bl0Total = sumBL0(last.blCum)
   const totalPlanned = bl0Total > 0 ? bl0Total : last.planned
   const totalActual = period.actual
-  const totalPlannedAtStatus = period.planned
-  const totalPlannedAtPrev = prevPeriod.planned
   const totalActualAtPrev = prevPeriod.actual
-
-  const totalBL = period.blCum[selectedBLId] || 0
-  const totalBLAtPrev = prevPeriod.blCum[selectedBLId] || 0
 
   // Totais gerais (último período) — usados nos valores absolutos do card,
   // para coincidir com a coluna "Total" da tabela.
   const totalActualAll = last.actual
-  const totalBLAll = last.blCum[selectedBLId] || 0
 
   const realPct = totalPlanned > 0 ? (totalActual / totalPlanned) * 100 : 0
   const realPrevPct = totalPlanned > 0 ? (totalActualAtPrev / totalPlanned) * 100 : 0
-
-  const prevPct = totalPlanned > 0 ? (totalPlannedAtStatus / totalPlanned) * 100 : 0
-  const prevPrevPct = totalPlanned > 0 ? (totalPlannedAtPrev / totalPlanned) * 100 : 0
-
-  const blPct = totalPlanned > 0 ? (totalBL / totalPlanned) * 100 : 0
-  const blPrevPct = totalPlanned > 0 ? (totalBLAtPrev / totalPlanned) * 100 : 0
 
   const wd = parseISODateStr(period.date)
   const statusDateFormatted = wd.toLocaleDateString('pt-BR')
@@ -610,13 +755,24 @@ export function computeAdvanceMetrics(
   const endDate = new Date(wd.getFullYear(), wd.getMonth(), wd.getDate() + 6)
   const statusEndDateFormatted = endDate.toLocaleDateString('pt-BR')
 
+  const baselines = baselineIds.map((id) => {
+    const totalBL = lookupBL(period.blCum, id)
+    const totalBLAtPrev = lookupBL(prevPeriod.blCum, id)
+    const totalBLAll = lookupBL(last.blCum, id)
+    const blPct = totalPlanned > 0 ? (totalBL / totalPlanned) * 100 : 0
+    const blPrevPct = totalPlanned > 0 ? (totalBLAtPrev / totalPlanned) * 100 : 0
+    return {
+      id,
+      metric: { percent: round2(blPct), absolute: round2(totalBLAll), deltaPP: round2(blPct - blPrevPct) },
+    }
+  })
+
   return {
     statusDate: period.label,
     statusDateFormatted,
     statusEndDateFormatted,
     real: { percent: round2(realPct), absolute: round2(totalActualAll), deltaPP: round2(realPct - realPrevPct) },
-    previsto: { percent: round2(prevPct), absolute: round2(totalPlanned), deltaPP: round2(prevPct - prevPrevPct) },
-    baseline: { percent: round2(blPct), absolute: round2(totalBLAll), deltaPP: round2(blPct - blPrevPct) },
+    baselines,
   }
 }
 

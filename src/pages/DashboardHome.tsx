@@ -99,7 +99,7 @@ export default function DashboardHome() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {visibleActivities.map((activity) => {
+                  {visibleActivities.map((activity, index) => {
                     const hasChildren = activities.some(
                       (a) => a.wbs.startsWith(activity.wbs + '.') && a.uid !== activity.uid
                     )
@@ -108,7 +108,10 @@ export default function DashboardHome() {
 
                     return (
                       <tr
-                        key={activity.uid}
+                        // uid não é único entre cronogramas combinados (cada XML do MS
+                        // Project numera a partir de 1) — o índice desempata sem precisar
+                        // tocar no campo uid, usado em outros lugares para vínculos de dados.
+                        key={`${activity.uid}-${index}`}
                         className={`hover:bg-gray-50 dark:hover:bg-gray-700/50 ${activity.isSummary ? 'bg-gray-50/50 dark:bg-gray-700/30' : ''}`}
                       >
                         <td className="px-3 py-2">

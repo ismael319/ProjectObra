@@ -1,10 +1,14 @@
+import { useState } from 'react'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { CalculationUnit, CurvePeriod } from '@/lib/curve-utils'
 
 interface SCurveWideTableProps {
+  title: string
+  color?: string
   curveData: CurvePeriod[]
-  cronogramaNames: string
   selectedBLInfo: { id: string; label: string } | undefined
   unit: CalculationUnit
+  defaultOpen?: boolean
 }
 
 // Sem separador de milhar de propósito — com dezenas de colunas (uma por período),
@@ -14,19 +18,28 @@ function fmtNum(v: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace('.', ',')
 }
 
-const COL1_WIDTH = 180
-const COL2_WIDTH = 260
+// "Baseline 0 (original)" → "BL0" — o nome completo (herdado do MS Project) é
+// verboso demais para caber ao lado de dezenas de colunas de período.
+function abbreviateBLLabel(label: string): string {
+  return label.replace(/Baseline\s+(\d+)\s*\([^)]*\)/gi, 'BL$1')
+}
 
-export function SCurveWideTable({ curveData, cronogramaNames, selectedBLInfo, unit }: SCurveWideTableProps) {
+const COL1_WIDTH = 260
+
+export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit, defaultOpen = true }: SCurveWideTableProps) {
+  const [open, setOpen] = useState(defaultOpen)
+
   if (curveData.length === 0) return null
 
   const unitSuffix = unit === 'HH' ? 'h' : 'R$'
   const last = curveData[curveData.length - 1]
 
+  const blLabel = selectedBLInfo ? abbreviateBLLabel(selectedBLInfo.label) : ''
+
   const rows: { metric: string; total: number; values: number[] }[] = []
   if (selectedBLInfo) {
     rows.push({
-      metric: `Trabalho da ${selectedBLInfo.label} — semanal`,
+      metric: `Trabalho da ${blLabel} — semanal`,
       total: last.blCum[selectedBLInfo.id] || 0,
       values: curveData.map((p) => p.blPeriod[selectedBLInfo.id] || 0),
     })
@@ -35,7 +48,7 @@ export function SCurveWideTable({ curveData, cronogramaNames, selectedBLInfo, un
   rows.push({ metric: 'Trabalho real semanal', total: last.actual, values: curveData.map((p) => p.actualPeriod) })
   if (selectedBLInfo) {
     rows.push({
-      metric: `Trabalho da ${selectedBLInfo.label} — acumulado`,
+      metric: `Trabalho da ${blLabel} — acumulado`,
       total: last.blCum[selectedBLInfo.id] || 0,
       values: curveData.map((p) => p.blCum[selectedBLInfo.id] || 0),
     })
@@ -45,61 +58,64 @@ export function SCurveWideTable({ curveData, cronogramaNames, selectedBLInfo, un
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-      <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Tabela</h3>
-      <div className="overflow-auto max-h-[500px] border border-gray-100 dark:border-gray-700 rounded-lg">
-        <table className="text-xs border-collapse">
-          <thead>
-            <tr className="border-b border-gray-200 dark:border-gray-700">
-              <th
-                className="sticky left-0 top-0 z-20 bg-white dark:bg-gray-800 text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase"
-                style={{ minWidth: COL1_WIDTH, maxWidth: COL1_WIDTH }}
-              >
-                Cronogramas
-              </th>
-              <th
-                className="sticky top-0 z-20 bg-white dark:bg-gray-800 text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase"
-                style={{ left: COL1_WIDTH, minWidth: COL2_WIDTH, maxWidth: COL2_WIDTH }}
-              >
-                Métrica
-              </th>
-              <th className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">
-                Trabalho total ({unitSuffix})
-              </th>
-              {curveData.map((p) => (
-                <th key={p.date} className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
-                  {p.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr key={row.metric} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
-                <td
-                  className="sticky left-0 z-10 bg-white dark:bg-gray-800 py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap"
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between gap-2 mb-1 group"
+      >
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+          {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+          {title}
+        </h3>
+        {open ? (
+          <ChevronUp size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+        ) : (
+          <ChevronDown size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+        )}
+      </button>
+      {open && (
+        <div className="overflow-auto max-h-[500px] border border-gray-100 dark:border-gray-700 rounded-lg mt-3">
+          <table className="text-xs border-collapse">
+            <thead>
+              <tr className="border-b border-gray-200 dark:border-gray-700">
+                <th
+                  className="sticky left-0 top-0 z-20 bg-white dark:bg-gray-800 text-left py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase"
                   style={{ minWidth: COL1_WIDTH, maxWidth: COL1_WIDTH }}
                 >
-                  {cronogramaNames}
-                </td>
-                <td
-                  className="sticky z-10 bg-white dark:bg-gray-800 py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap"
-                  style={{ left: COL1_WIDTH, minWidth: COL2_WIDTH, maxWidth: COL2_WIDTH }}
-                >
-                  {row.metric}
-                </td>
-                <td className="py-2 px-3 text-right font-semibold text-gray-900 dark:text-white whitespace-nowrap">
-                  {fmtNum(row.total)}
-                </td>
-                {row.values.map((v, i) => (
-                  <td key={i} className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                    {fmtNum(v)}
-                  </td>
+                  Métrica
+                </th>
+                <th className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">
+                  Trabalho total ({unitSuffix})
+                </th>
+                {curveData.map((p) => (
+                  <th key={p.date} className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
+                    {p.label}
+                  </th>
                 ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.metric} className="border-b border-gray-100 dark:border-gray-700/50 hover:bg-gray-50 dark:hover:bg-gray-700/30 transition">
+                  <td
+                    className="sticky left-0 z-10 bg-white dark:bg-gray-800 py-2 px-3 text-gray-700 dark:text-gray-300 whitespace-nowrap"
+                    style={{ minWidth: COL1_WIDTH, maxWidth: COL1_WIDTH }}
+                  >
+                    {row.metric}
+                  </td>
+                  <td className="py-2 px-3 text-right font-semibold text-gray-900 dark:text-white whitespace-nowrap">
+                    {fmtNum(row.total)}
+                  </td>
+                  {row.values.map((v, i) => (
+                    <td key={i} className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
+                      {fmtNum(v)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

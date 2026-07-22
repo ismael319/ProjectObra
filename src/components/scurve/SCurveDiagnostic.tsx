@@ -1,6 +1,6 @@
 import { useState, useRef, useCallback } from 'react'
 import { Upload, X, FileCode } from 'lucide-react'
-import { parseMSProjectXML, type TimephasedDataPoint } from '@/lib/xml-parser'
+import { parseMSProjectXML, decodeXmlBytes, type TimephasedDataPoint } from '@/lib/xml-parser'
 import { round2 } from '@/lib/curve-utils'
 
 interface Props {
@@ -16,10 +16,26 @@ interface TypeInfo {
   periods: { label: string; value: number }[]
 }
 
+interface BaselineGapInfo {
+  totalRealHours: number
+  excludedHours: number
+  excludedAssignments: number
+  totalAssignmentsWithReal: number
+}
+
+interface BaselineBreakdownRow {
+  index: number
+  hours: number
+  points: number
+  assignments: number
+}
+
 export function SCurveDiagnostic({ onClose }: Props) {
   const [xmlName, setXmlName] = useState<string | null>(null)
   const [typeInfo, setTypeInfo] = useState<TypeInfo[]>([])
   const [rawPointCount, setRawPointCount] = useState(0)
+  const [baselineGap, setBaselineGap] = useState<BaselineGapInfo | null>(null)
+  const [baselineBreakdown, setBaselineBreakdown] = useState<BaselineBreakdownRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -41,8 +57,14 @@ export function SCurveDiagnostic({ onClose }: Props) {
   const handleFile = useCallback(async (file: File) => {
     try {
       setError(null)
+      setBaselineGap(null)
+      setBaselineBreakdown([])
       setXmlName(file.name)
-      const text = await file.text()
+      // Detecta o encoding pelo BOM em vez de assumir UTF-8 — exports do MS Project
+      // costumam vir em UTF-16, e ler como UTF-8 corrompe o arquivo (o DOMParser
+      // rejeita como inválido: "Start tag expected, '<' not found").
+      const buffer = await file.arrayBuffer()
+      const text = decodeXmlBytes(buffer)
       const parser = new DOMParser()
       const doc = parser.parseFromString(text, 'text/xml')
       const parseError = doc.querySelector('parsererror')
@@ -51,7 +73,7 @@ export function SCurveDiagnostic({ onClose }: Props) {
         return
       }
 
-      const parsed = parseMSProjectXML(doc)
+      const parsed = parseMSProjectXML(text)
       const rawPoints = parsed.timephased?.rawPoints || []
       setRawPointCount(rawPoints.length)
 
@@ -59,6 +81,44 @@ export function SCurveDiagnostic({ onClose }: Props) {
         setError('Nenhum TimephasedData encontrado no XML')
         return
       }
+
+      // Quantifica quanto do Trabalho Real (Type 2) fica de fora do Avanço Real por
+      // pertencer a uma alocação (assignment) sem Baseline 0 própria — mesma regra de
+      // capActualByAssignmentBaseline em curve-utils.ts. Comum quando recursos são
+      // adicionados/trocados numa tarefa depois que a LB foi salva: a tarefa em si
+      // pode ter baseline, mas essa alocação específica não tem.
+      const uidsWithBaseline = new Set<number>()
+      for (const p of rawPoints) {
+        if (p.type === 4 && (p.baselineIndex ?? 0) === 0) uidsWithBaseline.add(p.uid)
+      }
+      const realPoints = rawPoints.filter((p) => p.type === 2)
+      const totalRealHours = realPoints.reduce((s, p) => s + p.valueHours, 0)
+      const excludedRealPoints = realPoints.filter((p) => !uidsWithBaseline.has(p.uid))
+      const excludedHours = excludedRealPoints.reduce((s, p) => s + p.valueHours, 0)
+      const excludedAssignments = new Set(excludedRealPoints.map((p) => p.uid)).size
+      const totalAssignmentsWithReal = new Set(realPoints.map((p) => p.uid)).size
+      setBaselineGap({ totalRealHours: round2(totalRealHours), excludedHours: round2(excludedHours), excludedAssignments, totalAssignmentsWithReal })
+
+      // Quebra do Type 4 (Baseline Work) por número de baseline (0-10) — no MSPDI,
+      // TODAS as linhas de base usam o mesmo Type=4 no <TimephasedData>, diferenciadas
+      // só pelo <Number> do <Baseline> pai. A tabela de totais por Type soma tudo
+      // junto; esta quebra mostra se o "Real" está de fato excluído por falta de
+      // dado, ou se o projeto simplesmente usa uma baseline diferente da BL0 como
+      // referência corrente (comum após um re-baseline).
+      const blMap = new Map<number, { hours: number; points: number; assignments: Set<number> }>()
+      for (const p of rawPoints) {
+        if (p.type !== 4) continue
+        const idx = p.baselineIndex ?? 0
+        const entry = blMap.get(idx) || { hours: 0, points: 0, assignments: new Set<number>() }
+        entry.hours += p.valueHours
+        entry.points++
+        entry.assignments.add(p.uid)
+        blMap.set(idx, entry)
+      }
+      const breakdown: BaselineBreakdownRow[] = Array.from(blMap.entries())
+        .map(([index, v]) => ({ index, hours: round2(v.hours), points: v.points, assignments: v.assignments.size }))
+        .sort((a, b) => a.index - b.index)
+      setBaselineBreakdown(breakdown)
 
       // Agrupar por tipo
       const byType = new Map<number, TimephasedDataPoint[]>()
@@ -71,10 +131,18 @@ export function SCurveDiagnostic({ onClose }: Props) {
       const infos: TypeInfo[] = []
       for (const [type, points] of byType) {
         const totalHours = points.reduce((s, p) => s + p.valueHours, 0)
-        const starts = points.map((p) => p.start.getTime())
-        const ends = points.map((p) => p.finish.getTime())
-        const minDate = new Date(Math.min(...starts))
-        const maxDate = new Date(Math.max(...ends))
+        // Loop em vez de Math.min/max(...array): pontos de projetos grandes podem
+        // passar de dezenas de milhares e estourar a pilha de chamadas do JS.
+        let minMs = Infinity
+        let maxMs = -Infinity
+        for (const p of points) {
+          const s = p.start.getTime()
+          const f = p.finish.getTime()
+          if (s < minMs) minMs = s
+          if (f > maxMs) maxMs = f
+        }
+        const minDate = new Date(minMs)
+        const maxDate = new Date(maxMs)
 
         // Agrupar por semana para Type 1
         const periodMap = new Map<string, number>()
@@ -148,6 +216,66 @@ export function SCurveDiagnostic({ onClose }: Props) {
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 text-sm rounded-lg p-3">
               {error}
+            </div>
+          )}
+
+          {baselineGap && (
+            <div className={`rounded-lg p-3 text-sm border ${
+              baselineGap.excludedHours > 0
+                ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300'
+                : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800 text-green-800 dark:text-green-300'
+            }`}>
+              {baselineGap.excludedHours > 0 ? (
+                <>
+                  <p className="font-semibold">
+                    ⚠ {baselineGap.excludedHours.toLocaleString('pt-BR')} h reais ({baselineGap.excludedAssignments} de {baselineGap.totalAssignmentsWithReal} alocações)
+                    ficam de fora do Avanço Real por não terem Baseline 0 própria.
+                  </p>
+                  <p className="mt-1 text-xs opacity-80">
+                    {baselineGap.totalRealHours > 0
+                      ? `Isso representa ${round2((baselineGap.excludedHours / baselineGap.totalRealHours) * 100)}% de todo o Trabalho Real (Type 2) apontado no XML.`
+                      : ''}
+                    {' '}Geralmente acontece quando um recurso é adicionado/trocado numa tarefa depois que a linha de base foi salva — a alocação nova não tem orçamento de BL0.
+                  </p>
+                </>
+              ) : (
+                <p>✓ Todas as alocações com Trabalho Real têm Baseline 0 própria — nenhuma exclusão nesse critério.</p>
+              )}
+            </div>
+          )}
+
+          {baselineBreakdown.length > 0 && (
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+              <div className="px-4 py-2 bg-gray-50 dark:bg-gray-750 text-sm font-medium text-gray-800 dark:text-gray-200">
+                Type 4 (Baseline Work) por número de linha de base
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
+                    <th className="text-left font-medium px-4 py-1.5">Baseline</th>
+                    <th className="text-right font-medium px-4 py-1.5">Horas</th>
+                    <th className="text-right font-medium px-4 py-1.5">Pontos</th>
+                    <th className="text-right font-medium px-4 py-1.5">Alocações</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {baselineBreakdown.map((row) => (
+                    <tr key={row.index} className={row.index === 0 ? 'font-semibold' : ''}>
+                      <td className="px-4 py-1 text-gray-700 dark:text-gray-300">BL{row.index}</td>
+                      <td className="px-4 py-1 text-right font-mono text-gray-700 dark:text-gray-300">{row.hours.toLocaleString('pt-BR')}</td>
+                      <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.points}</td>
+                      <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.assignments}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {baselineBreakdown.length > 1 && (
+                <p className="px-4 py-2 text-[11px] text-gray-500 dark:text-gray-400 border-t border-gray-100 dark:border-gray-700">
+                  O total de "Baseline 0 Work (Type 4)" na tabela abaixo soma TODAS as linhas acima — todas usam o mesmo Type 4 no XML,
+                  diferenciadas só pelo número da baseline. Se a maior parte das alocações/horas estiver numa baseline diferente de BL0,
+                  é sinal de que o projeto foi re-baselineado e a referência corrente não é mais a BL0.
+                </p>
+              )}
             </div>
           )}
 

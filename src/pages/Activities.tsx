@@ -174,7 +174,7 @@ export default function Activities() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-              {getVisibleActivities.map((activity) => {
+              {getVisibleActivities.map((activity, index) => {
                 const hasChildren = activities.some((a) => a.wbs.startsWith(activity.wbs + '.') && a.uid !== activity.uid)
                 const isExpanded = expandedWbs.has(activity.wbs)
                 const status = getStatus(activity)
@@ -183,7 +183,9 @@ export default function Activities() {
                 const actResources = getActivityResources(activity.uid)
 
                 return (
-                  <tr key={activity.uid} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition ${activity.isSummary ? 'bg-gray-50/50 dark:bg-gray-700/20' : ''}`}>
+                  // uid não é único entre cronogramas combinados (cada XML numera a
+                  // partir de 1) — o índice desempata sem tocar no uid em si.
+                  <tr key={`${activity.uid}-${index}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition ${activity.isSummary ? 'bg-gray-50/50 dark:bg-gray-700/20' : ''}`}>
                     <td className="px-2 py-3">
                       {hasChildren && (
                         <button onClick={() => toggleWbs(activity.wbs)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">

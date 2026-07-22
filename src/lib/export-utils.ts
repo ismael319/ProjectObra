@@ -96,8 +96,7 @@ export function exportSCurveToExcel(
     statusDate: string
     statusDateFormatted: string
     real: { percent: number; absolute: number; deltaPP: number }
-    previsto: { percent: number; absolute: number; deltaPP: number }
-    baseline: { percent: number; absolute: number; deltaPP: number }
+    baselines: Array<{ id: string; label: string; metric: { percent: number; absolute: number; deltaPP: number } }>
   },
   periodLabel: string = 'Sem.',
 ) {
@@ -107,8 +106,12 @@ export function exportSCurveToExcel(
   if (advances) {
     const advRows = [
       { Métrica: 'AVANÇO REAL (%)', 'Valor': advances.real.percent.toFixed(1) + '%', 'Absoluto': advances.real.absolute, 'Variação (pp)': (advances.real.deltaPP > 0 ? '+' : '') + advances.real.deltaPP.toFixed(1) },
-      { Métrica: 'AVANÇO PREVISTO (%)', 'Valor': advances.previsto.percent.toFixed(1) + '%', 'Absoluto': advances.previsto.absolute, 'Variação (pp)': (advances.previsto.deltaPP > 0 ? '+' : '') + advances.previsto.deltaPP.toFixed(1) },
-      { Métrica: 'AVANÇO LINHA BASE (%)', 'Valor': advances.baseline.percent.toFixed(1) + '%', 'Absoluto': advances.baseline.absolute, 'Variação (pp)': (advances.baseline.deltaPP > 0 ? '+' : '') + advances.baseline.deltaPP.toFixed(1) },
+      ...advances.baselines.map((bl) => ({
+        Métrica: `AVANÇO ${bl.label.toUpperCase()} (%)`,
+        'Valor': bl.metric.percent.toFixed(1) + '%',
+        'Absoluto': bl.metric.absolute,
+        'Variação (pp)': (bl.metric.deltaPP > 0 ? '+' : '') + bl.metric.deltaPP.toFixed(1),
+      })),
       { Métrica: '', 'Valor': '', 'Absoluto': '', 'Variação (pp)': '' },
       { Métrica: 'Data de Status', 'Valor': advances.statusDate, 'Absoluto': advances.statusDateFormatted, 'Variação (pp)': '' },
       { Métrica: 'Unidade', 'Valor': unitLabel, 'Absoluto': '', 'Variação (pp)': '' },

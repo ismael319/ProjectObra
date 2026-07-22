@@ -138,10 +138,18 @@ export function generateSCurveData(
 ): { date: string; planned: number; actual: number; forecast: number }[] {
   if (activities.length === 0) return []
 
-  // Encontrar data mínima e máxima
-  const allDates = activities.flatMap((a) => [a.start, a.finish])
-  const minDate = new Date(Math.min(...allDates.map((d) => d.getTime())))
-  const maxDate = new Date(Math.max(...allDates.map((d) => d.getTime())))
+  // Encontrar data mínima e máxima — loop em vez de Math.min/max(...array): projetos
+  // com muitas atividades podem estourar a pilha de chamadas do JS com spread.
+  let minMs = Infinity
+  let maxMs = -Infinity
+  for (const a of activities) {
+    const s = a.start.getTime()
+    const f = a.finish.getTime()
+    if (s < minMs) minMs = s
+    if (f > maxMs) maxMs = f
+  }
+  const minDate = new Date(minMs)
+  const maxDate = new Date(maxMs)
 
   // Gerar semanas
   const weeks: { date: string; planned: number; actual: number; forecast: number }[] = []
@@ -195,9 +203,16 @@ export function generateResourceHistogram(
 ): { week: string; resources: { name: string; planned: number; actual: number }[] }[] {
   if (activities.length === 0) return []
 
-  const allDates = activities.flatMap((a) => [a.start, a.finish])
-  const minDate = new Date(Math.min(...allDates.map((d) => d.getTime())))
-  const maxDate = new Date(Math.max(...allDates.map((d) => d.getTime())))
+  let minMs = Infinity
+  let maxMs = -Infinity
+  for (const a of activities) {
+    const s = a.start.getTime()
+    const f = a.finish.getTime()
+    if (s < minMs) minMs = s
+    if (f > maxMs) maxMs = f
+  }
+  const minDate = new Date(minMs)
+  const maxDate = new Date(maxMs)
 
   const weeks: { week: string; resources: { name: string; planned: number; actual: number }[] }[] = []
   const totalWeeks = Math.ceil((maxDate.getTime() - minDate.getTime()) / (7 * 24 * 60 * 60 * 1000))

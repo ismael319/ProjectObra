@@ -122,7 +122,7 @@ export function SCurveChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[480px] flex items-center justify-center text-gray-400">
+      <div className="h-[640px] flex items-center justify-center text-gray-400">
         Sem dados para exibir
       </div>
     )
@@ -130,7 +130,7 @@ export function SCurveChart({
 
   return (
     <>
-      <div className="h-[480px]" ref={chartContainerRef}>
+      <div className="h-[640px]" ref={chartContainerRef}>
         <ResponsiveContainer width="100%" height="100%">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           <ComposedChart data={chartData} onMouseMove={(state: any) => {
@@ -152,6 +152,7 @@ export function SCurveChart({
               tick={{ fontSize: 11 }}
               width={60}
               domain={[0, 100]}
+              ticks={[0, 25, 50, 75, 100]}
               tickFormatter={(v) => `${v}%`}
             />
             <Legend wrapperStyle={{ fontSize: 11 }} />
