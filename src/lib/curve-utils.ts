@@ -210,6 +210,14 @@ export function buildCurveFromRawPoints(
   const grouped = new Map<string, Bucket>()
   const earnedDeltas = capActualByAssignmentBaseline(rawPoints)
 
+  // Type 16 (Baseline 1 Work) é uma codificação alternativa/legada que, neste tipo de
+  // export, aparece DUPLICADA em relação ao bloco aninhado <Baseline><Number>1>
+  // (Type 4/5 com baselineIndex=1) — os totais batem quase exatamente entre os dois,
+  // confirmando que representam o MESMO dado, não fontes complementares. Somar os
+  // dois dobra o total da BL1. Só usamos Type 16 como fallback quando o arquivo NÃO
+  // traz a representação aninhada pra baseline 1 (formato mais antigo/diferente).
+  const hasNestedBaseline1 = rawPoints.some((p) => p.type === 4 && p.baselineIndex === 1)
+
   // Type 1 (Trabalho Planejado) é a distribuição de trabalho do cronograma ATUAL —
   // reflete replanejamentos. Type 4 (Baseline 0) é o plano congelado.
   // Para PV, preferimos Type 1 (se disponível), fallback para Type 4 (BL0).
@@ -275,7 +283,8 @@ export function buildCurveFromRawPoints(
         if (blIdx === 0) entry.planned += point.valueHours
         break
       }
-      case 16: { // Baseline 1 Work (confirmado empiricamente)
+      case 16: { // Baseline 1 Work — só usa se o arquivo não tem a rep. aninhada (ver acima)
+        if (hasNestedBaseline1) break
         entry.baselines[1] = (entry.baselines[1] || 0) + point.valueHours
         break
       }

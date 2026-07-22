@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronUp } from 'lucide-react'
+import { ChevronDown, ChevronUp, Download } from 'lucide-react'
 import type { CalculationUnit, CurvePeriod } from '@/lib/curve-utils'
+import { exportWideTableToExcel } from '@/lib/export-utils'
 
 interface SCurveWideTableProps {
   title: string
@@ -16,6 +17,14 @@ interface SCurveWideTableProps {
 function fmtNum(v: number): string {
   const rounded = Math.round(v * 100) / 100
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(2).replace('.', ',')
+}
+
+// Tela mostra % (do total da própria linha) em vez do valor absoluto em H/R$ — com
+// dezenas de colunas de período, números grandes de 6-7 dígitos dificultam comparar
+// a distribuição entre semanas. O valor absoluto continua disponível via "Exportar".
+function fmtPct(value: number, total: number): string {
+  if (total === 0) return '—'
+  return `${(Math.round((value / total) * 1000) / 10).toFixed(1)}%`
 }
 
 // "Baseline 0 (original)" → "BL0" — o nome completo (herdado do MS Project) é
@@ -58,22 +67,34 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
-      <button
-        onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between gap-2 mb-1 group"
-      >
-        <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
-          {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
-          {title}
-        </h3>
-        {open ? (
-          <ChevronUp size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
-        ) : (
-          <ChevronDown size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
-        )}
-      </button>
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="flex-1 flex items-center justify-between gap-2 group min-w-0"
+        >
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 min-w-0">
+            {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
+            <span className="truncate">{title}</span>
+          </h3>
+          {open ? (
+            <ChevronUp size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+          ) : (
+            <ChevronDown size={18} className="text-gray-400 group-hover:text-gray-600 dark:group-hover:text-gray-300 shrink-0" />
+          )}
+        </button>
+        <button
+          onClick={() => exportWideTableToExcel(title, rows, curveData.map((p) => p.label), unitSuffix)}
+          title={`Exportar valores em ${unitSuffix}`}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition shrink-0"
+        >
+          <Download size={13} /> Exportar ({unitSuffix})
+        </button>
+      </div>
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">
+        Valores em % do total de cada linha — use "Exportar" para ver em {unitSuffix}.
+      </p>
       {open && (
-        <div className="overflow-auto max-h-[500px] border border-gray-100 dark:border-gray-700 rounded-lg mt-3">
+        <div className="overflow-auto max-h-[500px] border border-gray-100 dark:border-gray-700 rounded-lg">
           <table className="text-xs border-collapse">
             <thead>
               <tr className="border-b border-gray-200 dark:border-gray-700">
@@ -84,7 +105,7 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
                   Métrica
                 </th>
                 <th className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-semibold text-gray-500 dark:text-gray-400 uppercase whitespace-nowrap">
-                  Trabalho total ({unitSuffix})
+                  Total ({unitSuffix})
                 </th>
                 {curveData.map((p) => (
                   <th key={p.date} className="sticky top-0 bg-white dark:bg-gray-800 text-right py-2 px-3 font-medium text-gray-400 dark:text-gray-500 whitespace-nowrap">
@@ -107,7 +128,7 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
                   </td>
                   {row.values.map((v, i) => (
                     <td key={i} className="py-2 px-3 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">
-                      {fmtNum(v)}
+                      {fmtPct(v, row.total)}
                     </td>
                   ))}
                 </tr>

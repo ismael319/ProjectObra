@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react'
+import { Fragment, useState, useRef, useCallback } from 'react'
 import { Upload, X, FileCode } from 'lucide-react'
 import { parseMSProjectXML, decodeXmlBytes, type TimephasedDataPoint } from '@/lib/xml-parser'
 import { round2 } from '@/lib/curve-utils'
@@ -28,6 +28,10 @@ interface BaselineBreakdownRow {
   hours: number
   points: number
   assignments: number
+  taskLevelHours: number
+  taskCount: number
+  maxTaskHours: number
+  maxTaskLabel: string
 }
 
 export function SCurveDiagnostic({ onClose }: Props) {
@@ -115,8 +119,46 @@ export function SCurveDiagnostic({ onClose }: Props) {
         entry.assignments.add(p.uid)
         blMap.set(idx, entry)
       }
+
+      // Total "de origem" por tarefa (<Task><Baseline><Number>/<Work>, direto do XML,
+      // sem passar pela extração timephased/sintetização) — compara contra o hours
+      // acima pra saber se uma eventual inflação vem do VALOR lido do XML (bug de
+      // parsing de duração/unidade) ou da lógica de distribuição sintética.
+      const taskLevelByIndex = new Map<number, { hours: number; count: number; max: number; maxLabel: string }>()
+      for (const act of parsed.activities) {
+        if (act.isSummary) continue
+        for (let i = 0; i <= 10; i++) {
+          const bl = act.baselines[i]
+          if (!bl || bl.work <= 0) continue
+          const hoursForTask = bl.work / 60
+          const entry = taskLevelByIndex.get(i) || { hours: 0, count: 0, max: 0, maxLabel: '' }
+          entry.hours += hoursForTask
+          entry.count++
+          if (hoursForTask > entry.max) {
+            entry.max = hoursForTask
+            // isSummary é sempre false aqui (já filtrado acima) — o nível de WBS é o
+            // sinal útil: nível 1-2 costuma ser fase/resumo classificado incorretamente
+            // como tarefa-folha no XML, o que explicaria um valor desproporcional.
+            entry.maxLabel = `UID ${act.uid} · WBS ${act.wbs} (nível ${act.outlineLevel}) · "${act.name}"`
+          }
+          taskLevelByIndex.set(i, entry)
+        }
+      }
+
       const breakdown: BaselineBreakdownRow[] = Array.from(blMap.entries())
-        .map(([index, v]) => ({ index, hours: round2(v.hours), points: v.points, assignments: v.assignments.size }))
+        .map(([index, v]) => {
+          const t = taskLevelByIndex.get(index)
+          return {
+            index,
+            hours: round2(v.hours),
+            points: v.points,
+            assignments: v.assignments.size,
+            taskLevelHours: round2(t?.hours || 0),
+            taskCount: t?.count || 0,
+            maxTaskHours: round2(t?.max || 0),
+            maxTaskLabel: t?.maxLabel || '',
+          }
+        })
         .sort((a, b) => a.index - b.index)
       setBaselineBreakdown(breakdown)
 
@@ -253,19 +295,32 @@ export function SCurveDiagnostic({ onClose }: Props) {
                 <thead>
                   <tr className="text-gray-400 dark:text-gray-500 border-b border-gray-100 dark:border-gray-700">
                     <th className="text-left font-medium px-4 py-1.5">Baseline</th>
-                    <th className="text-right font-medium px-4 py-1.5">Horas</th>
+                    <th className="text-right font-medium px-4 py-1.5">Horas (timephased)</th>
                     <th className="text-right font-medium px-4 py-1.5">Pontos</th>
                     <th className="text-right font-medium px-4 py-1.5">Alocações</th>
+                    <th className="text-right font-medium px-4 py-1.5">Horas (tarefa, origem)</th>
+                    <th className="text-right font-medium px-4 py-1.5">Tarefas</th>
+                    <th className="text-right font-medium px-4 py-1.5">Maior tarefa (h)</th>
                   </tr>
                 </thead>
                 <tbody>
                   {baselineBreakdown.map((row) => (
-                    <tr key={row.index} className={row.index === 0 ? 'font-semibold' : ''}>
-                      <td className="px-4 py-1 text-gray-700 dark:text-gray-300">BL{row.index}</td>
-                      <td className="px-4 py-1 text-right font-mono text-gray-700 dark:text-gray-300">{row.hours.toLocaleString('pt-BR')}</td>
-                      <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.points}</td>
-                      <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.assignments}</td>
-                    </tr>
+                    <Fragment key={row.index}>
+                      <tr className={row.index === 0 ? 'font-semibold' : ''}>
+                        <td className="px-4 py-1 text-gray-700 dark:text-gray-300">BL{row.index}</td>
+                        <td className="px-4 py-1 text-right font-mono text-gray-700 dark:text-gray-300">{row.hours.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.points}</td>
+                        <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.assignments}</td>
+                        <td className="px-4 py-1 text-right font-mono text-gray-700 dark:text-gray-300">{row.taskLevelHours.toLocaleString('pt-BR')}</td>
+                        <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400">{row.taskCount}</td>
+                        <td className="px-4 py-1 text-right text-gray-500 dark:text-gray-400" title={row.maxTaskLabel}>{row.maxTaskHours.toLocaleString('pt-BR')}</td>
+                      </tr>
+                      {row.maxTaskLabel && (
+                        <tr className="text-[10px] text-gray-400 dark:text-gray-500">
+                          <td colSpan={7} className="px-4 pb-1.5 truncate">↳ maior tarefa da BL{row.index}: {row.maxTaskLabel}</td>
+                        </tr>
+                      )}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

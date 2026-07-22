@@ -84,6 +84,9 @@ export interface WBSActivity {
   text3: string
   number1: number
   number2: number
+  // Campos personalizados (Extended Attributes) do MS Project, chaveados por
+  // FieldID — nomes legíveis ficam em ParsedProject.customFieldDefs.
+  customFields: Record<string, string>
 }
 
 export interface WBSResource {
@@ -208,6 +211,13 @@ export interface ParsedProject {
    * que incluem componente "D" (dias).
    */
   minutesPerDay: number
+  /**
+   * Campos personalizados (Extended Attributes) disponíveis neste cronograma —
+   * só os que alguma tarefa de fato preenche. fieldId bate com a chave usada em
+   * WBSActivity.customFields; name é o Alias configurado no MS Project (ou
+   * "Campo <FieldID>" quando o campo nunca foi renomeado).
+   */
+  customFieldDefs: { fieldId: string; name: string }[]
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -366,6 +376,27 @@ function dayKey(date: Date): string {
  *  2. <Baseline><Number>X</Number><TimephasedData>...</Baseline> aninhados →
  *     dados timephased por baseline específica, usando <Number> como índice.
  */
+// Detecta o padrão de corrupção confirmado no pacote 728 (tarefa UID 15775): o
+// Assignment tem <Baseline><Number>0> e <Baseline><Number>10> com o MESMO valor de
+// <Work> — a Baseline 10 (sabidamente incorreta/não utilizada nesse projeto) vaza
+// pro slot da Baseline 0. Comparar o valor exato (em vez de um limiar de "taxa
+// implausível") evita falso-positivo em tarefas legítimas com trabalho concentrado.
+const DUPLICATE_WORK_EPSILON_MINUTES = 1
+
+function hasBl0DuplicatingBl10(assignment: Element, minutesPerDay: number): boolean {
+  let bl0Work: number | undefined
+  let bl10Work: number | undefined
+  assignment.querySelectorAll(':scope > Baseline').forEach((bl) => {
+    const num = parseInt(bl.querySelector('Number')?.textContent || '-1')
+    if (num !== 0 && num !== 10) return
+    const w = parseDuration(bl.querySelector('Work')?.textContent || undefined, minutesPerDay)
+    if (num === 0) bl0Work = w
+    if (num === 10) bl10Work = w
+  })
+  if (!bl0Work || !bl10Work) return false
+  return Math.abs(bl0Work - bl10Work) < DUPLICATE_WORK_EPSILON_MINUTES
+}
+
 function extractTimephasedFromAssignment(
   assignment: Element,
   minutesPerDay = 540,
@@ -374,6 +405,8 @@ function extractTimephasedFromAssignment(
   const assignmentUid = parseInt(assignment.querySelector('UID')?.textContent || '0')
 
   if (assignmentUid <= 0) return { points }
+
+  const suppressBl0 = hasBl0DuplicatingBl10(assignment, minutesPerDay)
 
   // :scope > (não querySelectorAll('TimephasedData') puro) — sem o escopo, a busca
   // pega QUALQUER <TimephasedData> em qualquer profundidade, inclusive os aninhados
@@ -411,12 +444,14 @@ function extractTimephasedFromAssignment(
     // <Baseline> aninhado — só ocorre aqui porque o seletor já garante que não é
     // um <TimephasedData> dentro de <Baseline>).
     if (type === 4) {
+      if (suppressBl0) return
       point.baselineIndex = 0
     }
 
     // Type 5 direto do Assignment → fallback BL0 (alguns exports MSPDI usam Type 5
     // em vez de Type 4 para Baseline Work).
     if (type === 5) {
+      if (suppressBl0) return
       point.baselineIndex = 0
       point.type = 4 // normaliza para Type 4 (Baseline Work) no restante do pipeline
     }
@@ -430,6 +465,7 @@ function extractTimephasedFromAssignment(
   const baselineElements = assignment.querySelectorAll(':scope > Baseline')
   baselineElements.forEach((bl) => {
     const blIndex = parseInt(bl.querySelector('Number')?.textContent || '0')
+    if (blIndex === 0 && suppressBl0) return
     const blTpElements = bl.querySelectorAll(':scope > TimephasedData')
 
     blTpElements.forEach((tp) => {
@@ -513,6 +549,14 @@ function extractTimephasedData(
   const rangeStart = new Date(rangeStartMs)
   const rangeEnd = new Date(rangeEndMs)
 
+  // Type 16 (Baseline 1 Work) é uma codificação alternativa/legada que, neste tipo de
+  // export, aparece DUPLICADA em relação ao bloco aninhado <Baseline><Number>1>
+  // (Type 4/5 com baselineIndex=1) — os totais batem quase exatamente entre os dois,
+  // confirmando que representam o MESMO dado, não fontes complementares. Somar os
+  // dois dobra o total da BL1. Só usamos Type 16 como fallback quando o arquivo NÃO
+  // traz a representação aninhada pra baseline 1 (formato mais antigo/diferente).
+  const hasNestedBaseline1 = allPoints.some((p) => p.type === 4 && p.baselineIndex === 1)
+
   // Agrupar por período
   const grouped: Record<string, TimephasedWeek> = {}
 
@@ -571,7 +615,8 @@ function extractTimephasedData(
         entry.baselines[blIdx] = (entry.baselines[blIdx] || 0) + point.valueHours
         break
       }
-      case 16: { // Baseline 1 Work
+      case 16: { // Baseline 1 Work — só usa se o arquivo não tem a rep. aninhada (ver acima)
+        if (hasNestedBaseline1) break
         entry.baselines[1] = (entry.baselines[1] || 0) + point.valueHours
         break
       }
@@ -625,27 +670,60 @@ const MAX_SYNTHETIC_SPAN_DAYS = 3650 // ~10 anos — guarda-chuva contra datas c
 
 /**
  * Alguns exports do MS Project só gravam TimephasedData (Type 4) distribuído no tempo
- * para a Baseline 0 — as demais linhas de base ficam só com o total agregado por tarefa
- * (via <Baseline><Number>/<Start>/<Finish>/<Work> aninhado no Task, sem granularidade
- * temporal). Sem isso, essas baselines nunca aparecem na Curva S (o filtro de UI exige
- * `hasTimephased`), mesmo tendo dado suficiente para desenhar uma curva aproximada.
+ * para PARTE das tarefas/alocações de uma baseline — o resto fica só com o total
+ * agregado por tarefa (via <Baseline><Number>/<Start>/<Finish>/<Work> aninhado no
+ * Task, sem granularidade temporal). Isso é comum em cronogramas re-baselineados: a
+ * baseline "corrente" pode ter cobertura completa em algumas tarefas (as que já
+ * tinham apontamento quando foi salva) e nenhuma nas demais.
  *
- * Para cada baseline sem dado nativo, distribui o Work de cada tarefa-folha linearmente
+ * Corrigir isso exige sintetizar POR TAREFA, não pular a baseline inteira só porque
+ * ALGUMA tarefa já tem dado nativo — a versão anterior fazia exatamente isso
+ * (`if (baselineIndices.has(i)) continue`), então bastava 1 tarefa ter cobertura
+ * nativa pra que as outras centenas de tarefas com só o total agregado (sem
+ * distribuição temporal) ficassem de fora inteiramente do Avanço/Aderência daquela
+ * baseline — subestimando o total real dela em milhões de horas.
+ *
+ * Para cada tarefa sem dado nativo NA baseline i, distribui o Work dela linearmente
  * (dia a dia) entre o Start/Finish daquela própria baseline — mesma técnica usada por
  * ferramentas de mercado (ex. Oliplan) quando o XML não carrega a distribuição real.
  * Tarefas-resumo são ignoradas (o Work delas já é o rollup dos filhos).
+ *
+ * O orçamento sintético é dividido entre as ALOCAÇÕES da tarefa (proporcional ao
+ * Work de cada uma), não atribuído ao uid da tarefa — capActualByAssignmentBaseline
+ * (curve-utils.ts) casa o orçamento de baseline com o Trabalho Real (Type 2) pelo uid
+ * da ALOCAÇÃO, que é sempre diferente do uid da tarefa no MS Project. Sintetizar no
+ * uid da tarefa deixaria esse orçamento invisível pro cálculo de Avanço Real — a
+ * baseline apareceria completa no gráfico, mas o Real da tarefa continuaria sendo
+ * descartado por "falta de baseline".
  */
 function synthesizeMissingBaselineDistributions(
   activities: WBSActivity[],
+  assignments: WBSAssignment[],
   timephased: TimephasedSeries,
 ): void {
+  const taskUidByAssignmentUid = new Map<number, number>()
+  const assignmentsByTaskUid = new Map<number, WBSAssignment[]>()
+  for (const a of assignments) {
+    taskUidByAssignmentUid.set(a.uid, a.taskUid)
+    const list = assignmentsByTaskUid.get(a.taskUid)
+    if (list) list.push(a)
+    else assignmentsByTaskUid.set(a.taskUid, [a])
+  }
+
   for (let i = 0; i <= 10; i++) {
-    if (timephased.baselineIndices.has(i)) continue // já tem dado nativo distribuído
+    // Tarefas que já têm TimephasedData nativo pra essa baseline (via alguma das
+    // próprias alocações) — sintetiza só as que faltam.
+    const coveredTaskUids = new Set<number>()
+    for (const p of timephased.rawPoints) {
+      if (p.type !== 4 || (p.baselineIndex ?? 0) !== i) continue
+      coveredTaskUids.add(taskUidByAssignmentUid.get(p.uid) ?? p.uid)
+    }
 
     const syntheticPoints: TimephasedDataPoint[] = []
 
     for (const act of activities) {
       if (act.isSummary) continue
+      if (coveredTaskUids.has(act.uid)) continue // já tem dado nativo pra essa tarefa
       const bl = act.baselines[i]
       if (!bl || bl.work <= 0 || !bl.start || !bl.finish) continue
 
@@ -660,18 +738,30 @@ function synthesizeMissingBaselineDistributions(
       const workHours = bl.work / 60 // bl.work está em minutos
       const perDayHours = workHours / totalDays
 
-      for (let d = 0; d < totalDays; d++) {
-        const dayStart = new Date(startMs + d * 86400000)
-        const dayFinish = new Date(dayStart.getTime() + 86400000)
-        syntheticPoints.push({
-          type: 4,
-          uid: act.uid,
-          start: dayStart,
-          finish: dayFinish,
-          unit: 1,
-          valueHours: perDayHours,
-          baselineIndex: i,
-        })
+      const taskAssignments = assignmentsByTaskUid.get(act.uid) || []
+      const totalAssignedWork = taskAssignments.reduce((s, a) => s + a.work, 0)
+      const shares: { uid: number; fraction: number }[] = taskAssignments.length > 0
+        ? (totalAssignedWork > 0
+            ? taskAssignments.map((a) => ({ uid: a.uid, fraction: a.work / totalAssignedWork }))
+            : taskAssignments.map((a) => ({ uid: a.uid, fraction: 1 / taskAssignments.length })))
+        : [{ uid: act.uid, fraction: 1 }] // sem alocação conhecida: cai no uid da tarefa mesmo
+
+      for (const share of shares) {
+        const shareHoursPerDay = perDayHours * share.fraction
+        if (shareHoursPerDay <= 0) continue
+        for (let d = 0; d < totalDays; d++) {
+          const dayStart = new Date(startMs + d * 86400000)
+          const dayFinish = new Date(dayStart.getTime() + 86400000)
+          syntheticPoints.push({
+            type: 4,
+            uid: share.uid,
+            start: dayStart,
+            finish: dayFinish,
+            unit: 1,
+            valueHours: shareHoursPerDay,
+            baselineIndex: i,
+          })
+        }
       }
     }
 
@@ -719,6 +809,24 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
   // Minutos de trabalho por dia — MS Project padrão = 540 (9 horas)
   const minutesPerDayRaw = parseInt(project.querySelector('MinutesPerDay')?.textContent ?? '', 10)
   const minutesPerDay = minutesPerDayRaw > 0 ? minutesPerDayRaw : 540
+
+  // ─── Definições de campos personalizados (Extended Attributes) ───────────────
+  // <Project><ExtendedAttributes><ExtendedAttribute> define o nome (Alias) de cada
+  // campo customizado do MS Project (FieldID). O valor por tarefa vem num elemento
+  // de MESMO NOME dentro de <Task> (por isso o ":scope >" pra não misturar os dois).
+  // Sem Alias, cai pro FieldName; sem nenhum dos dois, "Campo <FieldID>" (mesmo
+  // rótulo que o MS Project usa quando o campo nunca foi renomeado).
+  const customFieldNames = new Map<string, string>()
+  project.querySelector(':scope > ExtendedAttributes')?.querySelectorAll(':scope > ExtendedAttribute').forEach((ea) => {
+    const fieldId = ea.querySelector('FieldID')?.textContent || ''
+    if (!fieldId) return
+    const alias = ea.querySelector('Alias')?.textContent?.trim()
+    const fieldName = ea.querySelector('FieldName')?.textContent?.trim()
+    customFieldNames.set(fieldId, alias || fieldName || `Campo ${fieldId}`)
+  })
+  // Só entram na lista de colunas filtráveis os campos que algum Task de fato usa —
+  // evita poluir o seletor de coluna com dezenas de campos definidos mas vazios.
+  const usedCustomFieldIds = new Set<string>()
 
   // ─── Extrair datas de salvamento das baselines ───────────────
   const baselineSavedDates: (Date | undefined)[] = []
@@ -777,15 +885,36 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
     // as datas de início/término de CADA linha de base (as tags planas acima não têm data).
     // Usado para gerar uma distribuição sintética quando o XML não traz TimephasedData
     // nativo para essa baseline (ver synthesizeMissingBaselineDistributions).
+    //
+    // Prioridade: quando a tarefa tem AMBAS as representações da mesma baseline, o
+    // valor do bloco aninhado <Baseline><Number> vence, mesmo que a tag plana legada
+    // (Baseline{n}Work) já tenha um valor. A tag plana só existe pra baseline 0 por
+    // compatibilidade com versões antigas do MS Project — em projetos re-baselineados
+    // várias vezes ela pode ficar "presa" num valor antigo enquanto o bloco aninhado
+    // reflete o estado atual. Usar a tag plana como prioridade (comportamento anterior)
+    // inflava o total da BL0 nesses casos.
+    // Detecta o mesmo padrão de corrupção da Baseline 10 vazando pra Baseline 0 (ver
+    // hasBl0DuplicatingBl10 para o Assignment) — aqui ao nível da própria Task.
+    const taskBl0Work = parseDuration(
+      Array.from(task.querySelectorAll(':scope > Baseline')).find((bl) => bl.querySelector('Number')?.textContent === '0')?.querySelector('Work')?.textContent || undefined,
+      minutesPerDay,
+    )
+    const taskBl10Work = parseDuration(
+      Array.from(task.querySelectorAll(':scope > Baseline')).find((bl) => bl.querySelector('Number')?.textContent === '10')?.querySelector('Work')?.textContent || undefined,
+      minutesPerDay,
+    )
+    const taskBl0DuplicatesBl10 = taskBl0Work > 0 && taskBl10Work > 0 && Math.abs(taskBl0Work - taskBl10Work) < DUPLICATE_WORK_EPSILON_MINUTES
+
     task.querySelectorAll(':scope > Baseline').forEach((bl) => {
       const num = parseInt(bl.querySelector('Number')?.textContent || '-1')
       if (num < 0 || num > 10) return
       const s = parseDate(bl.querySelector('Start')?.textContent || undefined)
       const f = parseDate(bl.querySelector('Finish')?.textContent || undefined)
-      const w = parseDuration(bl.querySelector('Work')?.textContent || undefined, minutesPerDay)
+      let w = parseDuration(bl.querySelector('Work')?.textContent || undefined, minutesPerDay)
+      if (num === 0 && taskBl0DuplicatesBl10) w = 0
       if (s) baselines[num].start = s
       if (f) baselines[num].finish = f
-      if (w > 0 && baselines[num].work === 0) baselines[num].work = w
+      if (w > 0) baselines[num].work = w
     })
 
     // Campos personalizados MS Project
@@ -794,6 +923,18 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
     const text3 = task.querySelector('Text3')?.textContent || ''
     const number1 = parseFloat(task.querySelector('Number1')?.textContent || '0')
     const number2 = parseFloat(task.querySelector('Number2')?.textContent || '0')
+
+    // Campos personalizados (Extended Attributes) — qualquer coluna que o usuário
+    // criou/renomeou no MS Project (ex.: "Disciplina", "Categoria"), não só os 3
+    // campos de texto genéricos acima. Chaveado por FieldID (string).
+    const customFields: Record<string, string> = {}
+    task.querySelectorAll(':scope > ExtendedAttribute').forEach((ea) => {
+      const fieldId = ea.querySelector('FieldID')?.textContent || ''
+      const value = ea.querySelector('Value')?.textContent?.trim() || ''
+      if (!fieldId || !value) return
+      customFields[fieldId] = value
+      usedCustomFieldIds.add(fieldId)
+    })
 
     const predecessorUids: number[] = []
     const links = task.querySelectorAll('PredecessorLink')
@@ -838,6 +979,7 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
         responsible, discipline, area, notes,
         priority, calendarName,
         text1, text2, text3, number1, number2,
+        customFields,
       })
     }
   })
@@ -891,10 +1033,12 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
     // Extrair baseline work do assignment
     const baselineElements = assign.querySelectorAll('Baseline')
     const assignmentBaselines: BaselineData[] = []
+    const assignBl0DuplicatesBl10 = hasBl0DuplicatingBl10(assign, minutesPerDay)
     baselineElements.forEach((bl) => {
       const blNumber = parseInt(bl.querySelector('Number')?.textContent || '0')
-      const blWork = parseDuration(bl.querySelector('Work')?.textContent || undefined, minutesPerDay)
+      let blWork = parseDuration(bl.querySelector('Work')?.textContent || undefined, minutesPerDay)
       const blCost = parseFloat(bl.querySelector('Cost')?.textContent || '0')
+      if (blNumber === 0 && assignBl0DuplicatesBl10) blWork = 0
       if (blNumber >= 0 && blNumber <= 10) {
         assignmentBaselines[blNumber] = { work: blWork, cost: blCost }
       }
@@ -910,7 +1054,11 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
       assignmentWorkByTask[taskUid].cost += cost
       assignmentWorkByTask[taskUid].actualCost += actualCost
 
-      // Enriquecer baselines do task com dados do assignment
+      // Enriquecer baselines do task com dados do assignment quando a task não tem
+      // valor próprio. O filtro de taxa implausível acima já descarta o dado
+      // corrompido de origem antes de chegar aqui, então não precisa checar se a
+      // task "declara" a baseline — isso bloqueava enriquecimento legítimo em tasks
+      // que só têm Work no Assignment (padrão comum neste tipo de arquivo).
       const taskAct = activities.find((a) => a.uid === taskUid)
       if (taskAct) {
         for (let bi = 0; bi < assignmentBaselines.length; bi++) {
@@ -952,7 +1100,7 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
   const timephased = extractTimephasedData(doc, activities, 'week', minutesPerDay, weekStartDay)
 
   // ─── Fallback: baselines sem TimephasedData nativo ───────────
-  synthesizeMissingBaselineDistributions(activities, timephased)
+  synthesizeMissingBaselineDistributions(activities, assignments, timephased)
 
   // ─── Detectar baselines disponíveis ──────────────────────────
   const baselineLabels = [
@@ -993,9 +1141,13 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
     }
   })
 
+  const customFieldDefs = Array.from(usedCustomFieldIds)
+    .map((fieldId) => ({ fieldId, name: customFieldNames.get(fieldId) || `Campo ${fieldId}` }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
   return {
     name: projectName, startDate, finishDate, author, company, description,
     activities, resources, assignments, baselines,
-    timephased, weekStartDay, minutesPerDay,
+    timephased, weekStartDay, minutesPerDay, customFieldDefs,
   }
 }

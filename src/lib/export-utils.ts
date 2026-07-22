@@ -188,6 +188,24 @@ export function exportSCurveToExcel(
   saveAs(blob, `${projectName.replace(/\s+/g, '_')}_curva_s.xlsx`)
 }
 
+/** Exporta a tabela larga da Curva S (SCurveWideTable) com os valores absolutos em H/R$ — a tela mostra em %, o export mantém os números originais pra quem precisa avaliá-los. */
+export function exportWideTableToExcel(
+  title: string,
+  rows: { metric: string; total: number; values: number[] }[],
+  periodLabels: string[],
+  unitSuffix: string,
+) {
+  const wb = XLSX.utils.book_new()
+  const round2 = (v: number) => Math.round(v * 100) / 100
+  const headers = ['Métrica', `Total (${unitSuffix})`, ...periodLabels]
+  const data = rows.map((row) => [row.metric, round2(row.total), ...row.values.map(round2)])
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...data])
+  XLSX.utils.book_append_sheet(wb, ws, 'Valores')
+  const buf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  const blob = new Blob([buf], { type: 'application/octet-stream' })
+  saveAs(blob, `${title.replace(/\s+/g, '_')}_valores.xlsx`)
+}
+
 export function exportToPDF(
   activities: WBSActivity[],
   indices: ProjectIndices | null,

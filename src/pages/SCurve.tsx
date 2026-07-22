@@ -4,6 +4,7 @@ import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
 import { exportToExcel, exportToPDF, exportSCurveToExcel } from '@/lib/export-utils'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
+import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
 import { SCurveChart } from '@/components/scurve/SCurveChart'
@@ -31,6 +32,7 @@ const UNIT_KEY = 'obracontrol_scurve_unit'
 const BL_KEY = 'obracontrol_scurve_baseline'
 const CRONSEL_KEY = 'obracontrol_scurve_cronsel'
 const ACTIVITY_EXCL_KEY = 'obracontrol_scurve_activity_excl'
+const COLUMN_FILTERS_KEY = 'obracontrol_scurve_column_filters'
 const GRANULARITY_KEY = 'obracontrol_scurve_granularity'
 const HIDDEN_BLS_KEY = 'obracontrol_scurve_hidden_bls'
 const SHOW_TABLE_KEY = 'obracontrol_scurve_show_table'
@@ -64,6 +66,13 @@ export default function SCurve() {
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(loadSaved(CRONSEL_KEY, []))
   const [granularity, setGranularity] = useState<CurveGranularity>(loadSaved(GRANULARITY_KEY, 'week'))
   const [activityExclusions, setActivityExclusions] = useState<Record<string, number[]>>(loadSaved(ACTIVITY_EXCL_KEY, {}))
+  // Array.isArray: versão anterior guardava um objeto por cronograma nessa mesma
+  // chave — sem essa checagem, quem já tinha usado o filtro herdaria um formato
+  // incompatível do localStorage e quebraria os métodos de array abaixo.
+  const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>(() => {
+    const saved = loadSaved<unknown>(COLUMN_FILTERS_KEY, [])
+    return Array.isArray(saved) ? saved as ColumnFilterState[] : []
+  })
   const [hiddenBLs, setHiddenBLs] = useState<string[]>(loadSaved(HIDDEN_BLS_KEY, []))
   const [blSynthMap, setBlSynthMap] = useState<BLSynthMap>(loadSaved(BL_SYNTH_MAP_KEY, {}))
   const [synthSlotIds, setSynthSlotIds] = useState<string[]>(loadSaved(SYNTH_SLOTS_KEY, DEFAULT_SYNTH_SLOTS))
@@ -139,9 +148,14 @@ export default function SCurve() {
     })
   }, [])
 
+  const handleColumnFiltersChange = useCallback((next: ColumnFilterState[]) => {
+    setColumnFilters(next)
+    localStorage.setItem(COLUMN_FILTERS_KEY, JSON.stringify(next))
+  }, [])
+
   const hasActivityFilter = useMemo(
-    () => selectedCronogramasData.some((c) => (activityExclusions[c.id]?.length || 0) > 0),
-    [selectedCronogramasData, activityExclusions],
+    () => columnFilters.length > 0 || selectedCronogramasData.some((c) => (activityExclusions[c.id]?.length || 0) > 0),
+    [selectedCronogramasData, activityExclusions, columnFilters],
   )
 
   const availableBLs = useMemo(() => {
@@ -295,6 +309,8 @@ export default function SCurve() {
   const cronCurves = useMemo(() => {
     return selectedCronogramasData.map((c) => {
       const excluded = new Set(activityExclusions[c.id] || [])
+      const columnExcluded = computeColumnFilterExcludedUids(c.dados?.activities || [], columnFilters, c.dados?.customFieldDefs || [])
+      for (const uid of columnExcluded) excluded.add(uid)
       const rawPoints = filterRawPointsByExcludedActivities(c.dados?.timephased?.rawPoints, c.dados?.assignments, excluded)
       // Só as próprias baselines do cronograma — usar availableBLs (global) faria um
       // cronograma "herdar" a baseline de outro que compartilhe o mesmo índice (BL0 etc).
@@ -313,7 +329,7 @@ export default function SCurve() {
         source: curve.length > 0 ? 'timephased' as const : 'synthetic' as const,
       }
     })
-  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, rawBLSuffix])
+  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, columnFilters, rawBLSuffix])
 
   const cronCurvesFull = useMemo(() => {
     return selectedCronogramasData.map((c) => {
@@ -363,6 +379,12 @@ export default function SCurve() {
         const blf = act.baselines?.[0]?.finish
         if (blf && (!blFinish || blf > blFinish)) blFinish = blf
       }
+      // Avanço do PRÓPRIO cronograma (não do consolidado) — usa a curva e as
+      // baselines exclusivas dele, senão um cronograma "herdaria" o avanço geral.
+      const cronCurve = cronCurves.find((cc) => cc.id === c.id)
+      const ownBLs = availableBLs.filter((bl) => bl.id.startsWith(`${c.id}__`))
+      const advance = cronCurve ? computeAdvanceMetrics(cronCurve.curve, ownBLs.map((bl) => bl.id)) : null
+      const bl0Advance = advance?.baselines.find((bl) => bl.id.endsWith('__BL0'))
       return {
         id: c.id,
         nome: c.nome,
@@ -370,9 +392,11 @@ export default function SCurve() {
         start: c.dados?.startDate ?? null,
         finish: c.dados?.finishDate ?? null,
         blFinish,
+        realPct: advance?.real.percent ?? null,
+        plannedPct: bl0Advance?.metric.percent ?? null,
       }
     })
-  }, [selectedCronogramasData])
+  }, [selectedCronogramasData, cronCurves, availableBLs])
 
   const unitLabel = unit === 'HH' ? 'Horas de Trabalho' : 'Custo (R$)'
 
@@ -514,8 +538,6 @@ export default function SCurve() {
         unit={unit}
         overallPace={overallPace}
         scheduleInfo={scheduleInfo}
-        selectedBLInfo={selectedBLInfo ? { label: selectedBLInfo.label } : undefined}
-        selectedBLTotal={selectedBLTotal}
       />
 
       {advances && (
@@ -609,8 +631,21 @@ export default function SCurve() {
                   </div>
                 )}
 
+                {selectedCronogramasData.length > 0 && (
+                  <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <ColumnValueFilter
+                      sources={selectedCronogramasData.map((c) => ({
+                        activities: c.dados?.activities || [],
+                        customFieldDefs: c.dados?.customFieldDefs || [],
+                      }))}
+                      filters={columnFilters}
+                      onChange={handleColumnFiltersChange}
+                    />
+                  </div>
+                )}
+
                 {selectedCronogramasData.length > 1 && (
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex items-center gap-2 mb-2 pt-3 border-t border-gray-100 dark:border-gray-700">
                     <Filter size={14} className="text-gray-400" />
                     <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Filtros por Atividade</span>
                   </div>
@@ -620,7 +655,7 @@ export default function SCurve() {
                   const isMulti = selectedCronogramasData.length > 1
                   const isCollapsed = isMulti && collapsedFilterCronogramas.has(c.id)
                   return (
-                    <div key={c.id} className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                    <div key={c.id} className={isMulti ? '' : 'pt-3 border-t border-gray-100 dark:border-gray-700'}>
                       {isMulti && (
                         <button
                           type="button"
