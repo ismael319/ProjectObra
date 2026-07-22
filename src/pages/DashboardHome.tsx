@@ -4,6 +4,9 @@ import { Search, ChevronRight, ChevronDown, CheckCircle, Clock, AlertTriangle, P
 import { toDate } from '@/lib/utils'
 import KPICards from '@/components/KPICards'
 import { StatusPieChart, MonthlyBarChart, ProgressAreaChart } from '@/components/Charts'
+import EngineeringHighlights from '@/components/EngineeringHighlights'
+import WorkforceSummary from '@/components/WorkforceSummary'
+import SafetySummary from '@/components/SafetySummary'
 
 export default function DashboardHome() {
   const { project, activities } = useProject()
@@ -65,6 +68,13 @@ export default function DashboardHome() {
       </div>
 
       <ProgressAreaChart />
+
+      <EngineeringHighlights />
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <WorkforceSummary />
+        <SafetySummary />
+      </div>
 
       {/* Estrutura WBS integrada */}
       <div>
