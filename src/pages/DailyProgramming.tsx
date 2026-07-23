@@ -47,8 +47,11 @@ export default function DailyProgramming() {
   const [dayImportActivities, setDayImportActivities] = useState<WeekActivity[]>([])
   const [loadingDayImport, setLoadingDayImport] = useState(false)
 
-  const fetchData = useCallback(async () => {
-    setLoading(true)
+  // showLoading=false evita o spinner de página inteira (que some com o modal aberto)
+  // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
+  // primeira carga da semana (ou troca de semana) precisa do loading bloqueante.
+  const fetchData = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     try {
       const data = await getWeek(isoYear, isoWeek)
       setWeekData(data)
@@ -56,7 +59,7 @@ export default function DailyProgramming() {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar semana'
       toast.error(msg)
     } finally {
-      setLoading(false)
+      if (showLoading) setLoading(false)
     }
   }, [isoYear, isoWeek])
 
@@ -213,7 +216,7 @@ export default function DailyProgramming() {
       const rows = XLSX.utils.sheet_to_json<Record<string, string | number | null>>(ws, { defval: null })
       const result = await mergeExcel(weekData.week.id, rows)
       toast.success(`Excel importado: ${result.updated} atividade(s) atualizada(s)`)
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao importar Excel'
       toast.error(msg)
@@ -225,7 +228,7 @@ export default function DailyProgramming() {
     try {
       await lockWeek(weekData.week.id)
       toast.success('Semana bloqueada')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao bloquear semana'
       toast.error(msg)
@@ -237,7 +240,7 @@ export default function DailyProgramming() {
     try {
       await unlockWeek(weekData.week.id)
       toast.success('Semana desbloqueada')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao desbloquear semana'
       toast.error(msg)
@@ -250,7 +253,7 @@ export default function DailyProgramming() {
     try {
       await clearWeekActivities(weekData.week.id)
       toast.success('Semana limpa')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao limpar semana'
       toast.error(msg)
@@ -263,7 +266,7 @@ export default function DailyProgramming() {
     try {
       await clearDayActivities(weekData.week.id, date)
       toast.success('Dia limpo')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao limpar o dia'
       toast.error(msg)
@@ -273,7 +276,7 @@ export default function DailyProgramming() {
   const handleSetStatus = async (id: string, status: ActivityStatus, observation: string | null) => {
     try {
       await setActivityStatus(id, status, observation)
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar status'
       toast.error(msg)
@@ -284,7 +287,7 @@ export default function DailyProgramming() {
     try {
       await deleteActivity(id)
       toast.success('Atividade removida')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao remover'
       toast.error(msg)
@@ -304,7 +307,7 @@ export default function DailyProgramming() {
     try {
       await addExtraActivity({ weekId: weekData.week.id, ...payload })
       toast.success('Atividade extra adicionada')
-      fetchData()
+      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao adicionar'
       toast.error(msg)
@@ -391,7 +394,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         weekDays={days}
-        onImported={fetchData}
+        onImported={() => fetchData(false)}
       />
 
       <ModalImportarAtividades
@@ -402,7 +405,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         weekDays={dayImportDate ? [dayImportDate] : []}
-        onImported={fetchData}
+        onImported={() => fetchData(false)}
       />
     </div>
   )

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { toast } from 'sonner';
 import { supabase, type Scenario, type Equipe, type Atividade, type Parada, type FuncaoRow, type EquipamentoRow, type Dependencia } from './supabase';
 
 type State = {
@@ -34,6 +35,15 @@ function deriveLegacy(funcoes: FuncaoRow[]): { funcao: string; quantidade_funcio
   };
 }
 
+// Mostra o erro de verdade em vez de deixar a ação falhar em silêncio — sem isso, uma
+// gravação que falha (permissão, rede, etc.) parece ter dado certo na tela (o estado
+// local do Zustand era atualizado de qualquer jeito) e some ao recarregar a página.
+function reportError(action: string, error: { message: string } | null): boolean {
+  if (!error) return false;
+  toast.error(`Erro ao ${action}: ${error.message}`);
+  return true;
+}
+
 export const useGanttStore = create<State>((set, get) => ({
   scenarios: [],
   equipes: [],
@@ -46,24 +56,31 @@ export const useGanttStore = create<State>((set, get) => ({
   loadAll: async () => {
     set({ loading: true, error: null });
     try {
-      const [{ data: scns }, { data: eqs }, { data: atvs }, { data: prds }] = await Promise.all([
+      const [scnRes, eqRes, atvRes, prdRes] = await Promise.all([
         supabase.from('scenarios').select('*').order('created_at'),
         supabase.from('equipes').select('*'),
         supabase.from('atividades').select('*').order('ordem'),
         supabase.from('paradas').select('*'),
       ]);
-      const scenarios = (scns || []) as Scenario[];
+      // Erro de permissão numa tabela não deve travar as outras — reporta e segue
+      // com o que deu certo, em vez de deixar a página inteira em branco.
+      reportError('carregar cenários', scnRes.error);
+      reportError('carregar equipes', eqRes.error);
+      reportError('carregar atividades', atvRes.error);
+      reportError('carregar paradas', prdRes.error);
+
+      const scenarios = (scnRes.data || []) as Scenario[];
       const activeId = scenarios[0]?.id ?? null;
       set({
         scenarios,
-        equipes: (eqs || []) as Equipe[],
-        atividades: (atvs || []).map((a) => ({
+        equipes: (eqRes.data || []) as Equipe[],
+        atividades: (atvRes.data || []).map((a) => ({
           ...a,
           predecessoras: Array.isArray(a.predecessoras)
             ? a.predecessoras.map((p: Dependencia | string) => typeof p === 'string' ? { id: p, lag: 0 } : p)
             : [],
         })) as Atividade[],
-        paradas: (prds || []) as Parada[],
+        paradas: (prdRes.data || []) as Parada[],
         activeScenarioId: activeId,
         loading: false,
       });
@@ -77,7 +94,7 @@ export const useGanttStore = create<State>((set, get) => ({
   addScenario: async (name) => {
     const id = genId('scn');
     const { error } = await supabase.from('scenarios').insert({ id, name });
-    if (error) throw error;
+    if (reportError('criar cenário', error)) return;
     set((s) => ({
       scenarios: [...s.scenarios, { id, name }],
       activeScenarioId: id,
@@ -85,14 +102,16 @@ export const useGanttStore = create<State>((set, get) => ({
   },
 
   renameScenario: async (id, name) => {
-    await supabase.from('scenarios').update({ name }).eq('id', id);
+    const { error } = await supabase.from('scenarios').update({ name }).eq('id', id);
+    if (reportError('renomear cenário', error)) return;
     set((s) => ({
       scenarios: s.scenarios.map((sc) => (sc.id === id ? { ...sc, name } : sc)),
     }));
   },
 
   deleteScenario: async (id) => {
-    await supabase.from('scenarios').delete().eq('id', id);
+    const { error } = await supabase.from('scenarios').delete().eq('id', id);
+    if (reportError('excluir cenário', error)) return;
     set((s) => {
       const remaining = s.scenarios.filter((sc) => sc.id !== id);
       return {
@@ -107,7 +126,7 @@ export const useGanttStore = create<State>((set, get) => ({
     if (!sid) return;
     const id = genId('eq');
     const legacy = deriveLegacy(funcoes);
-    await supabase.from('equipes').insert({
+    const { error } = await supabase.from('equipes').insert({
       id,
       scenario_id: sid,
       nome,
@@ -117,6 +136,7 @@ export const useGanttStore = create<State>((set, get) => ({
       funcao: legacy.funcao,
       quantidade_funcionarios: legacy.quantidade_funcionarios,
     });
+    if (reportError('criar equipe', error)) return;
     set((s) => ({
       equipes: [
         ...s.equipes,
@@ -134,14 +154,16 @@ export const useGanttStore = create<State>((set, get) => ({
       patch.funcao = legacy.funcao;
       patch.quantidade_funcionarios = legacy.quantidade_funcionarios;
     }
-    await supabase.from('equipes').update(dbPatch).eq('id', id);
+    const { error } = await supabase.from('equipes').update(dbPatch).eq('id', id);
+    if (reportError('atualizar equipe', error)) return;
     set((s) => ({
       equipes: s.equipes.map((e) => (e.id === id ? { ...e, ...patch } : e)),
     }));
   },
 
   deleteEquipe: async (id) => {
-    await supabase.from('equipes').delete().eq('id', id);
+    const { error } = await supabase.from('equipes').delete().eq('id', id);
+    if (reportError('excluir equipe', error)) return;
     set((s) => ({
       equipes: s.equipes.filter((e) => e.id !== id),
       atividades: s.atividades.map((a) => ({
@@ -157,7 +179,7 @@ export const useGanttStore = create<State>((set, get) => ({
     const id = genId('atv');
     const ordem = get().atividades.filter((a) => a.scenario_id === sid).length;
     const predecessoras: Dependencia[] = [];
-    await supabase.from('atividades').insert({
+    const { error } = await supabase.from('atividades').insert({
       id,
       scenario_id: sid,
       nome,
@@ -168,6 +190,7 @@ export const useGanttStore = create<State>((set, get) => ({
       ordem,
       predecessoras,
     });
+    if (reportError('criar atividade', error)) return;
     set((s) => ({
       atividades: [
         ...s.atividades,
@@ -177,14 +200,16 @@ export const useGanttStore = create<State>((set, get) => ({
   },
 
   updateAtividade: async (id, patch) => {
-    await supabase.from('atividades').update(patch).eq('id', id);
+    const { error } = await supabase.from('atividades').update(patch).eq('id', id);
+    if (reportError('atualizar atividade', error)) return;
     set((s) => ({
       atividades: s.atividades.map((a) => (a.id === id ? { ...a, ...patch } : a)),
     }));
   },
 
   deleteAtividade: async (id) => {
-    await supabase.from('atividades').delete().eq('id', id);
+    const { error } = await supabase.from('atividades').delete().eq('id', id);
+    if (reportError('excluir atividade', error)) return;
     set((s) => ({
       atividades: s.atividades
         .filter((a) => a.id !== id)
@@ -200,11 +225,13 @@ export const useGanttStore = create<State>((set, get) => ({
     if (!sid) return;
     const existing = get().paradas.find((p) => p.scenario_id === sid && p.data === data);
     if (existing) {
-      await supabase.from('paradas').delete().eq('id', existing.id);
+      const { error } = await supabase.from('paradas').delete().eq('id', existing.id);
+      if (reportError('remover parada', error)) return;
       set((s) => ({ paradas: s.paradas.filter((p) => p.id !== existing.id) }));
     } else {
       const id = genId('prd');
-      await supabase.from('paradas').insert({ id, scenario_id: sid, data });
+      const { error } = await supabase.from('paradas').insert({ id, scenario_id: sid, data });
+      if (reportError('marcar parada', error)) return;
       set((s) => ({ paradas: [...s.paradas, { id, scenario_id: sid, data }] }));
     }
   },

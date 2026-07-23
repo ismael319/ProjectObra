@@ -72,7 +72,6 @@ export default function ModalImportarAtividades({
   // pro cálculo de atraso é escolhida por cronograma, não uma só pra tudo.
   const [selectedBLByCronograma, setSelectedBLByCronograma] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [notes, setNotes] = useState<Record<string, string>>({})
   const [importing, setImporting] = useState(false)
 
   const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources])
@@ -156,7 +155,6 @@ export default function ModalImportarAtividades({
           area: a.area || null,
           stage: a.wbs,
           foreman: a.responsible || null,
-          observation: notes[rowKey(a)]?.trim() || null,
           isExtra: false,
           sourceCronograma: a.cronogramaNome,
           areaPath: a.areaPath || null,
@@ -271,10 +269,7 @@ export default function ModalImportarAtividades({
                               <th className="px-2 py-1.5 text-right font-medium">Avanço</th>
                               <th className="px-2 py-1.5 text-right font-medium whitespace-nowrap">Início</th>
                               <th className="px-2 py-1.5 text-right font-medium whitespace-nowrap">Término</th>
-                              <th className="px-2 py-1.5 text-right font-medium whitespace-nowrap">Início LB</th>
-                              <th className="px-2 py-1.5 text-right font-medium whitespace-nowrap">Término LB</th>
                               <th className="px-2 py-1.5 text-right font-medium">Atraso</th>
-                              <th className="px-2 py-1.5 text-left font-medium min-w-[160px]">Informações complementares</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
@@ -296,18 +291,7 @@ export default function ModalImportarAtividades({
                                   </td>
                                   <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatShortDate(a.start)}</td>
                                   <td className="px-2 py-1.5 text-right text-gray-600 dark:text-gray-400 whitespace-nowrap">{formatShortDate(a.finish)}</td>
-                                  <td className="px-2 py-1.5 text-right text-gray-500 dark:text-gray-500 whitespace-nowrap">{bl?.start ? formatShortDate(bl.start) : '—'}</td>
-                                  <td className="px-2 py-1.5 text-right text-gray-500 dark:text-gray-500 whitespace-nowrap">{bl?.finish ? formatShortDate(bl.finish) : '—'}</td>
                                   <td className={`px-2 py-1.5 text-right whitespace-nowrap ${delay.className}`}>{delay.label}</td>
-                                  <td className="px-2 py-1.5">
-                                    <input
-                                      type="text"
-                                      value={notes[key] || ''}
-                                      onChange={(e) => setNotes((prev) => ({ ...prev, [key]: e.target.value }))}
-                                      placeholder="Observação..."
-                                      className="w-full min-w-[150px] px-2 py-1 text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                    />
-                                  </td>
                                 </tr>
                               )
                             })}

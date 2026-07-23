@@ -20,7 +20,7 @@ export function ScenarioTabs() {
   };
 
   return (
-    <div className="flex items-center gap-1 px-3 pt-2 bg-slate-800 border-b border-slate-700 overflow-x-auto">
+    <div className="flex items-center gap-1 px-3 pt-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 overflow-x-auto">
       {scenarios.map((sc) => {
         const active = sc.id === activeScenarioId;
         return (
@@ -29,8 +29,8 @@ export function ScenarioTabs() {
             onClick={() => setActiveScenario(sc.id)}
             className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg cursor-pointer whitespace-nowrap transition-colors ${
               active
-                ? 'bg-slate-900 text-white border-t-2 border-blue-500'
-                : 'bg-slate-700/50 text-slate-300 hover:bg-slate-700'
+                ? 'bg-white dark:bg-slate-900 text-gray-900 dark:text-white border-t-2 border-blue-500'
+                : 'bg-gray-200/60 dark:bg-slate-700/50 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
             }`}
           >
             {editingId === sc.id ? (
@@ -45,7 +45,7 @@ export function ScenarioTabs() {
                       setEditingId(null);
                     }
                   }}
-                  className="bg-slate-900 text-white text-sm px-2 py-0.5 rounded outline-none w-40"
+                  className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2 py-0.5 rounded outline-none w-40"
                 />
                 <button
                   onClick={(e) => {
@@ -67,7 +67,7 @@ export function ScenarioTabs() {
                       setEditingId(sc.id);
                       setEditName(sc.name);
                     }}
-                    className="text-slate-400 hover:text-white"
+                    className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
                   >
                     <Pencil size={12} />
                   </button>
@@ -77,7 +77,7 @@ export function ScenarioTabs() {
                         e.stopPropagation();
                         deleteScenario(sc.id);
                       }}
-                      className="text-slate-400 hover:text-red-400"
+                      className="text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400"
                     >
                       <X size={14} />
                     </button>
@@ -103,13 +103,13 @@ export function ScenarioTabs() {
             }}
             onBlur={handleAdd}
             placeholder="Nome do cenário"
-            className="bg-slate-900 text-white text-sm px-2 py-0.5 rounded outline-none w-40"
+            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2 py-0.5 rounded outline-none w-40"
           />
         </div>
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="flex items-center gap-1 px-3 py-2 text-sm text-slate-400 hover:text-white rounded-t-lg hover:bg-slate-700/50 whitespace-nowrap"
+          className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
         >
           <Plus size={14} /> Novo
         </button>

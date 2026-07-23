@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Loader2, BarChart3 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
 import { ScenarioTabs } from '@/components/gantt/ScenarioTabs';
 import { Toolbar } from '@/components/gantt/Toolbar';
@@ -8,7 +8,6 @@ import { GanttChart as GanttLivro } from '@/components/gantt/GanttChart';
 import { Histograma } from '@/components/gantt/Histograma';
 import { parseDate, addDays, startOfWeek } from '@/lib/gantt/dates';
 import type { Granularidade } from '@/lib/gantt/histograma';
-import PlanningSwitcher from '@/components/PlanningSwitcher';
 
 export default function GanttChartPage() {
   const { loading, error, loadAll, atividades, equipes, activeScenarioId } = useGanttStore();
@@ -110,19 +109,7 @@ export default function GanttChartPage() {
 
   return (
     <div className="space-y-4">
-      <PlanningSwitcher />
-
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-blue-600 flex items-center justify-center">
-          <BarChart3 size={20} className="text-white" />
-        </div>
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Gantt Livre</h1>
-          <p className="text-sm text-gray-500">Planejamento visual de equipes e cronograma</p>
-        </div>
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden" style={{ height: 'calc(100vh - 220px)' }}>
+      <div className="bg-white dark:bg-slate-900 rounded-xl overflow-hidden" style={{ height: 'calc(100vh - 100px)' }}>
         <div className="h-full flex flex-col">
           <ScenarioTabs />
           <Toolbar

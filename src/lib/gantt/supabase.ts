@@ -1,9 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Reaproveita o client único do app (não cria um novo com createClient) — dois
+// clients com a mesma URL/chave disparam o aviso "Multiple GoTrueClient instances
+// detected" do Supabase Auth, por competirem pela mesma chave de storage.
+export { supabase } from '@/lib/supabase';
 
 export type Scenario = {
   id: string;

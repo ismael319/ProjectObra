@@ -17,30 +17,30 @@ export function Toolbar({ granularidade, onGranularidadeChange, onPrint, onExpor
   ];
 
   return (
-    <div className="flex items-center gap-1 px-3 py-2 bg-slate-800 border-b border-slate-700">
-      <button className="flex items-center gap-1.5 text-sm text-slate-200 hover:text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors">
+    <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+      <button className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors">
         <Calendar size={16} /> Cronograma
       </button>
-      <div className="w-px h-6 bg-slate-700" />
+      <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
       <button
         onClick={onPrint}
-        className="flex items-center gap-1.5 text-sm text-slate-200 hover:text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
       >
         <Printer size={16} /> Imprimir
       </button>
       <button
         onClick={onExportExcel}
-        className="flex items-center gap-1.5 text-sm text-slate-200 hover:text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
       >
         <FileSpreadsheet size={16} /> Excel
       </button>
       <button
         onClick={onImport}
-        className="flex items-center gap-1.5 text-sm text-slate-200 hover:text-white hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
       >
         <Upload size={16} /> Importar
       </button>
-      <div className="w-px h-6 bg-slate-700" />
+      <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
       <div className="flex items-center gap-1">
         {granOptions.map((opt) => {
           const Icon = opt.icon;
@@ -52,7 +52,7 @@ export function Toolbar({ granularidade, onGranularidadeChange, onPrint, onExpor
               className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md transition-colors ${
                 active
                   ? 'bg-blue-600 text-white'
-                  : 'text-slate-200 hover:text-white hover:bg-slate-700'
+                  : 'text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700'
               }`}
             >
               <Icon size={16} /> {opt.label}

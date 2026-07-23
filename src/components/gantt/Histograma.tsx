@@ -126,14 +126,14 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
   const unidade = modo === 'pessoas' ? 'pessoas' : 'unidades';
 
   return (
-    <div className="flex flex-col bg-slate-900 border-t-2 border-slate-600" style={{ height: 280 }}>
-      <div className="px-4 py-2 bg-slate-800 border-b border-slate-700 flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-white uppercase tracking-wide">Histograma</h3>
-        <div className="flex items-center bg-slate-900 rounded-lg border border-slate-600 ml-2">
+    <div className="flex flex-col bg-white dark:bg-slate-900 border-t-2 border-gray-200 dark:border-slate-600" style={{ height: 280 }}>
+      <div className="px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Histograma</h3>
+        <div className="flex items-center bg-white dark:bg-slate-900 rounded-lg border border-gray-300 dark:border-slate-600 ml-2">
           <button
             onClick={() => setModo('pessoas')}
             className={`flex items-center gap-1 px-3 py-1 text-xs rounded-l-lg transition-colors ${
-              modo === 'pessoas' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+              modo === 'pessoas' ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             <Users size={12} /> Pessoas
@@ -141,23 +141,23 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
           <button
             onClick={() => setModo('equipamentos')}
             className={`flex items-center gap-1 px-3 py-1 text-xs rounded-r-lg transition-colors ${
-              modo === 'equipamentos' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+              modo === 'equipamentos' ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             <Wrench size={12} /> Equipamentos
           </button>
         </div>
-        <span className="flex items-center gap-1 text-xs text-slate-400 ml-2">
-          <Ban size={12} className="text-red-400" /> Dias com parada destacados em vermelho
+        <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-400 ml-2">
+          <Ban size={12} className="text-red-500 dark:text-red-400" /> Dias com parada destacados em vermelho
         </span>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="shrink-0 bg-slate-900 border-r border-slate-700" style={{ width: LABEL_WIDTH }}>
+        <div className="shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700" style={{ width: LABEL_WIDTH }}>
           {labels.map((f) => (
             <div
               key={f}
-              className="flex items-center px-3 border-b border-slate-800 text-sm text-slate-200 truncate"
+              className="flex items-center px-3 border-b border-gray-100 dark:border-slate-800 text-sm text-gray-600 dark:text-slate-200 truncate"
               style={{ height: ROW_HEIGHT }}
               title={f}
             >
@@ -165,13 +165,13 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
             </div>
           ))}
           <div
-            className="flex items-center px-3 border-b-2 border-slate-600 text-sm font-bold text-white bg-slate-800"
+            className="flex items-center px-3 border-b-2 border-gray-200 dark:border-slate-600 text-sm font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-slate-800"
             style={{ height: ROW_HEIGHT }}
           >
             TOTAL GERAL
           </div>
           <div
-            className="flex items-center px-3 text-sm font-bold text-blue-300 bg-slate-800/50"
+            className="flex items-center px-3 text-sm font-bold text-blue-600 dark:text-blue-300 bg-gray-50/70 dark:bg-slate-800/50"
             style={{ height: BAR_MAX_HEIGHT }}
           >
             TOTAL / DIA
@@ -191,12 +191,12 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
                   return (
                     <div
                       key={i}
-                      className={`text-center text-xs flex items-center justify-center border-r border-slate-800 ${
+                      className={`text-center text-xs flex items-center justify-center border-r border-gray-100 dark:border-slate-800 ${
                         overCap
-                          ? 'bg-red-900/60 text-red-300 font-bold'
+                          ? 'bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 font-bold'
                           : isParada
-                          ? 'bg-red-950/40 text-slate-500'
-                          : 'text-slate-200'
+                          ? 'bg-red-50 dark:bg-red-950/40 text-gray-400 dark:text-slate-500'
+                          : 'text-gray-600 dark:text-slate-200'
                       }`}
                       style={{ width: DAY_WIDTH, height: ROW_HEIGHT }}
                     >
@@ -207,15 +207,15 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
               </div>
             ))}
 
-            <div className="flex border-b-2 border-slate-600 bg-slate-800/50" style={{ height: ROW_HEIGHT }}>
+            <div className="flex border-b-2 border-gray-200 dark:border-slate-600 bg-gray-50/70 dark:bg-slate-800/50" style={{ height: ROW_HEIGHT }}>
               {colValues.map((cv, i) => {
                 const iso = colData[i].iso;
                 const isParada = paradaSet.has(iso);
                 return (
                   <div
                     key={i}
-                    className={`text-center text-sm font-bold flex items-center justify-center border-r border-slate-700 ${
-                      isParada ? 'bg-red-950/50 text-red-400' : 'text-white'
+                    className={`text-center text-sm font-bold flex items-center justify-center border-r border-gray-200 dark:border-slate-700 ${
+                      isParada ? 'bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'
                     }`}
                     style={{ width: DAY_WIDTH, height: ROW_HEIGHT }}
                   >
@@ -225,7 +225,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
               })}
             </div>
 
-            <div className="flex items-end border-t border-slate-700" style={{ height: BAR_MAX_HEIGHT }}>
+            <div className="flex items-end border-t border-gray-200 dark:border-slate-700" style={{ height: BAR_MAX_HEIGHT }}>
               {colValues.map((cv, i) => {
                 const iso = colData[i].iso;
                 const isParada = paradaSet.has(iso);
@@ -233,8 +233,8 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
                 return (
                   <div
                     key={i}
-                    className={`flex items-end justify-center border-r border-slate-800 ${
-                      isParada ? 'bg-red-950/30' : ''
+                    className={`flex items-end justify-center border-r border-gray-100 dark:border-slate-800 ${
+                      isParada ? 'bg-red-50 dark:bg-red-950/30' : ''
                     }`}
                     style={{ width: DAY_WIDTH, height: BAR_MAX_HEIGHT }}
                   >

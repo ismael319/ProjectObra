@@ -67,3 +67,32 @@ DO $$ BEGIN
   CREATE POLICY "Allow all for authenticated" ON paradas FOR ALL USING (true);
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
+
+-- GRANTs — sem isso o Postgres nega o acesso ANTES de avaliar a política de RLS
+-- acima. As políticas "USING (true)" sozinhas não bastam; precisam de um GRANT de
+-- tabela pra cada papel. Faltava especificamente em "atividades" (causa do Gantt
+-- Livre "não funcionar": criar atividade parecia dar certo na tela, mas o insert
+-- falhava silenciosamente e nada era salvo — ao recarregar a página, sumia).
+GRANT SELECT, INSERT, UPDATE, DELETE ON scenarios TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON equipes TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON atividades TO anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON paradas TO anon, authenticated;
+
+-- ============ CORREÇÃO: "atividades" existia com um schema antigo ============
+-- A tabela já existia (criada antes com só id+nome), então o CREATE TABLE IF NOT
+-- EXISTS lá em cima não fez nada — faltavam as colunas abaixo. Idempotente: rodar
+-- de novo não tem efeito colateral.
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS scenario_id TEXT REFERENCES scenarios(id) ON DELETE CASCADE;
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS data_inicio DATE;
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS data_fim DATE;
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS equipes_alocadas TEXT[] DEFAULT '{}';
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS cor TEXT;
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS ordem INTEGER DEFAULT 0;
+ALTER TABLE atividades ADD COLUMN IF NOT EXISTS predecessoras JSONB DEFAULT '[]';
+
+-- Reforça GRANT + policy de "atividades" com DROP+CREATE (em vez do
+-- EXCEPTION WHEN duplicate_object de cima, que pode ter mascarado uma falha
+-- silenciosa na primeira tentativa) — garante que aplica de fato desta vez.
+DROP POLICY IF EXISTS "Allow all for authenticated" ON atividades;
+CREATE POLICY "Allow all for authenticated" ON atividades FOR ALL USING (true);
+GRANT SELECT, INSERT, UPDATE, DELETE ON atividades TO anon, authenticated;

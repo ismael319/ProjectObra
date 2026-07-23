@@ -251,42 +251,42 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   }, [selectingFor]);
 
   return (
-    <div className="flex flex-col h-full bg-slate-900">
+    <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {(adding || editing) && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-slate-800 border-b border-slate-700 flex-wrap">
+        <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-wrap">
           <input
             autoFocus
             placeholder="Nome da atividade"
             value={form.nome}
             onChange={(e) => setForm({ ...form, nome: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && (editing ? handleSaveEdit() : handleAddAtividade())}
-            className="bg-slate-900 text-white text-sm px-3 py-2 rounded-lg border border-slate-600 outline-none focus:border-blue-500 w-52"
+            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-52"
           />
           <div className="flex flex-col">
-            <label className="text-xs text-slate-500 mb-0.5">Início</label>
+            <label className="text-xs text-gray-500 dark:text-slate-500 mb-0.5">Início</label>
             <input
               type="date"
               value={form.dataInicio || toISODate(dataInicio)}
               onChange={(e) => setForm({ ...form, dataInicio: e.target.value })}
-              className="bg-slate-900 text-white text-sm px-2.5 py-2 rounded-lg border border-slate-600 outline-none focus:border-blue-500"
+              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
             />
           </div>
           <div className="flex flex-col">
-            <label className="text-xs text-slate-500 mb-0.5">Duração (dias)</label>
+            <label className="text-xs text-gray-500 dark:text-slate-500 mb-0.5">Duração (dias)</label>
             <input
               type="number"
               min="1"
               value={form.duracao}
               onChange={(e) => setForm({ ...form, duracao: parseInt(e.target.value) || 1 })}
-              className="bg-slate-900 text-white text-sm px-2.5 py-2 rounded-lg border border-slate-600 outline-none focus:border-blue-500 w-24"
+              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-24"
             />
           </div>
           <div className="flex flex-col">
-            <label className="text-xs text-slate-500 mb-0.5">Equipe</label>
+            <label className="text-xs text-gray-500 dark:text-slate-500 mb-0.5">Equipe</label>
             <select
               value={form.equipes[0] || ''}
               onChange={(e) => setForm({ ...form, equipes: e.target.value ? [e.target.value] : [] })}
-              className="bg-slate-900 text-white text-sm px-2.5 py-2 rounded-lg border border-slate-600 outline-none focus:border-blue-500"
+              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
             >
               <option value="">Selecione...</option>
               {scenarioEquipes.map((eq) => (
@@ -304,16 +304,16 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             >
               {editing ? 'Salvar' : 'Adicionar'}
             </button>
-            <button onClick={() => { setAdding(false); setEditing(null); }} className="bg-slate-700 hover:bg-slate-600 text-white text-sm px-4 py-2 rounded-lg transition-colors">
+            <button onClick={() => { setAdding(false); setEditing(null); }} className="bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white text-sm px-4 py-2 rounded-lg transition-colors">
               Cancelar
             </button>
           </div>
         </div>
       )}
 
-      <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700">
+      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold text-white uppercase tracking-wide">Gantt Livre</h3>
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Gantt Livre</h3>
         </div>
         <button
           onClick={() => setAdding(true)}
@@ -324,35 +324,35 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       </div>
 
       {selectingFor && (
-        <div className="flex items-center gap-2 px-4 py-2 bg-blue-900/60 border-b border-blue-700">
+        <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/60 border-b border-blue-200 dark:border-blue-700">
           {!selectingFor.targetId ? (
-            <span className="text-xs text-blue-200">
+            <span className="text-xs text-blue-700 dark:text-blue-200">
               {selectingFor.mode === 'predecessora'
                 ? `Clique na barra que será PRECESSORA de "${scenarioAtividades.find((a) => a.id === selectingFor.sourceId)?.nome}"`
                 : `Clique na barra que será SUCESSORA de "${scenarioAtividades.find((a) => a.id === selectingFor.sourceId)?.nome}"`}
             </span>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-xs text-blue-200">Latência (dias):</span>
+              <span className="text-xs text-blue-700 dark:text-blue-200">Latência (dias):</span>
               <input
                 type="number"
                 value={selectingFor.lag}
                 onChange={(e) => setSelectingFor({ ...selectingFor, lag: parseInt(e.target.value) || 0 })}
                 onKeyDown={(e) => e.key === 'Enter' && handleConfirmLag()}
-                className="w-16 bg-slate-800 text-white text-xs px-2 py-1 rounded border border-blue-500 outline-none focus:border-blue-400"
+                className="w-16 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-xs px-2 py-1 rounded border border-blue-400 dark:border-blue-500 outline-none focus:border-blue-500 dark:focus:border-blue-400"
                 autoFocus
               />
               <button onClick={handleConfirmLag} className="text-xs bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">OK</button>
-              <button onClick={() => setSelectingFor(null)} className="text-xs bg-slate-700 hover:bg-slate-600 text-white px-3 py-1 rounded">Cancelar</button>
+              <button onClick={() => setSelectingFor(null)} className="text-xs bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white px-3 py-1 rounded">Cancelar</button>
             </div>
           )}
-          <span className="text-xs text-blue-400 ml-auto">ESC para cancelar</span>
+          <span className="text-xs text-blue-600 dark:text-blue-400 ml-auto">ESC para cancelar</span>
         </div>
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="shrink-0 bg-slate-900 border-r border-slate-700" style={{ width: LABEL_WIDTH }}>
-          <div className="border-b border-slate-700" style={{ height: HEADER_HEIGHT }} />
+        <div className="shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700" style={{ width: LABEL_WIDTH }}>
+          <div className="border-b border-gray-200 dark:border-slate-700" style={{ height: HEADER_HEIGHT }} />
           {scenarioAtividades.map((atv) => {
             const equipesNomes = atv.equipes_alocadas
               .map((eqId) => scenarioEquipes.find((e) => e.id === eqId)?.nome)
@@ -361,16 +361,16 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             return (
               <div
                 key={atv.id}
-                className="group flex items-center justify-between px-3 border-b border-slate-800 hover:bg-slate-800/30"
+                className="group flex items-center justify-between px-3 border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30"
                 style={{ height: ROW_HEIGHT }}
               >
                 <div className="min-w-0">
-                  <p className="text-sm text-white truncate">{atv.nome}</p>
-                  {equipesNomes && <p className="text-xs text-slate-500 truncate">{equipesNomes}</p>}
+                  <p className="text-sm text-gray-900 dark:text-white truncate">{atv.nome}</p>
+                  {equipesNomes && <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
                 </div>
                 <button
                   onClick={() => deleteAtividade(atv.id)}
-                  className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-red-400 ml-2 shrink-0"
+                  className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 ml-2 shrink-0"
                 >
                   <Trash2 size={12} />
                 </button>
@@ -381,13 +381,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
 
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-auto">
           <div style={{ width: totalWidth, position: 'relative' }}>
-            <div className="sticky top-0 z-20 bg-slate-800 border-b border-slate-600" style={{ height: HEADER_HEIGHT }}>
+            <div className="sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-600" style={{ height: HEADER_HEIGHT }}>
               <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} />
             </div>
 
             {scenarioAtividades.length === 0 ? (
               <div className="flex items-center justify-center" style={{ height: 200 }}>
-                <p className="text-slate-500 text-sm">Nenhuma atividade. Clique em "+ Nova Atividade".</p>
+                <p className="text-gray-400 dark:text-slate-500 text-sm">Nenhuma atividade. Clique em "+ Nova Atividade".</p>
               </div>
             ) : (
               <>
@@ -488,7 +488,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                             x={midX}
                             y={Math.min(y1, y2) - 4}
                             textAnchor="middle"
-                            className="fill-slate-400 text-[9px]"
+                            className="fill-gray-500 dark:fill-slate-400 text-[9px]"
                           >
                             +{dep.lag}d
                           </text>
@@ -563,22 +563,22 @@ function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; g
           {weeks.map((w, i) => (
             <div
               key={i}
-              className="text-xs text-slate-300 text-center border-r border-slate-700 py-1.5 font-medium"
+              className="text-xs text-gray-500 dark:text-slate-300 text-center border-r border-gray-200 dark:border-slate-700 py-1.5 font-medium"
               style={{ width: w.span * DAY_WIDTH }}
             >
               {w.label}
             </div>
           ))}
         </div>
-        <div className="flex border-t border-slate-700">
+        <div className="flex border-t border-gray-200 dark:border-slate-700">
           {columns.map((c, i) => {
             const iso = toISODate(c.date);
             const isParada = paradaSet.has(iso);
             return (
               <div
                 key={i}
-                className={`text-xs text-center border-r border-slate-800 py-1 flex items-center justify-center ${
-                  isParada ? 'bg-red-950/80 text-red-400 font-bold' : 'text-slate-400'
+                className={`text-xs text-center border-r border-gray-100 dark:border-slate-800 py-1 flex items-center justify-center ${
+                  isParada ? 'bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 font-bold' : 'text-gray-400 dark:text-slate-400'
                 }`}
                 style={{ width: DAY_WIDTH }}
               >
@@ -595,7 +595,7 @@ function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; g
       {columns.map((c, i) => (
         <div
           key={i}
-          className="text-xs text-slate-300 text-center border-r border-slate-700 py-3 font-medium"
+          className="text-xs text-gray-500 dark:text-slate-300 text-center border-r border-gray-200 dark:border-slate-700 py-3 font-medium"
           style={{ width: DAY_WIDTH }}
         >
           {c.label}
@@ -616,12 +616,12 @@ function GridRow({ columns, paradaSet, onToggleParada }: { columns: Column[]; pa
           <div
             key={i}
             onClick={() => onToggleParada(iso)}
-            className={`border-r border-slate-800 cursor-pointer transition-colors ${
+            className={`border-r border-gray-100 dark:border-slate-800 cursor-pointer transition-colors ${
               isParada
-                ? 'bg-red-950/70 hover:bg-red-900/70'
+                ? 'bg-red-100 hover:bg-red-200 dark:bg-red-950/70 dark:hover:bg-red-900/70'
                 : isWeekend
-                ? 'bg-slate-800/40 hover:bg-slate-700/40'
-                : 'hover:bg-slate-700/30'
+                ? 'bg-gray-50 hover:bg-gray-100 dark:bg-slate-800/40 dark:hover:bg-slate-700/40'
+                : 'hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
             style={{ width: DAY_WIDTH, height: ROW_HEIGHT }}
             title={isParada ? 'Dia inativo (parada) — clique para reativar' : 'Clique para marcar como parada'}

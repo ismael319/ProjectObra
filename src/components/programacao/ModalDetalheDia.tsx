@@ -26,6 +26,26 @@ interface Props {
 
 const EXTRAS_GROUP = '__extras__'
 
+// Cor do card inteiro conforme o status vira realidade — status tem prioridade sobre
+// "extra" (uma extra marcada como concluída fica verde, não azul); só quando ainda
+// está pendente é que "extra" ganha uma cor própria (azul) pra se distinguir de uma
+// pendente comum (cinza neutro).
+function cardColorClasses(activity: ActivityLike): string {
+  if (activity.status === 'concluida') {
+    return 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/15'
+  }
+  if (activity.status === 'parcial') {
+    return 'border-yellow-200 dark:border-yellow-800 bg-yellow-50 dark:bg-yellow-900/15'
+  }
+  if (activity.status === 'nao_concluida') {
+    return 'border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/15'
+  }
+  if (activity.is_extra) {
+    return 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/15'
+  }
+  return 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750'
+}
+
 function statusCounts(activities: ActivityLike[]) {
   return {
     concluida: activities.filter((a) => a.status === 'concluida').length,
@@ -213,7 +233,7 @@ function ActivityRow({
   const canDelete = !weekConsolidated || activity.is_extra
 
   return (
-    <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750 p-3">
+    <div className={`rounded-md border p-3 transition-colors ${cardColorClasses(activity)}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
