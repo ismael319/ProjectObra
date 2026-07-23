@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, Clock, Plus, Search, X } from 'lucide-react'
 import type { WBSActivity } from '@/lib/xml-parser'
 
 export interface ColumnFilterState {
@@ -15,6 +15,53 @@ export interface ColumnFieldDef {
 }
 
 const EMPTY_VALUE = '__vazio__'
+
+// Histórico de filtros (coluna+valores) aplicados, pra fixar os mais usados no topo
+// da lista de colunas — global (não por cronograma/projeto), guardado no navegador.
+const HISTORY_KEY = 'obracontrol_column_filter_history'
+const MAX_HISTORY_ENTRIES = 50
+const TOP_USED_COUNT = 5
+
+interface FilterHistoryEntry {
+  key: string
+  label: string
+  values: string[]
+  count: number
+}
+
+function historySignature(key: string, values: string[]): string {
+  return `${key}::${[...values].sort().join('|')}`
+}
+
+function loadHistory(): FilterHistoryEntry[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (raw) return JSON.parse(raw)
+  } catch { /* */ }
+  return []
+}
+
+function recordFilterUsage(key: string, label: string, values: string[]): void {
+  const history = loadHistory()
+  const sig = historySignature(key, values)
+  const existing = history.find((h) => historySignature(h.key, h.values) === sig)
+  if (existing) {
+    existing.count++
+    existing.label = label
+  } else {
+    history.push({ key, label, values, count: 1 })
+  }
+  // Limita o histórico salvo pra não crescer sem parar — mantém só as entradas
+  // mais relevantes (mais usadas primeiro).
+  history.sort((a, b) => b.count - a.count)
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY_ENTRIES)))
+  } catch { /* */ }
+}
+
+function getTopUsedFilters(): FilterHistoryEntry[] {
+  return loadHistory().sort((a, b) => b.count - a.count).slice(0, TOP_USED_COUNT)
+}
 
 const BUILTIN_COLUMNS: { key: string; label: string }[] = [
   { key: 'discipline', label: 'Disciplina' },
@@ -73,6 +120,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
   const [columnSearch, setColumnSearch] = useState('')
   const [pendingKey, setPendingKey] = useState<string | null>(null)
   const [pendingValues, setPendingValues] = useState<Set<string>>(new Set())
+  const [topUsed, setTopUsed] = useState<FilterHistoryEntry[]>(() => getTopUsedFilters())
 
   const allColumns = useMemo(() => {
     const names = new Set<string>()
@@ -131,8 +179,19 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
   const confirmAdd = () => {
     if (!pendingKey || pendingValues.size === 0) return
     const label = allColumns.find((c) => c.key === pendingKey)?.label || pendingKey
-    const next = [...filters.filter((f) => f.key !== pendingKey), { key: pendingKey, label, values: Array.from(pendingValues) }]
+    const values = Array.from(pendingValues)
+    const next = [...filters.filter((f) => f.key !== pendingKey), { key: pendingKey, label, values }]
     onChange(next)
+    recordFilterUsage(pendingKey, label, values)
+    setTopUsed(getTopUsedFilters())
+    resetAdd()
+  }
+
+  const applyTopUsed = (entry: FilterHistoryEntry) => {
+    const next = [...filters.filter((f) => f.key !== entry.key), { key: entry.key, label: entry.label, values: entry.values }]
+    onChange(next)
+    recordFilterUsage(entry.key, entry.label, entry.values)
+    setTopUsed(getTopUsedFilters())
     resetAdd()
   }
 
@@ -177,6 +236,27 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
         <div className="border border-gray-200 dark:border-gray-700 rounded-lg p-2">
           {step === 'column' ? (
             <>
+              {topUsed.length > 0 && !columnSearch && (
+                <div className="mb-2 pb-2 border-b border-gray-100 dark:border-gray-700">
+                  <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1">
+                    <Clock size={11} /> Mais usados
+                  </div>
+                  <div className="space-y-0.5">
+                    {topUsed.map((entry) => (
+                      <button
+                        key={historySignature(entry.key, entry.values)}
+                        onClick={() => applyTopUsed(entry)}
+                        className="w-full text-left text-xs px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-700/50 text-gray-700 dark:text-gray-200"
+                      >
+                        <span className="font-medium">{entry.label}:</span>{' '}
+                        <span className="text-gray-500 dark:text-gray-400 truncate">
+                          {entry.values.map((v) => (v === EMPTY_VALUE ? '(vazio)' : v)).join(', ')}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <div className="relative mb-2">
                 <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
                 <input

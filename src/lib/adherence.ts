@@ -18,6 +18,8 @@ export interface ActivityLike {
   observation: string | null;
   /** Origem da atividade: undefined=programação, nome do cronograma=importada do cronograma */
   source?: string;
+  /** Nível 2/3 da EDT do cronograma de origem (ex.: "GALPÃO / COBERTURA") — só em atividades importadas */
+  areaPath?: string | null;
 }
 
 export interface WeekIndicators {

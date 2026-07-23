@@ -1,5 +1,5 @@
 import type { CronogramaInfo } from '@/lib/project-store'
-import type { ActivityLike, ActivityStatus } from '@/lib/adherence'
+import type { BaselineData } from '@/lib/xml-parser'
 
 export interface WeekActivity {
   cronogramaId: string
@@ -12,6 +12,16 @@ export interface WeekActivity {
   start: Date
   finish: Date
   percentComplete: number
+  discipline: string
+  area: string
+  // Nome dos níveis 2 e 3 da EDT (ex.: "GALPÃO DE BIOMASSA / COBERTURA") — usado como
+  // rótulo de "área" na janela de importação, distinto do campo `area` (texto livre
+  // do MS Project, normalmente vazio).
+  areaPath: string
+  responsible: string
+  // Índice 0=BL0, 1=BL1, ... 10=BL10 — a linha de base a considerar é escolhida na
+  // janela de importação (afeta o cálculo de atraso), não na busca em si.
+  baselines: BaselineData[]
 }
 
 export function findActivitiesWithWorkInWeek(
@@ -28,6 +38,19 @@ export function findActivitiesWithWorkInWeek(
     const weekStartMs = weekStart.getTime()
     const weekEndMs = weekEnd.getTime()
 
+    // WBS → nome, pra resolver os ancestrais de nível 2/3 de cada tarefa (a EDT em si
+    // já identifica os ancestrais pelo prefixo — "1.2.13.3" tem nível 2 = "1.2" e
+    // nível 3 = "1.2.13").
+    const wbsToName = new Map<string, string>()
+    for (const a of activities) wbsToName.set(a.wbs, a.name)
+
+    const getAreaPath = (wbs: string): string => {
+      const parts = wbs.split('.')
+      const level2 = parts.length >= 2 ? wbsToName.get(parts.slice(0, 2).join('.')) : undefined
+      const level3 = parts.length >= 3 ? wbsToName.get(parts.slice(0, 3).join('.')) : undefined
+      return [level2, level3].filter(Boolean).join(' / ')
+    }
+
     for (const act of activities) {
       if (act.isSummary || act.isMilestone) continue
 
@@ -40,6 +63,12 @@ export function findActivitiesWithWorkInWeek(
       const overlaps = actStartMs <= weekEndMs && actFinishMs >= weekStartMs
       if (!overlaps) continue
 
+      // Avanço = % de TRABALHO concluído (actualWork/work), não a duração decorrida —
+      // act.percentComplete no MSPDI pode vir de <PercentComplete> (baseado em
+      // duração), que diverge do avanço real quando o trabalho não é uniforme ao
+      // longo da atividade.
+      const percentComplete = (act.actualWork ?? 0) / work * 100
+
       results.push({
         cronogramaId: c.id,
         cronogramaNome: c.nome,
@@ -50,7 +79,12 @@ export function findActivitiesWithWorkInWeek(
         work,
         start: act.start,
         finish: act.finish,
-        percentComplete: act.percentComplete,
+        percentComplete,
+        discipline: act.discipline || '',
+        area: act.area || '',
+        areaPath: getAreaPath(act.wbs),
+        responsible: act.responsible || '',
+        baselines: act.baselines,
       })
     }
   }
@@ -59,48 +93,3 @@ export function findActivitiesWithWorkInWeek(
   return results
 }
 
-export function toActivityLike(wa: WeekActivity): ActivityLike {
-  return {
-    id: `crono-${wa.cronogramaId}-${wa.taskUid}`,
-    name: wa.taskName,
-    company: null,
-    discipline: null,
-    area: null,
-    stage: wa.wbs,
-    foreman: null,
-    planned_date: '',
-    planned_pct: Math.round(wa.percentComplete),
-    status: 'pendente' as ActivityStatus,
-    is_extra: false,
-    observation: null,
-    source: wa.cronogramaNome,
-  }
-}
-
-/** Distribui atividades do cronograma para cada dia da semana que sobrepõe seu período. */
-export function distributeToDays(
-  activities: WeekActivity[],
-  days: string[],
-): Map<string, ActivityLike[]> {
-  const map = new Map<string, ActivityLike[]>()
-  for (const d of days) map.set(d, [])
-
-  for (const wa of activities) {
-    const actStart = wa.start.getTime()
-    const actEnd = wa.finish.getTime()
-
-    for (const d of days) {
-      const dayDate = new Date(d + 'T00:00:00')
-      const dayStart = dayDate.getTime()
-      const dayEnd = dayStart + 86400000 - 1
-
-      if (actStart <= dayEnd && actEnd >= dayStart) {
-        const converted = toActivityLike(wa)
-        converted.planned_date = d
-        map.get(d)!.push(converted)
-      }
-    }
-  }
-
-  return map
-}

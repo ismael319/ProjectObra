@@ -110,12 +110,19 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
 
   const partialWeight = setting && typeof setting.value === 'number' ? setting.value : 0.5
 
+  // Atividades importadas (is_extra=false) reaproveitam as colunas company/area pra
+  // guardar o nome do cronograma de origem e a área (nível 2/3 da EDT) — não existe
+  // coluna dedicada pra isso no banco, e criar uma exigiria migração. Como só
+  // extras manuais preenchem company/area "de verdade", a leitura abaixo separa os
+  // dois sentidos: pra atividade importada, company/area viram source/areaPath (uso
+  // interno) e ficam null nos campos originais (evita mostrar "Empresa: <cronograma>"
+  // na tela).
   const mappedActivities: ActivityLike[] = (activities ?? []).map((a: ActivityRow) => ({
     id: a.id,
     name: a.name,
-    company: a.company,
+    company: a.is_extra ? a.company : null,
     discipline: a.discipline,
-    area: a.area,
+    area: a.is_extra ? a.area : null,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -123,16 +130,29 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
+    source: a.is_extra ? undefined : (a.company ?? undefined),
+    areaPath: a.is_extra ? null : a.area,
   }))
 
   return { week, activities: mappedActivities, partialWeight }
 }
 
-// Consolidar semana
-export async function consolidateWeek(weekId: string): Promise<void> {
+// Bloquear semana (reaproveita o status "consolidado" do banco — trocar o enum
+// exigiria migração; só o rótulo na UI virou "Bloqueada")
+export async function lockWeek(weekId: string): Promise<void> {
   const { error } = await supabase
     .from('weeks')
     .update({ status: 'consolidado', consolidated_at: new Date().toISOString() })
+    .eq('id', weekId)
+
+  if (error) throw new Error(error.message)
+}
+
+// Desbloquear semana — volta pro estado editável
+export async function unlockWeek(weekId: string): Promise<void> {
+  const { error } = await supabase
+    .from('weeks')
+    .update({ status: 'rascunho', consolidated_at: null })
     .eq('id', weekId)
 
   if (error) throw new Error(error.message)
@@ -157,8 +177,19 @@ export async function deleteActivity(activityId: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-// Adicionar atividade extra
-export async function addExtraActivity(payload: {
+// Limpar semana — remove TODAS as atividades (extras e importadas) da semana
+export async function clearWeekActivities(weekId: string): Promise<void> {
+  const { error } = await supabase.from('activities').delete().eq('week_id', weekId)
+  if (error) throw new Error(error.message)
+}
+
+// Limpar dia — remove TODAS as atividades (extras e importadas) de um dia específico
+export async function clearDayActivities(weekId: string, plannedDate: string): Promise<void> {
+  const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('planned_date', plannedDate)
+  if (error) throw new Error(error.message)
+}
+
+export interface NewActivityPayload {
   weekId: string
   planned_date: string
   name: string
@@ -167,20 +198,46 @@ export async function addExtraActivity(payload: {
   area?: string | null
   stage?: string | null
   foreman?: string | null
-}): Promise<void> {
-  const { error } = await supabase.from('activities').insert({
-    week_id: payload.weekId,
-    name: payload.name,
-    planned_date: payload.planned_date,
-    is_extra: true,
-    company: payload.company ?? null,
-    discipline: payload.discipline ?? null,
-    area: payload.area ?? null,
-    stage: payload.stage ?? null,
-    foreman: payload.foreman ?? null,
-    planned_pct: 100,
+  observation?: string | null
+  isExtra?: boolean
+  sourceCronograma?: string | null
+  areaPath?: string | null
+}
+
+// Adicionar atividade extra (ou, com isExtra=false, uma atividade "oficial" vinda da
+// importação do cronograma — distinção que a semana bloqueada usa pra saber o que
+// pode continuar sendo adicionado/removido mesmo bloqueada: só as extras de verdade)
+export async function addExtraActivity(payload: NewActivityPayload): Promise<void> {
+  return addActivitiesBulk([payload])
+}
+
+// Inserir várias atividades numa única chamada — usado na importação, onde uma
+// mesma atividade do cronograma pode gerar um registro por dia da semana que ela
+// sobrepõe (a iniciar/em andamento/a concluir), em vez de um único dia.
+export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise<void> {
+  if (payloads.length === 0) return
+
+  const rows = payloads.map((payload) => {
+    const isExtra = payload.isExtra ?? true
+    return {
+      week_id: payload.weekId,
+      name: payload.name,
+      planned_date: payload.planned_date,
+      is_extra: isExtra,
+      // Atividade importada (isExtra=false): reaproveita company/area pra guardar o
+      // cronograma de origem e a área (nível 2/3) — sem coluna dedicada no banco (ver
+      // comentário em getWeek). Extra manual: usa os campos como o usuário digitou.
+      company: isExtra ? (payload.company ?? null) : (payload.sourceCronograma ?? null),
+      discipline: payload.discipline ?? null,
+      area: isExtra ? (payload.area ?? null) : (payload.areaPath ?? null),
+      stage: payload.stage ?? null,
+      foreman: payload.foreman ?? null,
+      observation: payload.observation ?? null,
+      planned_pct: 100,
+    }
   })
 
+  const { error } = await supabase.from('activities').insert(rows)
   if (error) throw new Error(error.message)
 }
 

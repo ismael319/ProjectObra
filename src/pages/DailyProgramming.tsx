@@ -7,19 +7,22 @@ import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parse
 import { computeIndicators, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import {
   getWeek,
-  consolidateWeek,
+  lockWeek,
+  unlockWeek,
   setActivityStatus,
   deleteActivity,
   addExtraActivity,
   mergeExcel,
+  clearWeekActivities,
+  clearDayActivities,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
-import { findActivitiesWithWorkInWeek, distributeToDays, type WeekActivity } from '@/lib/week-activities'
+import { findActivitiesWithWorkInWeek, type WeekActivity } from '@/lib/week-activities'
 
 import WeekBar from '@/components/programacao/WeekBar'
 import CardDia from '@/components/programacao/CardDia'
 import ModalDetalheDia from '@/components/programacao/ModalDetalheDia'
-import ModalAtividadesSemana from '@/components/programacao/ModalAtividadesSemana'
+import ModalImportarAtividades from '@/components/programacao/ModalImportarAtividades'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
 
@@ -39,6 +42,10 @@ export default function DailyProgramming() {
   const [showWeekActivities, setShowWeekActivities] = useState(false)
   const [weekActivities, setWeekActivities] = useState<WeekActivity[]>([])
   const [loadingWeekActivities, setLoadingWeekActivities] = useState(false)
+  const [showDayImport, setShowDayImport] = useState(false)
+  const [dayImportDate, setDayImportDate] = useState<string | null>(null)
+  const [dayImportActivities, setDayImportActivities] = useState<WeekActivity[]>([])
+  const [loadingDayImport, setLoadingDayImport] = useState(false)
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -85,21 +92,21 @@ export default function DailyProgramming() {
     return m
   }, [days, activities])
 
-  const cronogramaByDate = useMemo(() => {
-    if (weekActivities.length === 0 || days.length === 0) return null
-    return distributeToDays(weekActivities, days)
-  }, [weekActivities, days])
-
-  const mergedByDate = useMemo(() => {
-    if (!cronogramaByDate) return activitiesByDate
-    const m = new Map<string, ActivityLike[]>()
-    for (const d of days) {
-      const dbActs = activitiesByDate.get(d) ?? []
-      const crActs = cronogramaByDate.get(d) ?? []
-      m.set(d, [...dbActs, ...crActs])
-    }
-    return m
-  }, [activitiesByDate, cronogramaByDate, days])
+  // Cronogramas ativos no formato que o ColumnValueFilter (mesmo componente da Curva
+  // S) e o cálculo de exclusão por coluna esperam — inclui também os índices de LB
+  // (0-10) disponíveis EM CADA cronograma, já que cada um pode ter baselines
+  // diferentes e a seleção de LB na janela de importação é por cronograma.
+  const importSources = useMemo(() => {
+    return (currentProject?.cronogramas || [])
+      .filter((c) => c.ativo && c.dados)
+      .map((c) => ({
+        id: c.id,
+        nome: c.nome,
+        activities: c.dados!.activities,
+        customFieldDefs: c.dados!.customFieldDefs || [],
+        availableBLIndices: c.dados!.baselines.filter((bl) => bl.available).map((bl) => bl.index).sort((a, b) => a - b),
+      }))
+  }, [currentProject])
 
   const handleSearchWeekActivities = () => {
     if (!currentProject?.cronogramas?.length) {
@@ -124,6 +131,34 @@ export default function DailyProgramming() {
       toast.error(msg)
     } finally {
       setLoadingWeekActivities(false)
+    }
+  }
+
+  // Mesma busca de "Importar atividades", mas escopada a um único dia — pro caso de
+  // precisar adicionar uma tarefa do cronograma num dia que normalmente não teria
+  // (ex.: domingo). O intervalo vai até o INÍCIO do dia seguinte (não até a
+  // meia-noite do próprio dia), senão atividades que começam depois de 00h no dia
+  // escolhido ficariam de fora da sobreposição.
+  const handleSearchDayActivities = (date: string) => {
+    if (!currentProject?.cronogramas?.length) {
+      toast.warning('Nenhum cronograma carregado no projeto')
+      return
+    }
+
+    setDayImportDate(date)
+    setLoadingDayImport(true)
+    setShowDayImport(true)
+
+    try {
+      const dayStart = parseISODateStr(date)
+      const dayEnd = addDays(dayStart, 1)
+      const results = findActivitiesWithWorkInWeek(currentProject.cronogramas, dayStart, dayEnd)
+      setDayImportActivities(results)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao buscar atividades'
+      toast.error(msg)
+    } finally {
+      setLoadingDayImport(false)
     }
   }
 
@@ -185,14 +220,52 @@ export default function DailyProgramming() {
     }
   }
 
-  const handleConsolidate = async () => {
+  const handleLock = async () => {
     if (!weekData?.week) return
     try {
-      await consolidateWeek(weekData.week.id)
-      toast.success('Semana consolidada')
+      await lockWeek(weekData.week.id)
+      toast.success('Semana bloqueada')
       fetchData()
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Erro ao consolidar'
+      const msg = e instanceof Error ? e.message : 'Erro ao bloquear semana'
+      toast.error(msg)
+    }
+  }
+
+  const handleUnlock = async () => {
+    if (!weekData?.week) return
+    try {
+      await unlockWeek(weekData.week.id)
+      toast.success('Semana desbloqueada')
+      fetchData()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao desbloquear semana'
+      toast.error(msg)
+    }
+  }
+
+  const handleClearWeek = async () => {
+    if (!weekData?.week) return
+    if (!confirm('Remover todas as atividades desta semana (inclusive as extras)? Esta ação não pode ser desfeita.')) return
+    try {
+      await clearWeekActivities(weekData.week.id)
+      toast.success('Semana limpa')
+      fetchData()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao limpar semana'
+      toast.error(msg)
+    }
+  }
+
+  const handleClearDay = async (date: string) => {
+    if (!weekData?.week) return
+    if (!confirm(`Remover todas as atividades de ${date} (inclusive as extras)? Esta ação não pode ser desfeita.`)) return
+    try {
+      await clearDayActivities(weekData.week.id, date)
+      toast.success('Dia limpo')
+      fetchData()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao limpar o dia'
       toast.error(msg)
     }
   }
@@ -271,13 +344,15 @@ export default function DailyProgramming() {
         onToday={() => goto(cur.year, cur.week)}
         onExportExcel={handleExportExcel}
         onImportExcel={handleImportExcel}
-        onConsolidate={handleConsolidate}
-        onSearchWeekActivities={handleSearchWeekActivities}
+        onLock={handleLock}
+        onUnlock={handleUnlock}
+        onImportActivities={handleSearchWeekActivities}
+        onClearWeek={handleClearWeek}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
         {days.map((d) => (
-          <CardDia key={d} date={d} activities={mergedByDate.get(d) ?? []} onOpen={setOpenDate} />
+          <CardDia key={d} date={d} activities={activitiesByDate.get(d) ?? []} onOpen={setOpenDate} />
         ))}
       </div>
 
@@ -299,18 +374,35 @@ export default function DailyProgramming() {
         open={!!openDate}
         onOpenChange={(v) => !v && setOpenDate(null)}
         date={openDate}
-        activities={openDate ? (mergedByDate.get(openDate) ?? []) : []}
+        activities={openDate ? (activitiesByDate.get(openDate) ?? []) : []}
         weekConsolidated={weekData.week.status === 'consolidado'}
         onSetStatus={handleSetStatus}
         onDelete={handleDelete}
         onAddExtra={handleAddExtra}
+        onClearDay={() => openDate && handleClearDay(openDate)}
+        onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
       />
 
-      <ModalAtividadesSemana
+      <ModalImportarAtividades
         open={showWeekActivities}
         onOpenChange={setShowWeekActivities}
         activities={weekActivities}
         loading={loadingWeekActivities}
+        sources={importSources}
+        weekId={weekData.week.id}
+        weekDays={days}
+        onImported={fetchData}
+      />
+
+      <ModalImportarAtividades
+        open={showDayImport}
+        onOpenChange={setShowDayImport}
+        activities={dayImportActivities}
+        loading={loadingDayImport}
+        sources={importSources}
+        weekId={weekData.week.id}
+        weekDays={dayImportDate ? [dayImportDate] : []}
+        onImported={fetchData}
       />
     </div>
   )

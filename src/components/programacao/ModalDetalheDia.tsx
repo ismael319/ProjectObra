@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { CheckCircle2, MinusCircle, XCircle, Trash2, Plus, X } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download } from 'lucide-react'
 import type { ActivityLike, ActivityStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
 
@@ -20,6 +20,19 @@ interface Props {
     stage: string | null
     foreman: string | null
   }) => Promise<void>
+  onClearDay: () => void
+  onAddFromCronograma: () => void
+}
+
+const EXTRAS_GROUP = '__extras__'
+
+function statusCounts(activities: ActivityLike[]) {
+  return {
+    concluida: activities.filter((a) => a.status === 'concluida').length,
+    parcial: activities.filter((a) => a.status === 'parcial').length,
+    nao_concluida: activities.filter((a) => a.status === 'nao_concluida').length,
+    pendente: activities.filter((a) => a.status === 'pendente').length,
+  }
 }
 
 export default function ModalDetalheDia({
@@ -31,8 +44,35 @@ export default function ModalDetalheDia({
   onSetStatus,
   onDelete,
   onAddExtra,
+  onClearDay,
+  onAddFromCronograma,
 }: Props) {
   const [showExtra, setShowExtra] = useState(false)
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  const groups = useMemo(() => {
+    const map = new Map<string, ActivityLike[]>()
+    for (const a of activities) {
+      const key = a.source || EXTRAS_GROUP
+      if (!map.has(key)) map.set(key, [])
+      map.get(key)!.push(a)
+    }
+    // Cronogramas em ordem alfabética primeiro, "Atividades Extras" sempre por último.
+    return Array.from(map.entries()).sort(([a], [b]) => {
+      if (a === EXTRAS_GROUP) return 1
+      if (b === EXTRAS_GROUP) return -1
+      return a.localeCompare(b)
+    })
+  }, [activities])
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   if (!open) return null
 
@@ -41,32 +81,86 @@ export default function ModalDetalheDia({
       <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px]" onClick={() => onOpenChange(false)} />
       <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-            Atividades do dia {date ? formatShortDate(parseISODateStr(date)) : ''}
-          </h2>
-          <button
-            onClick={() => onOpenChange(false)}
-            className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition"
-          >
-            <X size={20} />
-          </button>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              Atividades do dia {date ? formatShortDate(parseISODateStr(date)) : ''}
+            </h2>
+            {activities.length > 0 && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                {activities.length} {activities.length === 1 ? 'atividade' : 'atividades'} · {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            {activities.length > 0 && (
+              <button
+                onClick={onClearDay}
+                disabled={weekConsolidated}
+                title={weekConsolidated ? 'Desbloqueie a semana para limpar o dia' : 'Remover todas as atividades deste dia'}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <Eraser size={13} /> Limpar dia
+              </button>
+            )}
+            <button
+              onClick={() => onOpenChange(false)}
+              className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-2">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {activities.length === 0 && (
             <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
               Nenhuma atividade programada para este dia.
             </p>
           )}
-          {activities.map((a) => (
-            <ActivityRow
-              key={a.id}
-              activity={a}
-              weekConsolidated={weekConsolidated}
-              onSetStatus={onSetStatus}
-              onDelete={onDelete}
-            />
-          ))}
+          {groups.map(([groupKey, groupActivities]) => {
+            const isExtrasGroup = groupKey === EXTRAS_GROUP
+            const isCollapsed = collapsedGroups.has(groupKey)
+            const counts = statusCounts(groupActivities)
+            return (
+              <div key={groupKey} className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden">
+                <button
+                  onClick={() => toggleGroup(groupKey)}
+                  className={`w-full flex items-center gap-2 px-3 py-2 text-left transition ${
+                    isExtrasGroup
+                      ? 'bg-sky-50/60 dark:bg-sky-900/10 hover:bg-sky-50 dark:hover:bg-sky-900/20'
+                      : 'bg-purple-50/60 dark:bg-purple-900/10 hover:bg-purple-50 dark:hover:bg-purple-900/20'
+                  }`}
+                >
+                  {isCollapsed ? <ChevronRight size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
+                  <Layers size={13} className={isExtrasGroup ? 'text-sky-500' : 'text-purple-500'} />
+                  <span className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                    {isExtrasGroup ? 'Atividades Extras' : groupKey}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
+                    {groupActivities.length}
+                  </span>
+                  <div className="ml-auto flex items-center gap-2 text-[11px] shrink-0">
+                    {counts.concluida > 0 && <span className="text-emerald-600 dark:text-emerald-400">{counts.concluida} concl.</span>}
+                    {counts.parcial > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.parcial} parc.</span>}
+                    {counts.nao_concluida > 0 && <span className="text-red-600 dark:text-red-400">{counts.nao_concluida} não concl.</span>}
+                  </div>
+                </button>
+                {!isCollapsed && (
+                  <div className="p-2 space-y-2 bg-white dark:bg-gray-800">
+                    {groupActivities.map((a) => (
+                      <ActivityRow
+                        key={a.id}
+                        activity={a}
+                        weekConsolidated={weekConsolidated}
+                        onSetStatus={onSetStatus}
+                        onDelete={onDelete}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
 
         <div className="px-6 py-4 border-t border-gray-200 dark:border-gray-700">
@@ -80,13 +174,23 @@ export default function ModalDetalheDia({
               }}
             />
           ) : (
-            <button
-              className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-              onClick={() => setShowExtra(true)}
-              disabled={!date}
-            >
-              <Plus size={16} /> Cadastrar atividade extra
-            </button>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <button
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                onClick={() => setShowExtra(true)}
+                disabled={!date}
+              >
+                <Plus size={16} /> Cadastrar atividade extra
+              </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={onAddFromCronograma}
+                disabled={!date || weekConsolidated}
+                title={weekConsolidated ? 'Desbloqueie a semana para adicionar do cronograma' : 'Buscar tarefas do cronograma pra este dia (ex.: um domingo com trabalho excepcional)'}
+              >
+                <Download size={16} /> Adicionar do cronograma
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -107,86 +211,74 @@ function ActivityRow({
 }) {
   const [obs, setObs] = useState(activity.observation ?? '')
   const canDelete = !weekConsolidated || activity.is_extra
-  const isCronograma = !!activity.source
 
   return (
-    <div className={`rounded-md border p-3 ${
-      isCronograma
-        ? 'border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-purple-900/10'
-        : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750'
-    }`}>
+    <div className="rounded-md border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750 p-3">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="truncate font-medium text-gray-900 dark:text-white">{activity.name}</span>
-            {isCronograma && (
-              <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400 rounded">
-                Cronograma
-              </span>
-            )}
             {activity.is_extra && (
               <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-sky-100 dark:bg-sky-900/30 text-sky-700 dark:text-sky-400 rounded">
                 Extra
               </span>
             )}
           </div>
+          {activity.areaPath && (
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{activity.areaPath}</p>
+          )}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-            {isCronograma && activity.source && <span>Cronograma: {activity.source}</span>}
+            {activity.stage && <span>EDT: {activity.stage}</span>}
             {activity.discipline && <span>Disciplina: {activity.discipline}</span>}
             {activity.area && <span>Área: {activity.area}</span>}
-            {activity.stage && <span>EDT: {activity.stage}</span>}
             {activity.foreman && <span>Encarregado: {activity.foreman}</span>}
             {activity.company && <span>Empresa: {activity.company}</span>}
             <span>Previsto: {activity.planned_pct}%</span>
           </div>
         </div>
-        {!isCronograma && (
-          <div className="flex shrink-0 items-center gap-1">
-            <StatusButton
-              active={activity.status === 'concluida'}
-              tone="emerald"
-              icon={<CheckCircle2 size={16} />}
-              label="Concluída"
-              onClick={() => onSetStatus(activity.id, 'concluida', obs || null)}
-            />
-            <StatusButton
-              active={activity.status === 'parcial'}
-              tone="amber"
-              icon={<MinusCircle size={16} />}
-              label="Parcial"
-              onClick={() => onSetStatus(activity.id, 'parcial', obs || null)}
-            />
-            <StatusButton
-              active={activity.status === 'nao_concluida'}
-              tone="red"
-              icon={<XCircle size={16} />}
-              label="Não concluída"
-              onClick={() => onSetStatus(activity.id, 'nao_concluida', obs || null)}
-            />
-            <button
-              disabled={!canDelete}
-              onClick={() => onDelete(activity.id)}
-              title="Remover"
-              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-30"
-            >
-              <Trash2 size={14} />
-            </button>
-          </div>
-        )}
+        <div className="flex shrink-0 items-center gap-1">
+          <StatusButton
+            active={activity.status === 'concluida'}
+            tone="emerald"
+            icon={<CheckCircle2 size={16} />}
+            label="Concluída"
+            onClick={() => onSetStatus(activity.id, 'concluida', obs || null)}
+          />
+          <StatusButton
+            active={activity.status === 'parcial'}
+            tone="amber"
+            icon={<MinusCircle size={16} />}
+            label="Parcial"
+            onClick={() => onSetStatus(activity.id, 'parcial', obs || null)}
+          />
+          <StatusButton
+            active={activity.status === 'nao_concluida'}
+            tone="red"
+            icon={<XCircle size={16} />}
+            label="Não concluída"
+            onClick={() => onSetStatus(activity.id, 'nao_concluida', obs || null)}
+          />
+          <button
+            disabled={!canDelete}
+            onClick={() => onDelete(activity.id)}
+            title={canDelete ? 'Remover' : 'Semana bloqueada — só atividades extras podem ser removidas'}
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-30"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
       </div>
-      {!isCronograma && (
-        <textarea
-          placeholder="Observações"
-          value={obs}
-          onChange={(e) => setObs(e.target.value)}
-          onBlur={() => {
-            if ((activity.observation ?? '') !== obs) {
-              onSetStatus(activity.id, activity.status, obs || null)
-            }
-          }}
-          className="mt-2 w-full min-h-[52px] text-xs px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
-        />
-      )}
+      <textarea
+        placeholder="Observações"
+        value={obs}
+        onChange={(e) => setObs(e.target.value)}
+        onBlur={() => {
+          if ((activity.observation ?? '') !== obs) {
+            onSetStatus(activity.id, activity.status, obs || null)
+          }
+        }}
+        className="mt-2 w-full min-h-[52px] text-xs px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+      />
     </div>
   )
 }
