@@ -88,6 +88,23 @@ export default function ValidacaoPage() {
   const diaSemana = DIAS_SEMANA[new Date(data + "T12:00:00").getDay()];
   const horasTrab = calcHorasTrab(horasDia);
 
+  // Jornada já salva pra esse dia (se a validação já foi feita antes) — mostrada
+  // como referência; os campos de início/término continuam editáveis e, ao
+  // confirmar a validação de novo, o valor recalculado substitui o salvo.
+  const { data: diaTrabalho } = useQuery({
+    queryKey: ["dias_trabalho", data],
+    queryFn: async () => {
+      const { data: row, error } = await supabase
+        .from("dias_trabalho")
+        .select("horas_dia")
+        .eq("data", data)
+        .maybeSingle();
+      if (error) throw error;
+      return row as { horas_dia: number } | null;
+    },
+    enabled: !!data,
+  });
+
   const { data: apontamentos = [], isFetching } = useQuery({
     queryKey: ["validacao", data],
     queryFn: async () => {
@@ -208,11 +225,25 @@ export default function ValidacaoPage() {
         .eq("data", data);
       if (updErr) throw updErr;
 
+      // Grava a jornada do dia — é o que falta pra "Total pessoas" virar
+      // horas-homem de verdade (pessoas × horas trabalhadas) em vez de só
+      // contagem de gente, tanto aqui quanto na tela de EAP.
+      if (validar) {
+        const { error: diaErr } = await supabase
+          .from("dias_trabalho")
+          .upsert({ data, horas_dia: horasTrab, atualizado_em: new Date().toISOString() });
+        if (diaErr) throw diaErr;
+      }
+
       const { data: validados } = await supabase
         .from("apontamentos_diarios")
-        .select("atividade_id,atividade_nome,total")
+        .select("atividade_id,atividade_nome,total,data")
         .eq("validado", true);
       if (!validados) throw new Error("Erro ao buscar apontamentos validados");
+
+      const { data: diasTrabalho } = await supabase.from("dias_trabalho").select("data,horas_dia");
+      const horasDiaMap = new Map<string, number>((diasTrabalho ?? []).map((d) => [d.data, d.horas_dia]));
+      const HORAS_DIA_PADRAO = 8; // fallback pra apontamentos validados antes desta jornada existir
 
       const { data: itens } = await supabase
         .from("cronograma_itens")
@@ -222,10 +253,11 @@ export default function ValidacaoPage() {
       const horasPorAtivId = new Map<string, number>();
       const horasPorNome = new Map<string, number>();
       for (const a of validados) {
+        const horasHomem = a.total * (horasDiaMap.get(a.data) ?? HORAS_DIA_PADRAO);
         if (a.atividade_id) {
-          horasPorAtivId.set(a.atividade_id, (horasPorAtivId.get(a.atividade_id) ?? 0) + a.total);
+          horasPorAtivId.set(a.atividade_id, (horasPorAtivId.get(a.atividade_id) ?? 0) + horasHomem);
         }
-        horasPorNome.set(a.atividade_nome, (horasPorNome.get(a.atividade_nome) ?? 0) + a.total);
+        horasPorNome.set(a.atividade_nome, (horasPorNome.get(a.atividade_nome) ?? 0) + horasHomem);
       }
 
       const itensAtivos = (itens ?? []).filter((i) => i.ativo !== false);
@@ -391,7 +423,15 @@ export default function ValidacaoPage() {
                 (almoço {horasDia.almocoInicio}–{horasDia.fimAlmoco})
               </span>
             )}
+            {diaTrabalho && diaTrabalho.horas_dia !== horasTrab && (
+              <span className="text-xs text-muted-foreground">
+                Jornada já validada para este dia: <strong>{diaTrabalho.horas_dia}h</strong> — confirmar de novo substitui pelo valor acima.
+              </span>
+            )}
           </div>
+          <p className="mt-2 text-xs text-muted-foreground">
+            Essas horas multiplicam a quantidade de pessoas de cada apontamento e viram horas-homem na EAP.
+          </p>
         </CardContent>
       </Card>
 

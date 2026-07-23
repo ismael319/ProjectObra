@@ -21,7 +21,7 @@ type Props = {
   granularidade: Granularidade;
   dataInicio: Date;
   dataFim: Date;
-  scrollRef: React.RefObject<HTMLDivElement | null>;
+  scrollRef: React.RefObject<HTMLDivElement>;
   onScrollSync: (left: number) => void;
   onDateRangeChange: (inicio: Date, fim: Date) => void;
 };

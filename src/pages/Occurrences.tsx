@@ -1,20 +1,23 @@
 import { useState } from 'react'
 import { useProject } from '@/lib/project-context'
-import { AlertTriangle, Cloud, Pause, Plus, Trash2, X } from 'lucide-react'
-
-const occurrenceTypes = [
-  { value: 'chuva', label: 'Chuva', icon: Cloud, color: 'bg-blue-100 text-blue-700' },
-  { value: 'paralisa', label: 'Paralisação', icon: Pause, color: 'bg-amber-100 text-amber-700' },
-  { value: 'problema', label: 'Problema', icon: AlertTriangle, color: 'bg-red-100 text-red-700' },
-  { value: 'outro', label: 'Outro', icon: AlertTriangle, color: 'bg-gray-100 text-gray-700' },
-]
+import { AlertTriangle, Plus, Trash2, X } from 'lucide-react'
+import {
+  OCCURRENCE_CATEGORIES,
+  OCCURRENCE_SEVERITIES,
+  getCategoryDef,
+  getSeverityDef,
+  isHighImpact,
+  type OccurrenceCategory,
+  type OccurrenceSeverity,
+} from '@/lib/occurrence-types'
 
 export default function Occurrences() {
   const { project, activities, occurrences, addOccurrence, removeOccurrence } = useProject()
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
-    type: 'chuva' as 'chuva' | 'paralisa' | 'problema' | 'outro',
+    type: 'outro' as OccurrenceCategory,
+    severity: 'media' as OccurrenceSeverity,
     description: '',
     impactDays: 0,
     activityUid: undefined as number | undefined,
@@ -25,13 +28,15 @@ export default function Occurrences() {
     addOccurrence({
       date: new Date(formData.date),
       type: formData.type,
+      severity: formData.severity,
       description: formData.description,
       impactDays: formData.impactDays,
       activityUid: formData.activityUid,
     })
     setFormData({
       date: new Date().toISOString().split('T')[0],
-      type: 'chuva',
+      type: 'outro',
+      severity: 'media',
       description: '',
       impactDays: 0,
       activityUid: undefined,
@@ -40,6 +45,7 @@ export default function Occurrences() {
   }
 
   const totalImpactDays = occurrences.reduce((sum, o) => sum + o.impactDays, 0)
+  const highImpactCount = occurrences.filter((o) => isHighImpact(o.severity)).length
 
   return (
     <div className="space-y-6">
@@ -68,15 +74,13 @@ export default function Occurrences() {
           <p className="text-2xl font-bold text-red-600">{totalImpactDays}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Chuvas</p>
-          <p className="text-2xl font-bold text-blue-600">
-            {occurrences.filter((o) => o.type === 'chuva').length}
-          </p>
+          <p className="text-xs text-gray-500">Alto Impacto (Curva S)</p>
+          <p className="text-2xl font-bold text-orange-600">{highImpactCount}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Paralisações</p>
-          <p className="text-2xl font-bold text-amber-600">
-            {occurrences.filter((o) => o.type === 'paralisa').length}
+          <p className="text-xs text-gray-500">Segurança</p>
+          <p className="text-2xl font-bold text-red-600">
+            {occurrences.filter((o) => o.type === 'seguranca').length}
           </p>
         </div>
       </div>
@@ -91,7 +95,7 @@ export default function Occurrences() {
             </button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
                 <input
@@ -103,14 +107,29 @@ export default function Occurrences() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
                 <select
                   value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value as typeof formData.type })}
+                  onChange={(e) => setFormData({ ...formData, type: e.target.value as OccurrenceCategory })}
                   className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
-                  {occurrenceTypes.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
+                  {OCCURRENCE_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Gravidade
+                  <span className="text-xs text-gray-400 font-normal ml-1">(alta/crítica vira ponto de atenção na Curva S)</span>
+                </label>
+                <select
+                  value={formData.severity}
+                  onChange={(e) => setFormData({ ...formData, severity: e.target.value as OccurrenceSeverity })}
+                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  {OCCURRENCE_SEVERITIES.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
                   ))}
                 </select>
               </div>
@@ -182,19 +201,31 @@ export default function Occurrences() {
             {occurrences
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .map((occ) => {
-                const typeInfo = occurrenceTypes.find((t) => t.value === occ.type)
-                const TypeIcon = typeInfo?.icon || AlertTriangle
+                const categoryDef = getCategoryDef(occ.type)
+                const severityDef = getSeverityDef(occ.severity)
+                const CategoryIcon = categoryDef.icon
                 const activity = occ.activityUid ? activities.find((a) => a.uid === occ.activityUid) : null
 
                 return (
                   <div key={occ.id} className="p-4 hover:bg-gray-50 transition">
                     <div className="flex items-start gap-4">
-                      <div className={`p-2 rounded-lg ${typeInfo?.color || 'bg-gray-100'}`}>
-                        <TypeIcon size={20} />
+                      <div
+                        className="p-2 rounded-lg"
+                        style={{ backgroundColor: categoryDef.color + '1a', color: categoryDef.color }}
+                      >
+                        <CategoryIcon size={20} />
                       </div>
                       <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-sm font-medium text-gray-900">{typeInfo?.label}</span>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-sm font-medium text-gray-900">{categoryDef.label}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${severityDef.badgeClass}`}>
+                            {severityDef.label}
+                          </span>
+                          {isHighImpact(occ.severity) && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-medium" title="Aparece como ponto de atenção na Curva S">
+                              ⚠ Curva S
+                            </span>
+                          )}
                           <span className="text-xs text-gray-500">
                             {new Date(occ.date).toLocaleDateString('pt-BR')}
                           </span>

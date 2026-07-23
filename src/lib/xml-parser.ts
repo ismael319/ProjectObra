@@ -85,8 +85,10 @@ export interface WBSActivity {
   number1: number
   number2: number
   // Campos personalizados (Extended Attributes) do MS Project, chaveados por
-  // FieldID — nomes legíveis ficam em ParsedProject.customFieldDefs.
-  customFields: Record<string, string>
+  // FieldID — nomes legíveis ficam em ParsedProject.customFieldDefs. Opcional:
+  // dados de exemplo (sample-data.ts) e outras fontes sintéticas não preenchem;
+  // consumidores devem acessar com "?." (ver getActivityColumnValue).
+  customFields?: Record<string, string>
 }
 
 export interface WBSResource {

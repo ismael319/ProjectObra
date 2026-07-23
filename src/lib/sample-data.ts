@@ -26,6 +26,8 @@ export const sampleProject: ParsedProject = {
   company: 'Construtora ABC',
   description: 'Obra de edifício residencial com 20 unidades, 12 andares, subsolo e cobertura',
   weekStartDay: 5,
+  minutesPerDay: 540,
+  customFieldDefs: [],
 
   baselines: [
     { id: 'BL0', index: 0, label: 'Baseline 0 (original)', available: true, totalWork: 0, totalCost: 0, hasTimephased: true, savedDate: new Date('2026-01-05') },

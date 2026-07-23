@@ -3,11 +3,13 @@ import type { ParsedProject, WBSActivity, WBSResource, WBSAssignment } from '@/l
 import { calculateIndices, calculatePPC, type ProjectIndices } from '@/lib/project-calculations'
 import { sampleProject } from '@/lib/sample-data'
 import { toDate } from '@/lib/utils'
+import type { OccurrenceCategory, OccurrenceSeverity } from '@/lib/occurrence-types'
 
-interface Occurrence {
+export interface Occurrence {
   id: string
   date: Date
-  type: 'chuva' | 'paralisa' | 'problema' | 'outro'
+  type: OccurrenceCategory
+  severity: OccurrenceSeverity
   description: string
   impactDays: number
   activityUid?: number

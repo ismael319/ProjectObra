@@ -11,6 +11,7 @@ import {
   Legend,
   ReferenceArea,
   ReferenceLine,
+  ReferenceDot,
 } from 'recharts'
 import { CurveTooltip } from '@/components/CurveGauges'
 import {
@@ -24,6 +25,8 @@ import {
   type CurvePeriod,
 } from '@/lib/curve-utils'
 import type { BaselineInfo } from '@/lib/xml-parser'
+import type { Occurrence } from '@/lib/project-context'
+import { getCategoryDef, getSeverityDef } from '@/lib/occurrence-types'
 
 interface ChartDataItem {
   date: number
@@ -64,6 +67,7 @@ interface SCurveChartProps {
   statusX: number | null
   tooltipState: TooltipState | null
   onTooltipChange: (state: TooltipState | null) => void
+  occurrences: Occurrence[]
 }
 
 export function SCurveChart({
@@ -83,9 +87,11 @@ export function SCurveChart({
   statusX,
   tooltipState,
   onTooltipChange,
+  occurrences,
 }: SCurveChartProps) {
   const chartContainerRef = React.useRef<HTMLDivElement>(null)
   const [chartWidth, setChartWidth] = React.useState(0)
+  const [occTooltip, setOccTooltip] = React.useState<{ occurrence: Occurrence; coordinate: { x: number; y: number } } | null>(null)
 
   React.useEffect(() => {
     const el = chartContainerRef.current
@@ -214,6 +220,32 @@ export function SCurveChart({
                 label={{ value: 'Status', position: 'top', fill: '#dc2626', fontSize: 14, fontWeight: 600 }}
               />
             )}
+
+            {/* Pontos de atenção — ocorrências de gravidade alta/crítica no período do
+                gráfico, marcadas perto do eixo X com a cor da categoria. */}
+            {occurrences.map((occ) => {
+              const categoryDef = getCategoryDef(occ.type)
+              return (
+                <ReferenceDot
+                  key={occ.id}
+                  x={new Date(occ.date).getTime()}
+                  y={2}
+                  r={0}
+                  ifOverflow="visible"
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  shape={(props: any) => (
+                    <g
+                      transform={`translate(${props.cx}, ${props.cy})`}
+                      style={{ cursor: 'pointer' }}
+                      onMouseEnter={() => setOccTooltip({ occurrence: occ, coordinate: { x: props.cx, y: props.cy } })}
+                      onMouseLeave={() => setOccTooltip(null)}
+                    >
+                      <circle r={6} fill={categoryDef.color} stroke="#fff" strokeWidth={1.5} />
+                    </g>
+                  )}
+                />
+              )
+            })}
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -250,6 +282,52 @@ export function SCurveChart({
               availableBLs={availableBLs.filter((bl) => !hiddenBLs.includes(bl.id))}
               selectedBL={selectedBL}
             />
+          </div>,
+          document.body,
+        )
+      })()}
+      {occTooltip && chartContainerRef.current && (() => {
+        const rect = chartContainerRef.current!.getBoundingClientRect()
+        const tooltipWidth = 280
+        const tooltipHeight = 140
+        const margin = 12
+        const categoryDef = getCategoryDef(occTooltip.occurrence.type)
+        const severityDef = getSeverityDef(occTooltip.occurrence.severity)
+        const CategoryIcon = categoryDef.icon
+
+        let left = rect.left + occTooltip.coordinate.x + margin
+        if (left + tooltipWidth > window.innerWidth - 8) {
+          left = rect.left + occTooltip.coordinate.x - tooltipWidth - margin
+        }
+        left = Math.max(8, Math.min(left, window.innerWidth - tooltipWidth - 8))
+
+        let top = rect.top + occTooltip.coordinate.y - tooltipHeight - margin
+        top = Math.max(8, Math.min(top, window.innerHeight - tooltipHeight - 8))
+
+        return createPortal(
+          <div
+            className="fixed z-[9999] pointer-events-none bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg p-3"
+            style={{ left, top, width: tooltipWidth }}
+          >
+            <div className="flex items-center gap-2 mb-1.5">
+              <div
+                className="p-1 rounded"
+                style={{ backgroundColor: categoryDef.color + '1a', color: categoryDef.color }}
+              >
+                <CategoryIcon size={14} />
+              </div>
+              <span className="text-sm font-semibold text-gray-900 dark:text-gray-100">{categoryDef.label}</span>
+              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${severityDef.badgeClass}`}>
+                {severityDef.label}
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 dark:text-gray-400 mb-1">
+              {new Date(occTooltip.occurrence.date).toLocaleDateString('pt-BR')}
+              {occTooltip.occurrence.impactDays > 0 && ` · +${occTooltip.occurrence.impactDays} dias de impacto`}
+            </p>
+            <p className="text-xs text-gray-700 dark:text-gray-300 line-clamp-3">
+              {occTooltip.occurrence.description}
+            </p>
           </div>,
           document.body,
         )

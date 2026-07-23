@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from 'react'
 import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, Check, FileCode, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
+import { isHighImpact } from '@/lib/occurrence-types'
 import { exportToExcel, exportToPDF, exportSCurveToExcel } from '@/lib/export-utils'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
@@ -59,7 +60,7 @@ function loadSaved<T>(key: string, fallback: T): T {
 }
 
 export default function SCurve() {
-  const { activities, resources, assignments } = useProject()
+  const { activities, resources, assignments, occurrences } = useProject()
   const { currentProject } = useProjects()
   const [unit] = useState<CalculationUnit>(loadSaved(UNIT_KEY, 'HH'))
   const [selectedBL, setSelectedBL] = useState<string>(loadSaved(BL_KEY, 'BL0'))
@@ -506,6 +507,20 @@ export default function SCurve() {
     })
   }, [curveData, consolidatedBLs, cronCurves, finalPlanned, lastPeriod])
 
+  // Pontos de atenção no gráfico: só ocorrências de gravidade alta/crítica (as demais
+  // ficam só no histórico de Ocorrências, pra não poluir a Curva S) dentro do período
+  // visível do gráfico.
+  const attentionOccurrences = useMemo(() => {
+    if (chartData.length === 0) return []
+    const rangeStart = chartData[0].date
+    const rangeEnd = chartData[chartData.length - 1].date
+    return occurrences.filter((o) => {
+      if (!isHighImpact(o.severity)) return false
+      const t = new Date(o.date).getTime()
+      return t >= rangeStart && t <= rangeEnd
+    })
+  }, [occurrences, chartData])
+
   const statusX = useMemo(() => {
     if (curveData.length === 0) return null
     return new Date(curveData[findStatusIndex(curveData)].date).getTime()
@@ -943,6 +958,7 @@ export default function SCurve() {
           statusX={statusX}
           tooltipState={tooltipState}
           onTooltipChange={setTooltipState}
+          occurrences={attentionOccurrences}
         />
       </div>
 
