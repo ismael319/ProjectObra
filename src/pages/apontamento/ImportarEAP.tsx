@@ -47,9 +47,9 @@ function activitiesToEapRows(
     const parentCodigo = parentOutline
       ? valid.find((b) => b.outlineNumber === parentOutline)?.wbs || parentOutline
       : null;
-    // Itens que já existem na EAP (mesmo código, no nível correspondente) vêm
-    // pré-selecionados — visualmente mostra o que já foi importado antes. Itens
-    // novos seguem o padrão de sempre: folhas marcadas, resumos desmarcados.
+    // Só vem pré-selecionado o que já existe na EAP (mesmo código, no nível
+    // correspondente) — todo o resto (inclusive folhas novas) começa desmarcado.
+    // O usuário escolhe explicitamente o que quer trazer de novo.
     const jaExiste = existingCodes[nivel]?.has(codigo) ?? false;
     return {
       id: `act-${a.uid}`,
@@ -58,7 +58,7 @@ function activitiesToEapRows(
       nivel,
       parentCodigo,
       ativo: true,
-      selected: jaExiste || !a.isSummary,
+      selected: jaExiste,
     };
   });
 }
