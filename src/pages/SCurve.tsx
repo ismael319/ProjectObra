@@ -134,12 +134,26 @@ export default function SCurve() {
 
   // Dia inicial da semana conforme o cronograma importado (ver "A semana começa
   // no(a)" no MS Project). Usa o cronograma padrão do projeto (se definido),
-  // senão o primeiro selecionado como referência para o eixo/rótulos do gráfico.
+  // senão o primeiro selecionado — não só para o eixo/rótulos do gráfico, mas
+  // como o ÚNICO weekStartDay usado para agrupar TODOS os cronogramas selecionados
+  // (ver cronCurves/cronCurvesFull abaixo). Cronogramas com "início de semana"
+  // diferentes gerariam buckets desalinhados na consolidação — cada um "fechando"
+  // a semana num dia diferente — fazendo a curva combinada ficar serrilhada mesmo
+  // sem nenhum problema real nos dados.
   const weekStartDay = useMemo(() => {
     const padraoId = currentProject?.cronogramaPadraoId
     const padrao = padraoId ? selectedCronogramasData.find((c) => c.id === padraoId) : null
     return (padrao || selectedCronogramasData[0])?.dados?.weekStartDay ?? 5
   }, [selectedCronogramasData, currentProject])
+
+  // Aviso: cronogramas selecionados com "início de semana" diferente entre si.
+  // Todos são agregados com o weekStartDay acima (do cronograma padrão/primeiro),
+  // então cronogramas divergentes têm sua curva individual levemente deslocada da
+  // configuração original deles — o usuário deveria alinhar isso no MS Project.
+  const weekStartDayMismatch = useMemo(() => {
+    const distinct = new Set(selectedCronogramasData.map((c) => c.dados?.weekStartDay ?? 5))
+    return distinct.size > 1
+  }, [selectedCronogramasData])
 
   const handleActivityExclusionChange = useCallback((cronogramaId: string, next: Set<number>) => {
     setActivityExclusions((prev) => {
@@ -320,7 +334,10 @@ export default function SCurve() {
       // onde a curva "começa" (corte de semanas vazias), pra não considerar outras
       // baselines (BL1, BL2...) que não estão sendo exibidas na tabela/gráfico.
       const referenceBLId = rawBLSuffix ? ownBLs.find((bl) => bl.id.endsWith(`__${rawBLSuffix}`))?.id : undefined
-      const curve = buildCurveFromRawPoints(rawPoints, granularity, unit, ownBLs, c.dados?.weekStartDay ?? 5, referenceBLId)
+      // weekStartDay compartilhado (não c.dados?.weekStartDay) — ver weekStartDayMismatch
+      // acima: todos os cronogramas selecionados usam o mesmo, pra não desalinhar buckets
+      // na consolidação quando algum deles tem "início de semana" diferente.
+      const curve = buildCurveFromRawPoints(rawPoints, granularity, unit, ownBLs, weekStartDay, referenceBLId)
       return {
         id: c.id,
         nome: c.nome,
@@ -330,15 +347,15 @@ export default function SCurve() {
         source: curve.length > 0 ? 'timephased' as const : 'synthetic' as const,
       }
     })
-  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, columnFilters, rawBLSuffix])
+  }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, columnFilters, rawBLSuffix, weekStartDay])
 
   const cronCurvesFull = useMemo(() => {
     return selectedCronogramasData.map((c) => {
       const ownBLs = availableBLs.filter((bl) => bl.id.startsWith(`${c.id}__`))
       const referenceBLId = rawBLSuffix ? ownBLs.find((bl) => bl.id.endsWith(`__${rawBLSuffix}`))?.id : undefined
-      return buildCurveFromRawPoints(c.dados?.timephased?.rawPoints, granularity, unit, ownBLs, c.dados?.weekStartDay ?? 5, referenceBLId)
+      return buildCurveFromRawPoints(c.dados?.timephased?.rawPoints, granularity, unit, ownBLs, weekStartDay, referenceBLId)
     })
-  }, [selectedCronogramasData, unit, availableBLs, granularity, rawBLSuffix])
+  }, [selectedCronogramasData, unit, availableBLs, granularity, rawBLSuffix, weekStartDay])
 
   const curveData = useMemo(() => {
     return cronCurves.length === 0
@@ -920,6 +937,16 @@ export default function SCurve() {
             </span>
           )}
         </div>
+        {weekStartDayMismatch && (
+          <div className="mb-4 px-3 py-2 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-xs text-amber-700 dark:text-amber-400">
+            ⚠ Os cronogramas selecionados têm "início de semana" diferente entre si (configuração
+            "A semana começa no(a)" do MS Project). Isso pode desalinhar os períodos ao combinar as
+            curvas — o ideal é que todos os cronogramas do projeto usem o mesmo início de semana. Por
+            enquanto, a Curva S está usando o início de semana do cronograma padrão
+            {weekStartDay !== undefined && ` (${['domingo', 'segunda', 'terça', 'quarta', 'quinta', 'sexta', 'sábado'][weekStartDay]})`}
+            {' '}pra todos.
+          </div>
+        )}
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
           {selectedBLInfo?.label} | Percentual acumulado em relação ao total planejado
           {cronCurves.some((c) => c.source === 'timephased') && (
