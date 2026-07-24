@@ -10,8 +10,8 @@ import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
 import { SCurveRootCauseCards } from '@/components/scurve/SCurveRootCauseCards'
 import { SCurveChart } from '@/components/scurve/SCurveChart'
-import { SCurveTable } from '@/components/scurve/SCurveTable'
 import { SCurveWideTable } from '@/components/scurve/SCurveWideTable'
+import { SCurveWbsTable } from '@/components/scurve/SCurveWbsTable'
 import { SCurveDiagnostic } from '@/components/scurve/SCurveDiagnostic'
 import {
   BL_COLORS,
@@ -547,13 +547,6 @@ export default function SCurve() {
   const project = currentProject
   const periodColLabel = PERIOD_LABEL[granularity]
 
-  const tableRows = useMemo(() => {
-    if (granularity !== 'day') return curveData
-    const sampleCap = 200
-    const step = Math.max(1, Math.floor(curveData.length / sampleCap))
-    return curveData.filter((_, i) => i % step === 0 || i === curveData.length - 1)
-  }, [curveData, granularity])
-
   if (!project || activities.length === 0) {
     return (
       <div className="text-center py-16">
@@ -1013,13 +1006,16 @@ export default function SCurve() {
               defaultOpen
             />
           )}
-          <SCurveTable
-            curveData={curveData}
-            tableRows={tableRows}
-            availableBLs={consolidatedBLs}
-            unit={unit}
-            unitLabel={unitLabel}
-            granularity={granularity}
+          <SCurveWbsTable
+            cronogramas={selectedCronogramasData.map((c) => ({
+              id: c.id,
+              nome: c.nome,
+              cor: c.cor,
+              activities: c.dados?.activities || [],
+              assignments: c.dados?.assignments || [],
+              rawPoints: c.dados?.timephased?.rawPoints,
+            }))}
+            statusDate={statusX !== null ? new Date(statusX) : null}
           />
         </>
       )}
