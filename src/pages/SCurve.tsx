@@ -8,6 +8,7 @@ import ActivityFilterTree from '@/components/ActivityFilterTree'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
+import { SCurveRootCauseCards } from '@/components/scurve/SCurveRootCauseCards'
 import { SCurveChart } from '@/components/scurve/SCurveChart'
 import { SCurveTable } from '@/components/scurve/SCurveTable'
 import { SCurveWideTable } from '@/components/scurve/SCurveWideTable'
@@ -571,6 +572,8 @@ export default function SCurve() {
         overallPace={overallPace}
         scheduleInfo={scheduleInfo}
       />
+
+      <SCurveRootCauseCards openOccurrencesCount={occurrences.filter((o) => o.status === 'aberta').length} />
 
       {advances && (
         <SCurveAdvanceCard
