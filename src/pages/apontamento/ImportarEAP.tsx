@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import {
   CheckCircle2, AlertCircle, Loader2, ChevronRight,
   ChevronDown, Map as MapIcon, MapPin, Wrench, Building2,
-  FolderOpen, Calendar, ListTree,
+  Calendar, ListTree,
 } from "lucide-react";
 import { useProjects } from "@/lib/project-store";
 import type { WBSActivity } from "@/lib/xml-parser";
@@ -32,7 +32,11 @@ const NIVEL_LABELS = ["", "Setor", "Área", "Etapa", "Atividade"] as const;
 const NIVEL_ICONS = [null, Building2, MapIcon, MapPin, Wrench] as const;
 const NIVEL_COLORS = ["", "text-blue-600", "text-emerald-600", "text-orange-600", "text-purple-600"] as const;
 
-function activitiesToEapRows(activities: WBSActivity[], levelOffset: number): EapRow[] {
+function activitiesToEapRows(
+  activities: WBSActivity[],
+  levelOffset: number,
+  existingCodes: Record<number, Set<string>>,
+): EapRow[] {
   const valid = activities.filter((a) => a.outlineLevel > 0 && a.name.trim());
   return valid.map((a) => {
     const rawNivel = a.outlineLevel + levelOffset;
@@ -43,6 +47,10 @@ function activitiesToEapRows(activities: WBSActivity[], levelOffset: number): Ea
     const parentCodigo = parentOutline
       ? valid.find((b) => b.outlineNumber === parentOutline)?.wbs || parentOutline
       : null;
+    // Itens que já existem na EAP (mesmo código, no nível correspondente) vêm
+    // pré-selecionados — visualmente mostra o que já foi importado antes. Itens
+    // novos seguem o padrão de sempre: folhas marcadas, resumos desmarcados.
+    const jaExiste = existingCodes[nivel]?.has(codigo) ?? false;
     return {
       id: `act-${a.uid}`,
       nome: a.name,
@@ -50,7 +58,7 @@ function activitiesToEapRows(activities: WBSActivity[], levelOffset: number): Ea
       nivel,
       parentCodigo,
       ativo: true,
-      selected: !a.isSummary,
+      selected: jaExiste || !a.isSummary,
     };
   });
 }
@@ -185,8 +193,46 @@ export default function ImportarEapPage() {
     return map;
   }, [existingSetores, existingAreas, existingSubareas, existingAtividades]);
 
+  // Ao marcar um item, marca também toda a cadeia de ancestrais — sem isso, o item
+  // pode ser inserido sem setor_id/area_id/subarea_id resolvido (órfão, nunca
+  // aparece na árvore da EAP, que só renderiza filhos com o pai encadeado). Ao
+  // desmarcar, desmarca também os descendentes — não faz sentido manter um filho
+  // selecionado se o pai não vai ser importado.
   function toggleSelect(id: string) {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, selected: !r.selected } : r)));
+    setRows((prev) => {
+      const target = prev.find((r) => r.id === id);
+      if (!target) return prev;
+      const turningOn = !target.selected;
+
+      if (turningOn) {
+        const byCodigo = new Map(prev.map((r) => [r.codigo, r]));
+        const toSelect = new Set<string>([id]);
+        let cur: EapRow | undefined = target;
+        while (cur?.parentCodigo) {
+          const parent: EapRow | undefined = byCodigo.get(cur.parentCodigo);
+          if (!parent) break;
+          toSelect.add(parent.id);
+          cur = parent;
+        }
+        return prev.map((r) => (toSelect.has(r.id) ? { ...r, selected: true } : r));
+      }
+
+      const childrenByCodigo = new Map<string, EapRow[]>();
+      for (const r of prev) {
+        if (!r.parentCodigo) continue;
+        const arr = childrenByCodigo.get(r.parentCodigo) ?? [];
+        arr.push(r);
+        childrenByCodigo.set(r.parentCodigo, arr);
+      }
+      const toDeselect = new Set<string>();
+      const queue: EapRow[] = [target];
+      while (queue.length > 0) {
+        const node = queue.pop()!;
+        toDeselect.add(node.id);
+        for (const child of childrenByCodigo.get(node.codigo) ?? []) queue.push(child);
+      }
+      return prev.map((r) => (toDeselect.has(r.id) ? { ...r, selected: false } : r));
+    });
   }
 
   function selectAll() { setRows((prev) => prev.map((r) => ({ ...r, selected: true }))); }
@@ -205,40 +251,47 @@ export default function ImportarEapPage() {
     return s;
   }, [rows, existingCodes]);
 
-  function handleLoadFromCronograma() {
+  // Exibe a estrutura/WBS do cronograma selecionado automaticamente — não precisa
+  // mais de um botão "Carregar atividades" separado. Reprocessa sempre que o
+  // cronograma, o deslocamento de nível ou o cadastro já existente na EAP mudarem
+  // (existingCodes decide quais itens vêm pré-selecionados).
+  useEffect(() => {
     if (!selectedCronograma) {
-      toast.error("Nenhum cronograma selecionado.");
+      setRows([]);
+      setFileName("");
       return;
     }
     const acts = selectedCronograma.dados?.activities ?? [];
     if (acts.length === 0) {
-      toast.error("O cronograma selecionado não possui atividades.");
+      setRows([]);
+      setFileName("");
       return;
     }
-    const parsed = activitiesToEapRows(acts, levelOffset);
-    if (parsed.length === 0) {
-      toast.error("Nenhuma atividade válida encontrada no cronograma.");
-      return;
-    }
+    const parsed = activitiesToEapRows(acts, levelOffset, existingCodes);
     setRows(parsed);
     setFileName(`Cronograma: ${selectedCronograma.nome}`);
-    toast.success(`${parsed.length} atividades carregadas de "${selectedCronograma.nome}"`);
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCronograma, levelOffset, existingCodes]);
 
   const importMut = useMutation({
     mutationFn: async () => {
       const selected = rows.filter((r) => r.selected);
       if (selected.length === 0) throw new Error("Nenhum item selecionado para importação.");
 
+      // Semeia com os ids que JÁ existem no banco (por código) — sem isso, um item
+      // cujo pai já estava cadastrado (e por isso foi pulado como duplicado, nunca
+      // passando pelo "else if (data?.id)" abaixo) ficava sem setor_id/area_id/
+      // subarea_id no insert: entrava na tabela mas ficava órfão, e a árvore da EAP
+      // (que só desce por FK) nunca mostrava esse item. Era a causa raiz de
+      // "atividades não vão para a aba EAP" ao reimportar sobre um cadastro parcial.
       const codeToId = new Map<string, string>();
+      for (const s of existingSetores) if (s.codigo) codeToId.set(s.codigo, s.id);
+      for (const a of existingAreas) if (a.codigo) codeToId.set(a.codigo, a.id);
+      for (const sa of existingSubareas) if (sa.codigo) codeToId.set(sa.codigo, sa.id);
+
       let inserted = 0;
       let skipped = 0;
       let failed = 0;
-
-      const existingByCode = new Map<string, string>();
-      for (const [nivel, codes] of Object.entries(existingCodes)) {
-        for (const code of codes) existingByCode.set(code, nivel);
-      }
 
       const sorted = [...selected].sort((a, b) => a.nivel - b.nivel || a.codigo.localeCompare(b.codigo));
 
@@ -249,21 +302,26 @@ export default function ImportarEapPage() {
           continue;
         }
 
+        // Nível > 1 sem o pai resolvido (nem já existente, nem importado antes dele
+        // nesta mesma leva) viraria um órfão sem setor_id/area_id/subarea_id — a
+        // árvore da EAP nunca mostraria esse item. Em vez de inserir assim
+        // silenciosamente, marca como falha com uma mensagem clara: normalmente não
+        // deveria acontecer, já que marcar um item também marca os ancestrais.
+        if (row.nivel > 1 && row.parentCodigo && !codeToId.has(row.parentCodigo)) {
+          failed++;
+          toast.error(`"${row.nome}" não foi importado: o item pai (${row.parentCodigo}) não está selecionado nem já existe na EAP.`);
+          continue;
+        }
+
         const payload: Record<string, any> = {
           nome: row.nome,
           codigo: row.codigo,
           ativo: row.ativo,
         };
 
-        if (row.nivel === 2 && row.parentCodigo) {
-          if (codeToId.has(row.parentCodigo)) payload.setor_id = codeToId.get(row.parentCodigo);
-        }
-        if (row.nivel === 3 && row.parentCodigo) {
-          if (codeToId.has(row.parentCodigo)) payload.area_id = codeToId.get(row.parentCodigo);
-        }
-        if (row.nivel === 4 && row.parentCodigo) {
-          if (codeToId.has(row.parentCodigo)) payload.subarea_id = codeToId.get(row.parentCodigo);
-        }
+        if (row.nivel === 2 && row.parentCodigo) payload.setor_id = codeToId.get(row.parentCodigo);
+        if (row.nivel === 3 && row.parentCodigo) payload.area_id = codeToId.get(row.parentCodigo);
+        if (row.nivel === 4 && row.parentCodigo) payload.subarea_id = codeToId.get(row.parentCodigo);
 
         const { data, error } = await supabase.from(table).insert(payload).select("id").single();
         if (error) {
@@ -397,15 +455,10 @@ export default function ImportarEapPage() {
                   </div>
                 )}
 
-                <Button onClick={handleLoadFromCronograma} disabled={!selectedCronograma} className="gap-2">
-                  <FolderOpen className="h-4 w-4" />
-                  Carregar atividades do cronograma
-                </Button>
-
                 {fileName && fileName.startsWith("Cronograma:") && (
                   <span className="text-sm text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
                     <CheckCircle2 className="h-4 w-4" />
-                    {fileName} — {rows.length} itens carregados
+                    Estrutura de "{selectedCronograma?.nome}" — {rows.length} itens ({stats.selected} pré-selecionados)
                   </span>
                 )}
               </>
