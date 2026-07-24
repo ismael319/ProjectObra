@@ -1,0 +1,32 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(awk '/<Assignment>/{start=NR} /<\\\\/Assignment>/{if \\(start && NR-start<2000\\) print start\"-\"NR; start=0}' '/c/Users/sanda/OneDrive/Desktop/CRE - 729 002 FS Pacote 06 - EAP FS - TEste \\(1\\).xml')",
+      "Bash(awk -F- '$1<=168136 && $2>=168136')",
+      "Read(//c/Users/sanda/Downloads/**)",
+      "Bash(node fix-xml.js \"/c/Users/sanda/Downloads/CRE - 729 001 FS FASE II CNP - EAP FS - Teste \\(1\\).xml\" \"/c/Users/sanda/Downloads/CRE - 729 001 FS FASE II CNP - EAP FS - Teste \\(1\\) - CORRIGIDO.xml\")",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "PowerShell(Get-Process *)",
+      "Skill(run)",
+      "Bash(timeout 30 bash -c 'until curl -sf http://localhost:5173 >/dev/null; do sleep 1; done')",
+      "Read(//tmp/**)",
+      "Bash(npx --yes playwright --version)",
+      "Bash(npx --yes playwright install chromium --with-deps)",
+      "Bash(npx --yes playwright install chromium)",
+      "Bash(npm init *)",
+      "Bash(npm install *)",
+      "Bash(node shot.mjs \"http://localhost:5174/login\" \"./login.png\")",
+      "Bash(curl -s \"http://localhost:5174/src/index.css\")",
+      "Bash(grep -o '\\\\.shadow-card[^,]\\\\{1,200\\\\}' \"C:\\\\Users\\\\sanda\\\\.claude\\\\projects\\\\C--Users-sanda-oiplan-hub\\\\5f6e0e56-f86e-4a98-8d0d-b9a84de6d138\\\\tool-results\\\\bxn2yi8rl.txt\")",
+      "Bash(node shot.mjs \"http://localhost:5174/__preview\" \"./dashboard-light.png\")",
+      "Bash(node shot.mjs \"http://localhost:5174/__preview\" \"./dashboard-light2.png\")",
+      "Bash(node shot-dark.mjs \"http://localhost:5174/__preview\" \"./dashboard-dark.png\")",
+      "Bash(node shot-dark2.mjs \"http://localhost:5174/__preview\" \"./dashboard-dark2.png\")",
+      "Bash(npx vite *)",
+      "Bash(curl -sf http://localhost:5174)",
+      "Bash(powershell -NoProfile -Command \"Get-NetTCPConnection -LocalPort 5174 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique\" 2>/dev/null)",
+      "Bash(powershell -NoProfile -Command \"Stop-Process -Id 6932 -Force\")"
+    ]
+  }
+}
