@@ -137,6 +137,39 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
   return { week, activities: mappedActivities, partialWeight }
 }
 
+// Indicadores (PPC/aderência) numa janela de datas corrida — ex.: "últimos 21 dias" —
+// em vez de uma semana ISO só. Usado pelo card "PPC" da Curva S. Reaproveita
+// computeIndicators (mesma regra: concluídas / planejadas, extras não contam no
+// denominador), só muda a query pra filtrar por intervalo de planned_date em vez de
+// week_id.
+export async function getActivitiesInDateRange(startDate: string, endDate: string): Promise<ActivityLike[]> {
+  const { data: activities, error } = await supabase
+    .from('activities')
+    .select('*')
+    .gte('planned_date', startDate)
+    .lte('planned_date', endDate)
+    .order('planned_date', { ascending: true })
+
+  if (error) throw new Error(error.message)
+
+  return (activities ?? []).map((a: ActivityRow) => ({
+    id: a.id,
+    name: a.name,
+    company: a.is_extra ? a.company : null,
+    discipline: a.discipline,
+    area: a.is_extra ? a.area : null,
+    stage: a.stage,
+    foreman: a.foreman,
+    planned_date: a.planned_date,
+    planned_pct: a.planned_pct,
+    status: a.status,
+    is_extra: a.is_extra,
+    observation: a.observation,
+    source: a.is_extra ? undefined : (a.company ?? undefined),
+    areaPath: a.is_extra ? null : a.area,
+  }))
+}
+
 // Bloquear semana (reaproveita o status "consolidado" do banco — trocar o enum
 // exigiria migração; só o rótulo na UI virou "Bloqueada")
 export async function lockWeek(weekId: string): Promise<void> {
