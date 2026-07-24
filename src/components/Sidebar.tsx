@@ -7,7 +7,7 @@ import {
   PanelLeftClose, PanelLeftOpen, TrendingUp,
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
-  FolderTree, FileSpreadsheet,
+  FolderTree, FileSpreadsheet, CloudRain,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 
@@ -44,6 +44,7 @@ const navSections: { title: string; items: NavItem[] }[] = [
         ],
       },
       { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
+      { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
       { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
     ],
   },

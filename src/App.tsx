@@ -38,6 +38,7 @@ const ApontamentoEap = lazy(() => import('@/pages/apontamento/EAP'))
 const ApontamentoEapCronograma = lazy(() => import('@/pages/apontamento/EapCronograma'))
 const ApontamentoImportarXml = lazy(() => import('@/pages/apontamento/ImportarXML'))
 const ApontamentoImportarEap = lazy(() => import('@/pages/apontamento/ImportarEAP'))
+const MapaChuvas = lazy(() => import('@/pages/apontamento/MapaChuvas'))
 
 // Segurança
 const RdrDashboard = lazy(() => import('@/pages/seguranca/RdrDashboard'))
@@ -113,6 +114,7 @@ function App() {
                       <Route path="people/cronograma" element={<ApontamentoEapCronograma />} />
                       <Route path="people/importar-xml" element={<ApontamentoImportarXml />} />
                       <Route path="people/importar-eap" element={<ApontamentoImportarEap />} />
+                      <Route path="mapa-chuvas" element={<MapaChuvas />} />
                       <Route path="security/rdr" element={<RdrDashboard />} />
                       <Route path="security/rdr/registros" element={<RdrRegistros />} />
                     </Route>
