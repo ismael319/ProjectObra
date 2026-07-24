@@ -117,23 +117,49 @@ export function bucketKey(date: Date, granularity: CurveGranularity, weekStartDa
   }
 }
 
-/**
- * Calcula, para cada ponto Type 2 (Trabalho Real), a fração que conta como Valor
- * Agregado (earned value): a soma acumulada do trabalho real de um mesmo assignment
- * é limitada ao seu próprio orçamento de Baseline 0. Sem isso, retrabalho/horas-extra
- * lançadas além do orçado inflam o "Avanço Real" acima de 100%, mesmo que a tarefa
- * já esteja fisicamente 100% concluída — Type 2 é "HH apontadas", não "% concluído".
- * Assignments sem baseline conhecida são excluídos do Real inteiramente (não têm
- * peso na baseline, então não devem contar no Avanço Real x Previsto).
- */
-function capActualByAssignmentBaseline(rawPoints: TimephasedDataPoint[]): Map<TimephasedDataPoint, number> {
+/** Soma de Baseline 0 (Type 4, baselineIndex 0) por assignment (uid). */
+function sumBaselineByUid(rawPoints: TimephasedDataPoint[]): Map<number, number> {
   const baselineByUid = new Map<number, number>()
   for (const p of rawPoints) {
     if (p.type === 4 && (p.baselineIndex ?? 0) === 0) {
       baselineByUid.set(p.uid, (baselineByUid.get(p.uid) || 0) + p.valueHours)
     }
   }
+  return baselineByUid
+}
 
+/** Soma de Type 1 (Trabalho Planejado do cronograma atual) por assignment (uid). */
+function sumPlannedByUid(rawPoints: TimephasedDataPoint[]): Map<number, number> {
+  const plannedByUid = new Map<number, number>()
+  for (const p of rawPoints) {
+    if (p.type === 1) {
+      plannedByUid.set(p.uid, (plannedByUid.get(p.uid) || 0) + p.valueHours)
+    }
+  }
+  return plannedByUid
+}
+
+/**
+ * Calcula, para cada ponto Type 2 (Trabalho Real), a fração que conta como Valor
+ * Agregado (earned value): a soma acumulada do trabalho real de um mesmo assignment
+ * é limitada ao MAIOR entre sua Baseline 0 e seu Trabalho Planejado atual (Type 1) —
+ * não só a BL0 isolada. Um assignment pode ter BL0 MENOR que o planejado atual (tarefa
+ * cujo escopo cresceu num replanejamento, sem novo baseline salvo); usar só a BL0 como
+ * teto nesse caso capava o Real abaixo do que já é sabidamente necessário, e ainda
+ * deixava a BL0 exibida no gráfico menor que o Planejado/Forecast (ver injeção
+ * equivalente em buildCurveFromRawPoints, que soma essa diferença na Baseline 0
+ * sintética — sem os dois lados emparelhados, Real e Forecast ultrapassam
+ * visualmente a linha de base). Sem ALGUM teto, retrabalho/horas-extra lançadas além
+ * do orçado inflam o "Avanço Real" acima de 100%, mesmo com a tarefa fisicamente
+ * concluída — Type 2 é "HH apontadas", não "% concluído". Só fica sem teto (soma
+ * crua) o assignment que não tem NEM Baseline 0 NEM Trabalho Planejado (raro: horas
+ * reais lançadas num assignment sem plano algum).
+ */
+function capActualByAssignmentBaseline(
+  rawPoints: TimephasedDataPoint[],
+  baselineByUid: Map<number, number>,
+  plannedByUid: Map<number, number>,
+): Map<TimephasedDataPoint, number> {
   // point.start pode chegar como string quando os dados vêm de round-trip por
   // localStorage (JSON não preserva o tipo Date) — normaliza antes de comparar.
   const actualPoints = rawPoints
@@ -144,11 +170,13 @@ function capActualByAssignmentBaseline(rawPoints: TimephasedDataPoint[]): Map<Ti
   const earned = new Map<TimephasedDataPoint, number>()
 
   for (const p of actualPoints) {
-    const budget = baselineByUid.get(p.uid)
+    const bl = baselineByUid.get(p.uid)
+    const pl = plannedByUid.get(p.uid)
+    const budget = bl !== undefined || pl !== undefined ? Math.max(bl ?? 0, pl ?? 0) : undefined
     const prevCum = cumByUid.get(p.uid) || 0
     const newCum = prevCum + p.valueHours
     cumByUid.set(p.uid, newCum)
-    const delta = budget !== undefined ? Math.min(newCum, budget) - Math.min(prevCum, budget) : 0
+    const delta = budget !== undefined ? Math.min(newCum, budget) - Math.min(prevCum, budget) : p.valueHours
     earned.set(p, delta)
   }
 
@@ -208,7 +236,21 @@ export function buildCurveFromRawPoints(
   }
 
   const grouped = new Map<string, Bucket>()
-  const earnedDeltas = capActualByAssignmentBaseline(rawPoints)
+  const baselineByUid = sumBaselineByUid(rawPoints)
+  const plannedByUid = sumPlannedByUid(rawPoints)
+  const earnedDeltas = capActualByAssignmentBaseline(rawPoints, baselineByUid, plannedByUid)
+
+  // Fração do Type1 de cada assignment que deve virar "baseline substituta" — cobre
+  // tanto assignment sem BL0 nenhuma (fração 1, injeta o Planejado inteiro) quanto o
+  // que já TEM BL0 mas menor que o Planejado atual (fração parcial, injeta só a
+  // diferença). Sem isso, a BL0 exibida no gráfico fica menor que o teto usado pelo
+  // Real/Forecast abaixo, e os dois ultrapassam a linha de base visualmente.
+  const extraRatioByUid = new Map<number, number>()
+  for (const [uid, planned] of plannedByUid) {
+    if (planned <= 0) continue
+    const baseline = baselineByUid.get(uid) ?? 0
+    if (planned > baseline) extraRatioByUid.set(uid, (planned - baseline) / planned)
+  }
 
   // Type 16 (Baseline 1 Work) é uma codificação alternativa/legada que, neste tipo de
   // export, aparece DUPLICADA em relação ao bloco aninhado <Baseline><Number>1>
@@ -258,10 +300,18 @@ export function buildCurveFromRawPoints(
       grouped.set(key, entry)
     }
     switch (point.type) {
-      case 1: // Trabalho Planejado (Work) — distribuição do cronograma atual
+      case 1: { // Trabalho Planejado (Work) — distribuição do cronograma atual
         entry.workPlanned += point.valueHours
         entry.hasOwnWork = true
+        // Injeta a fração "extra" (ver extraRatioByUid) na Baseline 0 sintética, na
+        // mesma distribuição temporal do Planejado atual — mantém a linha de base em
+        // paralelo ao teto usado pro Real em capActualByAssignmentBaseline.
+        const extraRatio = extraRatioByUid.get(point.uid)
+        if (extraRatio) {
+          entry.baselines[0] = (entry.baselines[0] || 0) + point.valueHours * extraRatio
+        }
         break
+      }
       case 2: { // Trabalho Real — só acumular de períodos cujo fim já transcorreu
         const periodEnd = new Date(sortDate.getTime() + periodMs - 86400000)
         if (periodEnd <= now) {
@@ -347,10 +397,38 @@ export function buildCurveFromRawPoints(
     bucketOwnWork.push(bucket.hasOwnWork)
   }
 
+  // Teto de referência = o MESMO total que a conversão em % usa fora daqui (BL0
+  // quando existe, senão o Planejado/PV — mesma prioridade de SCurve.tsx/finalPlanned
+  // e computeAdvanceMetrics/totalPlanned). Calculado só agora porque depende do blCum
+  // já fechado no primeiro passo acima.
+  //
+  // Clampamos Real E Forecast nesse MESMO teto, ANTES de separar por data de status.
+  // Só clampar o Forecast (nos períodos futuros) e deixar o Real (nos períodos
+  // passados) sem teto cria um degrau bem na data de status: se o Real termina acima
+  // do teto (ex.: assignment com BL0 maior que o Planejado atual — escopo reduzido
+  // num replanejamento sem novo baseline), o Forecast = Real até ali, mas cai pro
+  // teto assim que cruza pro período seguinte, onde passa a ser clampado.
+  const bl0TotalFinal = sumBL0(periods[periods.length - 1].blCum)
+  const finalBAC = bl0TotalFinal > 0 ? bl0TotalFinal : periods[periods.length - 1].planned
+
+  if (finalBAC > 0) {
+    let prevClamped = 0
+    for (let i = 0; i < periods.length; i++) {
+      const clamped = round2(Math.min(periods[i].actual, finalBAC))
+      periods[i].actualPeriod = round2(clamped - prevClamped)
+      periods[i].actual = clamped
+      periods[i].spiPeriod = periods[i].plannedPeriod > 0 ? round2(periods[i].actualPeriod / periods[i].plannedPeriod) : null
+      prevClamped = clamped
+    }
+  }
+
   // Segundo passo: calcula o forecast.
   // Forecast = trabalho distribuído nos períodos futuros da data de status.
   // Nos períodos até a data de status, forecast = actual (o que já foi feito).
-  // Nos períodos futuros, forecast = actual_no_status + trabalho planejado restante.
+  // Nos períodos futuros, forecast = actual_no_status + trabalho planejado restante,
+  // igualmente clampado no mesmo teto — evita ultrapassar o total quando o projeto
+  // está ADIANTADO na data de status (actual > planejado-até-ali): o restante ainda
+  // soma o planejado inteiro, mesmo que parte dele já tenha sido antecipada no actual.
   let statusIdx = 0
   for (let i = periods.length - 1; i >= 0; i--) {
     const wd = parseISODateStr(periods[i].date)
@@ -367,8 +445,8 @@ export function buildCurveFromRawPoints(
       periods[i].forecastPeriod = periods[i].actualPeriod
     } else {
       remainingPlanned += periods[i].plannedPeriod
-      periods[i].forecast = round2(actualAtStatus + remainingPlanned)
-      periods[i].forecastPeriod = periods[i].plannedPeriod
+      periods[i].forecast = round2(Math.min(actualAtStatus + remainingPlanned, finalBAC))
+      periods[i].forecastPeriod = round2(periods[i].forecast - periods[i - 1].forecast)
     }
   }
 
@@ -404,7 +482,6 @@ export function buildCurveFromRawPoints(
   // dentro do limite de segurança abaixo. Sem histórico de ritmo (avgPace = 0) não
   // há como extrapolar; o forecast permanece como está.
   {
-    const finalBAC = periods[periods.length - 1].planned
     const forecastAtEnd = periods[periods.length - 1].forecast
     const remainingDeficit = round2(finalBAC - forecastAtEnd)
     const elapsedPeriods = Math.max(1, statusIdx - firstWorkIdx + 1)
