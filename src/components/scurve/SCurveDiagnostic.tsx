@@ -271,17 +271,17 @@ export function SCurveDiagnostic({ onClose }: Props) {
                 <>
                   <p className="font-semibold">
                     ⚠ {baselineGap.excludedHours.toLocaleString('pt-BR')} h reais ({baselineGap.excludedAssignments} de {baselineGap.totalAssignmentsWithReal} alocações)
-                    não têm Baseline 0 própria — contam no Avanço Real com teto no Planejado atual (Type 1) da alocação, em vez do orçamento de BL0.
+                    ficam de fora do Avanço Real por não terem Baseline 0 própria.
                   </p>
                   <p className="mt-1 text-xs opacity-80">
                     {baselineGap.totalRealHours > 0
                       ? `Isso representa ${round2((baselineGap.excludedHours / baselineGap.totalRealHours) * 100)}% de todo o Trabalho Real (Type 2) apontado no XML.`
                       : ''}
-                    {' '}Geralmente acontece quando um recurso é adicionado/trocado numa tarefa depois que a linha de base foi salva — a alocação nova não tem orçamento de BL0, mas a Baseline 0 exibida no gráfico é ajustada com o mesmo Planejado atual como substituto, então Real e LB continuam comparáveis.
+                    {' '}Geralmente acontece quando um recurso é adicionado/trocado numa tarefa depois que a linha de base foi salva — a alocação nova não tem orçamento de BL0.
                   </p>
                 </>
               ) : (
-                <p>✓ Todas as alocações com Trabalho Real têm Baseline 0 própria — nenhum teto substituto foi usado.</p>
+                <p>✓ Todas as alocações com Trabalho Real têm Baseline 0 própria — nenhuma exclusão nesse critério.</p>
               )}
             </div>
           )}
