@@ -63,16 +63,17 @@ function getTopUsedFilters(): FilterHistoryEntry[] {
   return loadHistory().sort((a, b) => b.count - a.count).slice(0, TOP_USED_COUNT)
 }
 
+// "Área" foi removida da lista — WBSActivity.area nunca é preenchido a partir do XML
+// (fica sempre ''), então esse filtro nunca tinha valor nenhum pra oferecer além de
+// "(vazio)": filtrar por Área não excluía nada de fato, só parecia um filtro funcional.
 const BUILTIN_COLUMNS: { key: string; label: string }[] = [
   { key: 'discipline', label: 'Disciplina' },
   { key: 'responsible', label: 'Responsável' },
-  { key: 'area', label: 'Área' },
 ]
 
 export function getActivityColumnValue(activity: WBSActivity, key: string, fieldDefs: ColumnFieldDef[]): string {
   if (key === 'discipline') return activity.discipline || ''
   if (key === 'responsible') return activity.responsible || ''
-  if (key === 'area') return activity.area || ''
   if (key.startsWith('cf:')) {
     const name = key.slice(3)
     // Campo personalizado é casado por NOME (não FieldID) porque o mesmo campo pode
