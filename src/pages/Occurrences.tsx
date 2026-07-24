@@ -1,18 +1,19 @@
 import { useState } from 'react'
 import { useProject } from '@/lib/project-context'
-import { AlertTriangle, Plus, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Plus, RotateCcw, Trash2, X } from 'lucide-react'
 import {
   OCCURRENCE_CATEGORIES,
   OCCURRENCE_SEVERITIES,
   getCategoryDef,
   getSeverityDef,
+  getStatusDef,
   isHighImpact,
   type OccurrenceCategory,
   type OccurrenceSeverity,
 } from '@/lib/occurrence-types'
 
 export default function Occurrences() {
-  const { project, activities, occurrences, addOccurrence, removeOccurrence } = useProject()
+  const { project, activities, occurrences, addOccurrence, removeOccurrence, resolveOccurrence, reopenOccurrence } = useProject()
   const [showForm, setShowForm] = useState(false)
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
@@ -46,6 +47,7 @@ export default function Occurrences() {
 
   const totalImpactDays = occurrences.reduce((sum, o) => sum + o.impactDays, 0)
   const highImpactCount = occurrences.filter((o) => isHighImpact(o.severity)).length
+  const openCount = occurrences.filter((o) => o.status === 'aberta').length
 
   return (
     <div className="space-y-6">
@@ -64,10 +66,14 @@ export default function Occurrences() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <p className="text-xs text-gray-500">Total de Ocorrências</p>
           <p className="text-2xl font-bold text-gray-900">{occurrences.length}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+          <p className="text-xs text-gray-500">Abertas</p>
+          <p className="text-2xl font-bold text-red-600">{openCount}</p>
         </div>
         <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
           <p className="text-xs text-gray-500">Dias de Impacto</p>
@@ -203,11 +209,13 @@ export default function Occurrences() {
               .map((occ) => {
                 const categoryDef = getCategoryDef(occ.type)
                 const severityDef = getSeverityDef(occ.severity)
+                const statusDef = getStatusDef(occ.status)
                 const CategoryIcon = categoryDef.icon
                 const activity = occ.activityUid ? activities.find((a) => a.uid === occ.activityUid) : null
+                const isOpen = occ.status === 'aberta'
 
                 return (
-                  <div key={occ.id} className="p-4 hover:bg-gray-50 transition">
+                  <div key={occ.id} className={`p-4 hover:bg-gray-50 transition ${!isOpen ? 'opacity-60' : ''}`}>
                     <div className="flex items-start gap-4">
                       <div
                         className="p-2 rounded-lg"
@@ -218,6 +226,9 @@ export default function Occurrences() {
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="text-sm font-medium text-gray-900">{categoryDef.label}</span>
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusDef.badgeClass}`}>
+                            {statusDef.label}
+                          </span>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${severityDef.badgeClass}`}>
                             {severityDef.label}
                           </span>
@@ -242,12 +253,32 @@ export default function Occurrences() {
                           </p>
                         )}
                       </div>
-                      <button
-                        onClick={() => removeOccurrence(occ.id)}
-                        className="text-gray-400 hover:text-red-500 transition"
-                      >
-                        <Trash2 size={16} />
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {isOpen ? (
+                          <button
+                            onClick={() => resolveOccurrence(occ.id)}
+                            className="text-gray-400 hover:text-green-600 transition"
+                            title="Marcar como resolvida"
+                          >
+                            <CheckCircle2 size={16} />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => reopenOccurrence(occ.id)}
+                            className="text-gray-400 hover:text-amber-600 transition"
+                            title="Reabrir"
+                          >
+                            <RotateCcw size={16} />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => removeOccurrence(occ.id)}
+                          className="text-gray-400 hover:text-red-500 transition"
+                          title="Excluir"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )

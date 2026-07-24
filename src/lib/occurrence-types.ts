@@ -12,6 +12,23 @@ export type OccurrenceCategory =
 
 export type OccurrenceSeverity = 'baixa' | 'media' | 'alta' | 'critica'
 
+export type OccurrenceStatus = 'aberta' | 'resolvida'
+
+export interface OccurrenceStatusDef {
+  value: OccurrenceStatus
+  label: string
+  badgeClass: string
+}
+
+export const OCCURRENCE_STATUSES: OccurrenceStatusDef[] = [
+  { value: 'aberta', label: 'Aberta', badgeClass: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' },
+  { value: 'resolvida', label: 'Resolvida', badgeClass: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+]
+
+export function getStatusDef(status: OccurrenceStatus): OccurrenceStatusDef {
+  return OCCURRENCE_STATUSES.find((s) => s.value === status) ?? OCCURRENCE_STATUSES[0]
+}
+
 export interface OccurrenceCategoryDef {
   value: OccurrenceCategory
   label: string

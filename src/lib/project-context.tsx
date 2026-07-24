@@ -3,13 +3,14 @@ import type { ParsedProject, WBSActivity, WBSResource, WBSAssignment } from '@/l
 import { calculateIndices, calculatePPC, type ProjectIndices } from '@/lib/project-calculations'
 import { sampleProject } from '@/lib/sample-data'
 import { toDate } from '@/lib/utils'
-import type { OccurrenceCategory, OccurrenceSeverity } from '@/lib/occurrence-types'
+import type { OccurrenceCategory, OccurrenceSeverity, OccurrenceStatus } from '@/lib/occurrence-types'
 
 export interface Occurrence {
   id: string
   date: Date
   type: OccurrenceCategory
   severity: OccurrenceSeverity
+  status: OccurrenceStatus
   description: string
   impactDays: number
   activityUid?: number
@@ -40,8 +41,10 @@ interface ProjectStore {
 
   // Ocorrências
   occurrences: Occurrence[]
-  addOccurrence: (occ: Omit<Occurrence, 'id'>) => void
+  addOccurrence: (occ: Omit<Occurrence, 'id' | 'status'>) => void
   removeOccurrence: (id: string) => void
+  resolveOccurrence: (id: string) => void
+  reopenOccurrence: (id: string) => void
 
   // Apontamento de mão de obra
   laborEntries: LaborEntry[]
@@ -127,16 +130,25 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     )
   }
 
-  const addOccurrence = (occ: Omit<Occurrence, 'id'>) => {
+  const addOccurrence = (occ: Omit<Occurrence, 'id' | 'status'>) => {
     const newOcc: Occurrence = {
       ...occ,
       id: crypto.randomUUID(),
+      status: 'aberta',
     }
     setOccurrences((prev) => [...prev, newOcc])
   }
 
   const removeOccurrence = (id: string) => {
     setOccurrences((prev) => prev.filter((o) => o.id !== id))
+  }
+
+  const resolveOccurrence = (id: string) => {
+    setOccurrences((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'resolvida' } : o)))
+  }
+
+  const reopenOccurrence = (id: string) => {
+    setOccurrences((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'aberta' } : o)))
   }
 
   const addLaborEntry = (entry: Omit<LaborEntry, 'id'>) => {
@@ -216,6 +228,8 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         occurrences,
         addOccurrence,
         removeOccurrence,
+        resolveOccurrence,
+        reopenOccurrence,
         laborEntries,
         addLaborEntry,
         removeLaborEntry,
