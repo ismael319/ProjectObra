@@ -15,7 +15,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collap
 import { toast } from "sonner";
 import {
   ChevronRight, ChevronDown, Plus, Pencil, Trash2, Building2, Map as MapIcon, MapPin, Wrench,
-  Clock, GitMerge, Save, FolderOpen, X, Loader2, ArrowUp, ArrowDown,
+  Clock, GitMerge, Save, FolderOpen, X, Loader2, IndentIncrease, IndentDecrease, MoveUp, MoveDown,
 } from "lucide-react";
 
 type Nivel = "setor" | "area" | "subarea" | "atividade";
@@ -27,6 +27,7 @@ interface TreeNode {
   ativo: boolean;
   nivel: Nivel;
   parentId: string | null;
+  ordem: number;
   children: TreeNode[];
 }
 
@@ -78,9 +79,6 @@ export default function EapPage() {
   const [nivel, setNivel] = useState<Nivel>("setor");
   const [parentId, setParentId] = useState<string | undefined>(undefined);
   const [confirm, setConfirm] = useState<{ node: TreeNode; descendantCount: number } | null>(null);
-
-  const [levelChangeConfirm, setLevelChangeConfirm] = useState<{ node: TreeNode; direction: "up" | "down" } | null>(null);
-  const [levelChangeNewParentId, setLevelChangeNewParentId] = useState<string>("");
   const [mergeNewName, setMergeNewName] = useState("");
 
   const [mergeMode, setMergeMode] = useState(false);
@@ -95,7 +93,7 @@ export default function EapPage() {
   const { data: setores = [] } = useQuery({
     queryKey: ["cadastro", "setores"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("setores").select("*").order("nome");
+      const { data, error } = await supabase.from("setores").select("*").order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
@@ -104,7 +102,7 @@ export default function EapPage() {
   const { data: areas = [] } = useQuery({
     queryKey: ["cadastro", "areas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("areas").select("*").order("nome");
+      const { data, error } = await supabase.from("areas").select("*").order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
@@ -113,7 +111,7 @@ export default function EapPage() {
   const { data: subareas = [] } = useQuery({
     queryKey: ["cadastro", "subareas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("subareas").select("*").order("nome");
+      const { data, error } = await supabase.from("subareas").select("*").order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
@@ -122,7 +120,7 @@ export default function EapPage() {
   const { data: atividades = [] } = useQuery({
     queryKey: ["cadastro", "atividades"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("atividades").select("*").order("nome");
+      const { data, error } = await supabase.from("atividades").select("*").order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
@@ -163,7 +161,7 @@ export default function EapPage() {
   });
 
   // id -> id do pai direto (ou null), pra qualquer nível — usado só pra achar o "avô"
-  // ao subir o nível de um item (vira filho do pai do seu pai atual).
+  // ao recuar o nível de um item (vira filho do pai do seu pai atual).
   const parentIdByNodeId = useMemo(() => {
     const map = new Map<string, string | null>();
     for (const s of setores) map.set(s.id, null);
@@ -172,6 +170,23 @@ export default function EapPage() {
     for (const at of atividades) map.set(at.id, at.subarea_id ?? null);
     return map;
   }, [setores, areas, subareas, atividades]);
+
+  // "Irmãos" (mesmo nível, mesmo pai) já ordenados por `ordem` — usado pra achar o
+  // item logo acima (avançar/indent vira filho dele), pra trocar de posição (mover
+  // pra cima/baixo) e pra calcular a próxima ordem livre (novo item / recuar).
+  function siblingsOf(nvl: Nivel, parentId: string | null): { id: string; ordem: number }[] {
+    const parentField = NIVEL_CONFIG[nvl].parentField;
+    const source = nvl === "setor" ? setores : nvl === "area" ? areas : nvl === "subarea" ? subareas : atividades;
+    return source
+      .filter((r: any) => (parentField ? r[parentField] === parentId : true))
+      .map((r: any) => ({ id: r.id as string, ordem: (r.ordem ?? 0) as number }))
+      .sort((a, b) => a.ordem - b.ordem);
+  }
+
+  function nextOrdem(nvl: Nivel, parentId: string | null): number {
+    const siblings = siblingsOf(nvl, parentId);
+    return siblings.length > 0 ? Math.max(...siblings.map((s) => s.ordem)) + 1 : 0;
+  }
 
   const horasPorNivel = useMemo(() => {
     const horasDiaMap = new Map(diasTrabalho.map((d) => [d.data, d.horas_dia]));
@@ -223,19 +238,19 @@ export default function EapPage() {
     return setores
       .filter((s) => s.ativo || !search)
       .map((s) => ({
-        id: s.id, nome: s.nome, codigo: s.codigo, ativo: s.ativo, nivel: "setor" as Nivel, parentId: null,
+        id: s.id, nome: s.nome, codigo: s.codigo, ativo: s.ativo, nivel: "setor" as Nivel, parentId: null, ordem: s.ordem ?? 0,
         children: areas
           .filter((a) => a.setor_id === s.id && (a.ativo || !search))
           .map((a) => ({
-            id: a.id, nome: a.nome, codigo: a.codigo, ativo: a.ativo, nivel: "area" as Nivel, parentId: s.id,
+            id: a.id, nome: a.nome, codigo: a.codigo, ativo: a.ativo, nivel: "area" as Nivel, parentId: s.id, ordem: a.ordem ?? 0,
             children: subareas
               .filter((sa) => sa.area_id === a.id && (sa.ativo || !search))
               .map((sa) => ({
-                id: sa.id, nome: sa.nome, codigo: sa.codigo, ativo: sa.ativo, nivel: "subarea" as Nivel, parentId: a.id,
+                id: sa.id, nome: sa.nome, codigo: sa.codigo, ativo: sa.ativo, nivel: "subarea" as Nivel, parentId: a.id, ordem: sa.ordem ?? 0,
                 children: (ativBySubarea.get(sa.id) ?? [])
                   .filter((at) => at.ativo || !search)
                   .map((at) => ({
-                    id: at.id, nome: at.nome, codigo: at.codigo, ativo: at.ativo, nivel: "atividade" as Nivel, parentId: sa.id, children: [],
+                    id: at.id, nome: at.nome, codigo: at.codigo, ativo: at.ativo, nivel: "atividade" as Nivel, parentId: sa.id, ordem: at.ordem ?? 0, children: [],
                   })),
               })),
           })),
@@ -267,6 +282,8 @@ export default function EapPage() {
         const { error } = await supabase.from(table).update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
+        // Item novo entra no fim da lista de irmãos (não no meio, por ordem alfabética).
+        payload.ordem = nextOrdem(nivel, nivel === "setor" ? null : (parentId ?? null));
         const { error } = await supabase.from(table).insert(payload);
         if (error) throw error;
       }
@@ -351,12 +368,13 @@ export default function EapPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  // Sobe ("up") ou desce ("down") o nível de um item e de toda a subárvore junto —
-  // preserva o MESMO id em todas as linhas ao mover de tabela, então nenhuma FK de
-  // filho/apontamento precisa ser remapeada: só muda a coluna (nome do nível) que
-  // guarda esse id. "up": vira filho do avô atual (determinístico). "down": precisa
-  // de um novo item pai escolhido pelo usuário, no nível ATUAL do item (ele vai virar
-  // filho de algo que hoje é do mesmo nível que ele).
+  // Recua ("up"/outdent) ou avança ("down"/indent) o nível de um item e de toda a
+  // subárvore junto — preserva o MESMO id em todas as linhas ao mover de tabela,
+  // então nenhuma FK de filho/apontamento precisa ser remapeada: só muda a coluna
+  // (nome do nível) que guarda esse id. "up": vira filho do avô atual (determinístico
+  // — recuar sempre sobe pro nível do próprio pai). "down": vira filho do item
+  // IMEDIATAMENTE ACIMA dele no mesmo nível (newParentId já vem calculado pelo
+  // chamador — ver handleIndent) — igual ao Tab do MS Project/Excel.
   const changeLevelMut = useMutation({
     mutationFn: async ({ node, direction, newParentId }: { node: TreeNode; direction: "up" | "down"; newParentId?: string }) => {
       const delta = direction === "up" ? -1 : 1;
@@ -367,25 +385,29 @@ export default function EapPage() {
         if (newIdx < 0 || newIdx > 3) {
           throw new Error(
             direction === "up"
-              ? `"${n.nome}" já está no nível Setor — não dá pra subir mais.`
+              ? `"${n.nome}" já está no nível Setor — não dá pra recuar mais.`
               : `"${n.nome}" já está no nível Atividade — não existe nível abaixo disso.`,
           );
         }
       }
-      if (direction === "down" && !newParentId) throw new Error("Escolha o novo item pai antes de confirmar.");
+      if (direction === "down" && !newParentId) throw new Error("Não há item acima no mesmo nível pra virar o pai.");
+
+      const newNivelRoot = NIVEL_ORDER[NIVEL_ORDER.indexOf(node.nivel) + delta];
+      const newParentIdRoot: string | null = direction === "up" ? (parentIdByNodeId.get(node.parentId ?? "") ?? null) : newParentId!;
+      // A raiz da operação entra no fim dos filhos do novo pai; os descendentes
+      // mantêm sua própria ordem relativa (todos se movem juntos, na mesma leva).
+      const rootNewOrdem = nextOrdem(newNivelRoot, newParentIdRoot);
 
       // Insere de cima pra baixo (raiz da operação primeiro) na tabela NOVA — garante
       // que o pai já existe lá antes do filho ser inserido referenciando ele.
       for (const n of subtree) {
         const newNivel = NIVEL_ORDER[NIVEL_ORDER.indexOf(n.nivel) + delta];
         const newParentField = NIVEL_CONFIG[newNivel].parentField;
+        const isRoot = n.id === node.id;
 
-        const parentValue: string | null =
-          n.id === node.id
-            ? (direction === "up" ? (parentIdByNodeId.get(node.parentId ?? "") ?? null) : newParentId!)
-            : n.parentId; // descendente: valor do FK não muda, só a coluna/tabela
+        const parentValue: string | null = isRoot ? newParentIdRoot : n.parentId; // descendente: valor do FK não muda, só a coluna/tabela
 
-        const payload: Record<string, unknown> = { id: n.id, nome: n.nome, codigo: n.codigo, ativo: n.ativo };
+        const payload: Record<string, unknown> = { id: n.id, nome: n.nome, codigo: n.codigo, ativo: n.ativo, ordem: isRoot ? rootNewOrdem : n.ordem };
         if (newParentField) payload[newParentField] = parentValue;
 
         const { error: insErr } = await supabase.from(NIVEL_TABLE[newNivel]).insert(payload);
@@ -414,12 +436,31 @@ export default function EapPage() {
       }
     },
     onSuccess: () => {
-      toast.success("Nível alterado");
       invalidateAll();
       qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
-      setLevelChangeConfirm(null);
-      setLevelChangeNewParentId("");
     },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Troca a ordem entre dois irmãos adjacentes (mesmo nível, mesmo pai) — mover um
+  // "resumo" (setor/área/etapa) pra cima/baixo leva os filhos junto de graça, porque
+  // eles são renderizados aninhados sob o pai, não reordenados por conta própria.
+  const moveMut = useMutation({
+    mutationFn: async ({ node, direction }: { node: TreeNode; direction: "up" | "down" }) => {
+      const siblings = siblingsOf(node.nivel, node.parentId);
+      const idx = siblings.findIndex((s) => s.id === node.id);
+      const swapIdx = direction === "up" ? idx - 1 : idx + 1;
+      if (idx === -1 || swapIdx < 0 || swapIdx >= siblings.length) {
+        throw new Error(direction === "up" ? "Já é o primeiro do grupo." : "Já é o último do grupo.");
+      }
+      const other = siblings[swapIdx];
+      const table = NIVEL_TABLE[node.nivel];
+      const { error: e1 } = await supabase.from(table).update({ ordem: other.ordem }).eq("id", node.id);
+      if (e1) throw e1;
+      const { error: e2 } = await supabase.from(table).update({ ordem: siblings[idx].ordem }).eq("id", other.id);
+      if (e2) throw e2;
+    },
+    onSuccess: () => invalidateAll(),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -451,18 +492,25 @@ export default function EapPage() {
   function openNew(n: Nivel, pId?: string) { setEditing(null); setForm(EMPTY_FORM); setNivel(n); setParentId(pId); setOpen(true); }
   function openEdit(node: TreeNode) { setEditing({ id: node.id, nome: node.nome, codigo: node.codigo, ativo: node.ativo, nivel: node.nivel, parentId: node.parentId ?? undefined }); setForm({ nome: node.nome, codigo: node.codigo ?? "", ativo: node.ativo }); setNivel(node.nivel); setParentId(node.parentId ?? undefined); setOpen(true); }
   function handleDelete(node: TreeNode) { setConfirm({ node, descendantCount: collectSubtree(node).length - 1 }); }
-  function openLevelChange(node: TreeNode, direction: "up" | "down") { setLevelChangeConfirm({ node, direction }); setLevelChangeNewParentId(""); }
 
-  // Opções de novo pai pro "descer nível": itens que hoje estão no MESMO nível do
-  // item sendo movido (ele vai virar filho de um deles), excluindo ele mesmo e seus
-  // próprios descendentes (não pode virar filho de si mesmo).
-  const levelChangeParentOptions = useMemo(() => {
-    if (!levelChangeConfirm || levelChangeConfirm.direction !== "down") return [];
-    const nivel = levelChangeConfirm.node.nivel;
-    const excludeIds = new Set(collectSubtree(levelChangeConfirm.node).map((n) => n.id));
-    const source = nivel === "setor" ? setores : nivel === "area" ? areas : nivel === "subarea" ? subareas : atividades;
-    return source.filter((s) => !excludeIds.has(s.id)).map((s) => ({ id: s.id as string, nome: s.nome as string }));
-  }, [levelChangeConfirm, setores, areas, subareas, atividades]);
+  // Avançar (indent): o item vira filho do item IMEDIATAMENTE ACIMA dele no mesmo
+  // nível — igual ao Tab do MS Project/Excel. Instantâneo, sem diálogo: se não há
+  // item acima (já é o primeiro do grupo), só avisa e não faz nada.
+  function handleIndent(node: TreeNode) {
+    const siblings = siblingsOf(node.nivel, node.parentId);
+    const idx = siblings.findIndex((s) => s.id === node.id);
+    if (idx <= 0) {
+      toast.error("Já é o primeiro do grupo — não há item acima pra virar pai.");
+      return;
+    }
+    changeLevelMut.mutate({ node, direction: "down", newParentId: siblings[idx - 1].id });
+  }
+
+  // Recuar (outdent): o item vira irmão do seu pai atual (sobe pro nível de cima) —
+  // igual ao Shift+Tab do MS Project/Excel. Também instantâneo.
+  function handleOutdent(node: TreeNode) {
+    changeLevelMut.mutate({ node, direction: "up" });
+  }
 
   function cancelMerge() { setMergeMode(false); setMergeNivel(null); setMergeSelected(new Map()); setMergeTargetId(null); setMergeNewName(""); }
 
@@ -599,7 +647,9 @@ export default function EapPage() {
             <EapNode
               key={setor.id} node={setor} depth={0}
               onEdit={openEdit} onAdd={openNew} onDelete={handleDelete} onToggle={toggleMut.mutate}
-              onChangeLevel={openLevelChange}
+              onIndent={handleIndent} onOutdent={handleOutdent}
+              onMoveUp={(n) => moveMut.mutate({ node: n, direction: "up" })}
+              onMoveDown={(n) => moveMut.mutate({ node: n, direction: "down" })}
               getHoras={getHoras}
               mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={toggleMergeSelect}
             />
@@ -678,57 +728,6 @@ export default function EapPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog
-        open={!!levelChangeConfirm}
-        onOpenChange={(o) => { if (!o) { setLevelChangeConfirm(null); setLevelChangeNewParentId(""); } }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              {levelChangeConfirm?.direction === "up" ? "Subir" : "Descer"} nível de "{levelChangeConfirm?.node.nome}"
-            </DialogTitle>
-          </DialogHeader>
-          {levelChangeConfirm && (
-            <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Vira <strong>{NIVEL_CONFIG[NIVEL_ORDER[NIVEL_ORDER.indexOf(levelChangeConfirm.node.nivel) + (levelChangeConfirm.direction === "up" ? -1 : 1)]].label}</strong>.
-                {" "}Todos os sub-itens dentro dele mudam de nível junto, pra manter a estrutura.
-              </p>
-              {levelChangeConfirm.direction === "down" && (
-                <div className="space-y-1.5">
-                  <Label>Novo item pai *</Label>
-                  <select
-                    className="w-full border rounded-md px-3 py-2 text-sm bg-background"
-                    value={levelChangeNewParentId}
-                    onChange={(e) => setLevelChangeNewParentId(e.target.value)}
-                  >
-                    <option value="">Selecione...</option>
-                    {levelChangeParentOptions.map((opt) => (
-                      <option key={opt.id} value={opt.id}>{opt.nome}</option>
-                    ))}
-                  </select>
-                  {levelChangeParentOptions.length === 0 && (
-                    <p className="text-xs text-amber-600">
-                      Não há nenhum item no nível "{NIVEL_CONFIG[levelChangeConfirm.node.nivel].label}" pra virar o novo pai — cadastre um antes.
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setLevelChangeConfirm(null); setLevelChangeNewParentId(""); }}>Cancelar</Button>
-            <Button
-              onClick={() => levelChangeConfirm && changeLevelMut.mutate({ node: levelChangeConfirm.node, direction: levelChangeConfirm.direction, newParentId: levelChangeNewParentId || undefined })}
-              disabled={changeLevelMut.isPending || (levelChangeConfirm?.direction === "down" && !levelChangeNewParentId)}
-            >
-              {changeLevelMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
-              Confirmar
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={modeloDialogOpen} onOpenChange={setModeloDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Salvar modelo de EAP</DialogTitle></DialogHeader>
@@ -770,10 +769,11 @@ export default function EapPage() {
   );
 }
 
-function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onChangeLevel, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, defaultOpen = true }: {
+function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onOutdent, onMoveUp, onMoveDown, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, defaultOpen = true }: {
   node: TreeNode; depth: number; onEdit: (node: TreeNode) => void; onAdd: (nivel: Nivel, parentId?: string) => void;
   onDelete: (node: TreeNode) => void; onToggle: (args: { id: string; nivel: Nivel; ativo: boolean }) => void;
-  onChangeLevel: (node: TreeNode, direction: "up" | "down") => void;
+  onIndent: (node: TreeNode) => void; onOutdent: (node: TreeNode) => void;
+  onMoveUp: (node: TreeNode) => void; onMoveDown: (node: TreeNode) => void;
   getHoras: (nivel: Nivel, id: string) => number;
   mergeMode: boolean; mergeNivel: Nivel | null; mergeSelected: Map<string, string>; onMergeToggle: (node: TreeNode) => void;
   defaultOpen?: boolean;
@@ -825,20 +825,34 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onChangeLevel
               </button>
             )}
             <button
-              onClick={() => onChangeLevel(node, "up")}
-              disabled={node.nivel === "setor"}
-              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-              title={node.nivel === "setor" ? "Já está no nível mais alto" : `Subir para ${NIVEL_CONFIG[NIVEL_ORDER[NIVEL_ORDER.indexOf(node.nivel) - 1]].label}`}
+              onClick={() => onMoveUp(node)}
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Mover para cima"
             >
-              <ArrowUp className="h-3.5 w-3.5" />
+              <MoveUp className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={() => onChangeLevel(node, "down")}
+              onClick={() => onMoveDown(node)}
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground"
+              title="Mover para baixo"
+            >
+              <MoveDown className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => onOutdent(node)}
+              disabled={node.nivel === "setor"}
+              className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
+              title={node.nivel === "setor" ? "Já está no nível mais alto" : `Recuar para ${NIVEL_CONFIG[NIVEL_ORDER[NIVEL_ORDER.indexOf(node.nivel) - 1]].label}`}
+            >
+              <IndentDecrease className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={() => onIndent(node)}
               disabled={node.nivel === "atividade"}
               className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:bg-transparent"
-              title={node.nivel === "atividade" ? "Já está no nível mais baixo" : `Descer para ${NIVEL_CONFIG[NIVEL_ORDER[NIVEL_ORDER.indexOf(node.nivel) + 1]].label}`}
+              title={node.nivel === "atividade" ? "Já está no nível mais baixo" : `Avançar para ${NIVEL_CONFIG[NIVEL_ORDER[NIVEL_ORDER.indexOf(node.nivel) + 1]].label} (vira sub-item do item acima)`}
             >
-              <ArrowDown className="h-3.5 w-3.5" />
+              <IndentIncrease className="h-3.5 w-3.5" />
             </button>
             <button onClick={() => onEdit(node)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="h-3.5 w-3.5" /></button>
             <button onClick={() => onDelete(node)} className="p-1 rounded hover:bg-destructive/10 text-destructive" title="Excluir"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -851,7 +865,8 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onChangeLevel
             {node.children.map((child) => (
               <EapNode
                 key={child.id} node={child} depth={depth + 1}
-                onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} onToggle={onToggle} onChangeLevel={onChangeLevel}
+                onEdit={onEdit} onAdd={onAdd} onDelete={onDelete} onToggle={onToggle}
+                onIndent={onIndent} onOutdent={onOutdent} onMoveUp={onMoveUp} onMoveDown={onMoveDown}
                 getHoras={getHoras}
                 mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle}
               />
