@@ -344,8 +344,29 @@ export default function ImportarEapPage() {
 
   const importMut = useMutation({
     mutationFn: async () => {
-      const selected = rows.filter((r) => r.selected);
-      if (selected.length === 0) throw new Error("Nenhum item selecionado para importação.");
+      const selectedBase = rows.filter((r) => r.selected);
+      if (selectedBase.length === 0) throw new Error("Nenhum item selecionado para importação.");
+
+      // Garante que a cadeia de pais de qualquer item selecionado entre junto na
+      // importação, mesmo que o checkbox do pai não tenha sido marcado — a seleção
+      // pode ter vindo de vários caminhos (clique individual, checkbox de nível em
+      // lote, "Selecionar Todos") e nem sempre é óbvio pro usuário que precisa
+      // marcar cada ancestral manualmente. Sem isso, o item citado na mensagem de
+      // erro simplesmente não era importado.
+      const byCodigo = new Map(rows.map((r) => [r.codigo, r]));
+      const effectiveIds = new Set(selectedBase.map((r) => r.id));
+      let autoIncluidos = 0;
+      for (const r of selectedBase) {
+        let cur: EapRow | undefined = r;
+        while (cur?.parentCodigo) {
+          const parent = byCodigo.get(cur.parentCodigo);
+          if (!parent || effectiveIds.has(parent.id)) break;
+          effectiveIds.add(parent.id);
+          autoIncluidos++;
+          cur = parent;
+        }
+      }
+      const selected = rows.filter((r) => effectiveIds.has(r.id));
 
       // Recalcula o casamento com o banco (não confia em matchedIds, que pode estar
       // um tick desatualizado) e semeia dbIdByCodigo só com os ids REALMENTE
@@ -406,10 +427,11 @@ export default function ImportarEapPage() {
           inserted++;
         }
       }
-      return { inserted, skipped, failed };
+      return { inserted, skipped, failed, autoIncluidos };
     },
     onSuccess: (r) => {
-      toast.success(`Importação concluída: ${r.inserted} inseridos, ${r.skipped} ignorados, ${r.failed} falhas`);
+      const extra = r.autoIncluidos > 0 ? ` (${r.autoIncluidos} pai(s) incluído(s) automaticamente)` : "";
+      toast.success(`Importação concluída: ${r.inserted} inseridos, ${r.skipped} ignorados, ${r.failed} falhas${extra}`);
       qc.invalidateQueries({ queryKey: ["cadastro"] });
       setRows([]);
       setFileName("");
