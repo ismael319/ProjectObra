@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +16,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "./ui/collap
 import { toast } from "sonner";
 import {
   ChevronRight, ChevronDown, Plus, Pencil, Trash2, Building2, Map as MapIcon, MapPin, Wrench,
-  Clock, GitMerge, Save, FolderOpen, X, Loader2, IndentIncrease, IndentDecrease, MoveUp, MoveDown,
+  Clock, GitMerge, Save, FolderOpen, X, Loader2, IndentIncrease, IndentDecrease, MoveUp, MoveDown, Layers,
 } from "lucide-react";
 
 type Nivel = "setor" | "area" | "subarea" | "atividade";
@@ -85,6 +86,7 @@ function friendlyDbError(e: unknown): string {
 
 export default function EapPage() {
   const qc = useQueryClient();
+  const { currentProject } = useProjects();
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<{ id: string; nome: string; codigo: string | null; ativo: boolean; nivel: Nivel; parentId?: string } | null>(null);
@@ -253,6 +255,13 @@ export default function EapPage() {
       }
     }
     return maps;
+  }, [apontamentosValidados, diasTrabalho]);
+
+  // Total do Projeto (nível 0, acima do Setor) — soma TODAS as horas apontadas
+  // validadas, independente do nível/item em que foram lançadas.
+  const totalHorasProjeto = useMemo(() => {
+    const horasDiaMap = new Map(diasTrabalho.map((d) => [d.data, d.horas_dia]));
+    return apontamentosValidados.reduce((acc, a) => acc + a.total * (horasDiaMap.get(a.data) ?? HORAS_DIA_PADRAO), 0);
   }, [apontamentosValidados, diasTrabalho]);
 
   function getHoras(nivel: Nivel, id: string): number {
@@ -761,6 +770,20 @@ export default function EapPage() {
           </CardContent>
         </Card>
       )}
+
+      <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
+        <CardContent className="p-3 flex items-center gap-3">
+          <div className="p-2 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"><Layers className="h-4 w-4" /></div>
+          <div className="min-w-0">
+            <div className="text-xs text-muted-foreground">Nível 0 · Projeto</div>
+            <div className="text-lg font-bold truncate">{currentProject?.nome ?? "Projeto"}</div>
+          </div>
+          <div className="ml-auto text-right shrink-0">
+            <div className="text-lg font-bold">{totalHorasProjeto.toLocaleString("pt-BR")}h</div>
+            <div className="text-xs text-muted-foreground">total apontado (todos os níveis)</div>
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {(["setor", "area", "subarea", "atividade"] as Nivel[]).map((n) => {
