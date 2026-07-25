@@ -28,6 +28,7 @@ interface TreeNode {
   nivel: Nivel;
   parentId: string | null;
   ordem: number;
+  bloqueado: boolean;
   children: TreeNode[];
 }
 
@@ -86,6 +87,10 @@ export default function EapPage() {
   const [mergeSelected, setMergeSelected] = useState<Map<string, string>>(new Map()); // id -> nome
   const [mergeTargetId, setMergeTargetId] = useState<string | null>(null);
 
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [deleteSelected, setDeleteSelected] = useState<Map<string, TreeNode>>(new Map());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+
   const [modeloDialogOpen, setModeloDialogOpen] = useState(false);
   const [modeloNome, setModeloNome] = useState("");
   const [viewingModelo, setViewingModelo] = useState<EapModelo | null>(null);
@@ -141,6 +146,22 @@ export default function EapPage() {
       return data as { setor_id: string | null; area_id: string | null; subarea_id: string | null; atividade_id: string | null; total: number; data: string }[];
     },
   });
+
+  // Todas as atividades com pelo menos 1 apontamento (validado ou não) — é o que
+  // trava a exclusão via "apontamentos_diarios_atividade_id_fkey". Sem isso a EAP
+  // deixava tentar apagar e só descobria o erro depois, vindo do banco.
+  const { data: apontamentosAtividadeIds = [] } = useQuery({
+    queryKey: ["apontamentos_diarios", "atividade_ids"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("apontamentos_diarios").select("atividade_id").not("atividade_id", "is", null);
+      if (error) throw error;
+      return data as { atividade_id: string }[];
+    },
+  });
+  const atividadesComApontamento = useMemo(
+    () => new Set(apontamentosAtividadeIds.map((a) => a.atividade_id)),
+    [apontamentosAtividadeIds],
+  );
 
   const { data: diasTrabalho = [] } = useQuery({
     queryKey: ["dias_trabalho"],
@@ -237,25 +258,35 @@ export default function EapPage() {
     }
     return setores
       .filter((s) => s.ativo || !search)
-      .map((s) => ({
-        id: s.id, nome: s.nome, codigo: s.codigo, ativo: s.ativo, nivel: "setor" as Nivel, parentId: null, ordem: s.ordem ?? 0,
-        children: areas
+      .map((s) => {
+        const areaChildren = areas
           .filter((a) => a.setor_id === s.id && (a.ativo || !search))
-          .map((a) => ({
-            id: a.id, nome: a.nome, codigo: a.codigo, ativo: a.ativo, nivel: "area" as Nivel, parentId: s.id, ordem: a.ordem ?? 0,
-            children: subareas
+          .map((a) => {
+            const subareaChildren = subareas
               .filter((sa) => sa.area_id === a.id && (sa.ativo || !search))
-              .map((sa) => ({
-                id: sa.id, nome: sa.nome, codigo: sa.codigo, ativo: sa.ativo, nivel: "subarea" as Nivel, parentId: a.id, ordem: sa.ordem ?? 0,
-                children: (ativBySubarea.get(sa.id) ?? [])
+              .map((sa) => {
+                const atividadeChildren = (ativBySubarea.get(sa.id) ?? [])
                   .filter((at) => at.ativo || !search)
                   .map((at) => ({
-                    id: at.id, nome: at.nome, codigo: at.codigo, ativo: at.ativo, nivel: "atividade" as Nivel, parentId: sa.id, ordem: at.ordem ?? 0, children: [],
-                  })),
-              })),
-          })),
-      }));
-  }, [setores, areas, subareas, atividades, search]);
+                    id: at.id, nome: at.nome, codigo: at.codigo, ativo: at.ativo, nivel: "atividade" as Nivel, parentId: sa.id, ordem: at.ordem ?? 0,
+                    bloqueado: atividadesComApontamento.has(at.id), children: [] as TreeNode[],
+                  }));
+                return {
+                  id: sa.id, nome: sa.nome, codigo: sa.codigo, ativo: sa.ativo, nivel: "subarea" as Nivel, parentId: a.id, ordem: sa.ordem ?? 0,
+                  bloqueado: atividadeChildren.some((c) => c.bloqueado), children: atividadeChildren,
+                };
+              });
+            return {
+              id: a.id, nome: a.nome, codigo: a.codigo, ativo: a.ativo, nivel: "area" as Nivel, parentId: s.id, ordem: a.ordem ?? 0,
+              bloqueado: subareaChildren.some((c) => c.bloqueado), children: subareaChildren,
+            };
+          });
+        return {
+          id: s.id, nome: s.nome, codigo: s.codigo, ativo: s.ativo, nivel: "setor" as Nivel, parentId: null, ordem: s.ordem ?? 0,
+          bloqueado: areaChildren.some((c) => c.bloqueado), children: areaChildren,
+        };
+      });
+  }, [setores, areas, subareas, atividades, search, atividadesComApontamento]);
 
   const filteredTree = useMemo(() => {
     if (!search) return tree;
@@ -491,7 +522,13 @@ export default function EapPage() {
 
   function openNew(n: Nivel, pId?: string) { setEditing(null); setForm(EMPTY_FORM); setNivel(n); setParentId(pId); setOpen(true); }
   function openEdit(node: TreeNode) { setEditing({ id: node.id, nome: node.nome, codigo: node.codigo, ativo: node.ativo, nivel: node.nivel, parentId: node.parentId ?? undefined }); setForm({ nome: node.nome, codigo: node.codigo ?? "", ativo: node.ativo }); setNivel(node.nivel); setParentId(node.parentId ?? undefined); setOpen(true); }
-  function handleDelete(node: TreeNode) { setConfirm({ node, descendantCount: collectSubtree(node).length - 1 }); }
+  function handleDelete(node: TreeNode) {
+    if (node.bloqueado) {
+      toast.error("Não é possível excluir: este item (ou algum sub-item) já tem apontamentos de horas registrados.");
+      return;
+    }
+    setConfirm({ node, descendantCount: collectSubtree(node).length - 1 });
+  }
 
   // Avançar (indent): o item vira filho do item IMEDIATAMENTE ACIMA dele no mesmo
   // nível — igual ao Tab do MS Project/Excel. Instantâneo, sem diálogo: se não há
@@ -513,6 +550,53 @@ export default function EapPage() {
   }
 
   function cancelMerge() { setMergeMode(false); setMergeNivel(null); setMergeSelected(new Map()); setMergeTargetId(null); setMergeNewName(""); }
+
+  function cancelDeleteMode() { setDeleteMode(false); setDeleteSelected(new Map()); setBulkConfirmOpen(false); }
+
+  function toggleDeleteSelect(node: TreeNode) {
+    if (node.bloqueado) {
+      toast.error("Este item (ou algum sub-item) já tem apontamentos de horas — não pode ser selecionado para exclusão.");
+      return;
+    }
+    const next = new Map(deleteSelected);
+    if (next.has(node.id)) next.delete(node.id);
+    else next.set(node.id, node);
+    setDeleteSelected(next);
+  }
+
+  // Some vários itens selecionados de uma vez: descarta os que já estão "dentro" de
+  // outro item selecionado (o pai apaga o filho em cascata) e apaga cada raiz restante
+  // do mais profundo pro mais raso, igual ao deleteMut de item único.
+  const deleteBulkMut = useMutation({
+    mutationFn: async (nodes: TreeNode[]) => {
+      const selectedIds = new Set(nodes.map((n) => n.id));
+      function hasSelectedAncestor(n: TreeNode): boolean {
+        let pId = n.parentId;
+        while (pId) {
+          if (selectedIds.has(pId)) return true;
+          pId = parentIdByNodeId.get(pId) ?? null;
+        }
+        return false;
+      }
+      const roots = nodes.filter((n) => !hasSelectedAncestor(n));
+      const all = roots.flatMap((n) => collectSubtree(n));
+      const uniqueById = new Map(all.map((n) => [n.id, n]));
+      const byNivelDesc = [...uniqueById.values()].sort(
+        (a, b) => NIVEL_ORDER.indexOf(b.nivel) - NIVEL_ORDER.indexOf(a.nivel),
+      );
+      for (const n of byNivelDesc) {
+        const { error } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id);
+        if (error) throw error;
+      }
+      return roots.length;
+    },
+    onSuccess: (count) => {
+      toast.success(`${count} item(ns) excluído(s)`);
+      invalidateAll();
+      cancelDeleteMode();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
 
   function toggleMergeSelect(node: TreeNode) {
     const isSelected = mergeSelected.has(node.id);
@@ -573,7 +657,12 @@ export default function EapPage() {
           {mergeMode ? (
             <Button variant="outline" onClick={cancelMerge}><X className="h-4 w-4" /> Cancelar mesclagem</Button>
           ) : (
-            <Button variant="outline" onClick={() => setMergeMode(true)}><GitMerge className="h-4 w-4" /> Mesclar</Button>
+            <Button variant="outline" onClick={() => setMergeMode(true)} disabled={deleteMode}><GitMerge className="h-4 w-4" /> Mesclar</Button>
+          )}
+          {deleteMode ? (
+            <Button variant="outline" onClick={cancelDeleteMode}><X className="h-4 w-4" /> Cancelar exclusão</Button>
+          ) : (
+            <Button variant="outline" onClick={() => setDeleteMode(true)} disabled={mergeMode}><Trash2 className="h-4 w-4" /> Excluir em massa</Button>
           )}
           <Button onClick={() => openNew("setor")}><Plus className="h-4 w-4" /> Novo Setor</Button>
         </div>
@@ -608,6 +697,37 @@ export default function EapPage() {
                 >
                   {mergeMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <GitMerge className="h-3.5 w-3.5" />}
                   Mesclar em "{mergeNewName.trim() || (mergeTargetId ? mergeSelected.get(mergeTargetId) : "")}"
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {deleteMode && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-3 space-y-3">
+            <p className="text-sm">
+              {deleteSelected.size === 0
+                ? "Clique nos itens da árvore pra selecionar quais excluir (qualquer nível, dá pra misturar). Itens com apontamentos de horas não podem ser selecionados."
+                : `${deleteSelected.size} item(ns) selecionado(s) para exclusão.`}
+            </p>
+            {deleteSelected.size > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {[...deleteSelected.values()].map((n) => (
+                  <span key={n.id} className="flex items-center gap-1.5 text-sm rounded-full border px-2.5 py-1 bg-background">
+                    {n.nome}
+                    <button onClick={() => toggleDeleteSelect(n)} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+                  </span>
+                ))}
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  onClick={() => setBulkConfirmOpen(true)}
+                  disabled={deleteBulkMut.isPending}
+                >
+                  {deleteBulkMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                  Excluir {deleteSelected.size} item(ns)
                 </Button>
               </div>
             )}
@@ -652,6 +772,7 @@ export default function EapPage() {
               onMoveDown={(n) => moveMut.mutate({ node: n, direction: "down" })}
               getHoras={getHoras}
               mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={toggleMergeSelect}
+              deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={toggleDeleteSelect}
             />
           ))}
         </CardContent>
@@ -728,6 +849,27 @@ export default function EapPage() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={bulkConfirmOpen} onOpenChange={setBulkConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {deleteSelected.size} item(ns)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir os itens selecionados? Itens que forem "resumo" (setor/área/etapa) levam
+              todos os sub-itens dentro deles junto na exclusão.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteBulkMut.mutate([...deleteSelected.values()])}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <Dialog open={modeloDialogOpen} onOpenChange={setModeloDialogOpen}>
         <DialogContent>
           <DialogHeader><DialogTitle>Salvar modelo de EAP</DialogTitle></DialogHeader>
@@ -769,13 +911,14 @@ export default function EapPage() {
   );
 }
 
-function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onOutdent, onMoveUp, onMoveDown, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, defaultOpen = true }: {
+function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onOutdent, onMoveUp, onMoveDown, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, deleteMode, deleteSelected, onDeleteToggle, defaultOpen = true }: {
   node: TreeNode; depth: number; onEdit: (node: TreeNode) => void; onAdd: (nivel: Nivel, parentId?: string) => void;
   onDelete: (node: TreeNode) => void; onToggle: (args: { id: string; nivel: Nivel; ativo: boolean }) => void;
   onIndent: (node: TreeNode) => void; onOutdent: (node: TreeNode) => void;
   onMoveUp: (node: TreeNode) => void; onMoveDown: (node: TreeNode) => void;
   getHoras: (nivel: Nivel, id: string) => number;
   mergeMode: boolean; mergeNivel: Nivel | null; mergeSelected: Map<string, string>; onMergeToggle: (node: TreeNode) => void;
+  deleteMode: boolean; deleteSelected: Map<string, TreeNode>; onDeleteToggle: (node: TreeNode) => void;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -788,7 +931,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className={`flex items-center gap-1 rounded-md py-1 px-2 hover:bg-muted/50 group ${!node.ativo ? "opacity-50" : ""} ${desabilitadoNoMerge ? "opacity-40" : ""}`} style={{ marginLeft: `${depth * 20}px` }}>
+      <div className={`flex items-center gap-1 rounded-md py-1 px-2 hover:bg-muted/50 group ${!node.ativo ? "opacity-50" : ""} ${desabilitadoNoMerge ? "opacity-40" : ""} ${deleteMode && node.bloqueado ? "opacity-40" : ""}`} style={{ marginLeft: `${depth * 20}px` }}>
         {mergeMode && (
           <input
             type="checkbox"
@@ -796,6 +939,16 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
             checked={mergeSelected.has(node.id)}
             disabled={desabilitadoNoMerge}
             onChange={() => onMergeToggle(node)}
+          />
+        )}
+        {deleteMode && (
+          <input
+            type="checkbox"
+            className="mr-1"
+            checked={deleteSelected.has(node.id)}
+            disabled={node.bloqueado}
+            title={node.bloqueado ? "Item (ou sub-item) com apontamentos de horas — não pode ser excluído" : undefined}
+            onChange={() => onDeleteToggle(node)}
           />
         )}
         <CollapsibleTrigger asChild>
@@ -806,8 +959,8 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
         <Icon className={`h-3.5 w-3.5 shrink-0 ${cfg.color}`} />
         {node.codigo && <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1 rounded">{node.codigo}</span>}
         <span
-          className={`text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode ? "cursor-pointer" : ""}`}
-          onClick={() => mergeMode && onMergeToggle(node)}
+          className={`text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode || deleteMode ? "cursor-pointer" : ""}`}
+          onClick={() => { if (mergeMode) onMergeToggle(node); else if (deleteMode) onDeleteToggle(node); }}
         >
           {node.nome}
         </span>
@@ -816,7 +969,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
             <Clock className="h-3 w-3" /> {horas.toLocaleString("pt-BR")}h
           </span>
         )}
-        {!mergeMode && (
+        {!mergeMode && !deleteMode && (
           <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <Switch checked={node.ativo} onCheckedChange={() => onToggle({ id: node.id, nivel: node.nivel, ativo: !node.ativo })} className="scale-75" />
             {nextNivel && (
@@ -855,7 +1008,14 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
               <IndentIncrease className="h-3.5 w-3.5" />
             </button>
             <button onClick={() => onEdit(node)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title="Editar"><Pencil className="h-3.5 w-3.5" /></button>
-            <button onClick={() => onDelete(node)} className="p-1 rounded hover:bg-destructive/10 text-destructive" title="Excluir"><Trash2 className="h-3.5 w-3.5" /></button>
+            <button
+              onClick={() => onDelete(node)}
+              disabled={node.bloqueado}
+              className="p-1 rounded hover:bg-destructive/10 text-destructive disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+              title={node.bloqueado ? "Não é possível excluir: item (ou sub-item) já tem apontamentos de horas registrados" : "Excluir"}
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
       </div>
@@ -869,6 +1029,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
                 onIndent={onIndent} onOutdent={onOutdent} onMoveUp={onMoveUp} onMoveDown={onMoveDown}
                 getHoras={getHoras}
                 mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle}
+                deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={onDeleteToggle}
               />
             ))}
           </div>
