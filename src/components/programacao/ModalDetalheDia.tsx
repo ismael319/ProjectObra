@@ -274,20 +274,18 @@ function ActivityRow({
             {activity.area && <span>Área: {activity.area}</span>}
             {activity.foreman && <span>Encarregado: {activity.foreman}</span>}
             {activity.company && <span>Empresa: {activity.company}</span>}
-            <span>Previsto: {activity.planned_pct}%</span>
           </div>
-          {detail && (
-            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-              <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>
-              <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>
-              <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>
-              {delayDays > 0 && (
-                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
-                  <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
-                </span>
-              )}
-            </div>
-          )}
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+            <span>Avanço previsto: {activity.planned_pct}%</span>
+            {detail && <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>}
+            {detail && <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>}
+            {detail && <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>}
+            {delayDays > 0 && (
+              <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
+                <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <StatusButton
