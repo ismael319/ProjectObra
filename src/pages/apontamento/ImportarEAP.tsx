@@ -384,6 +384,33 @@ export default function ImportarEapPage() {
         if (existingId) dbIdByCodigo.set(r.codigo, existingId);
       }
 
+      // O Código EAP é único por TABELA inteira (não só entre irmãos) — e o código
+      // vindo do cronograma é só o número WBS, que reinicia em cada cronograma
+      // diferente (ex.: "1.9.1" existe em qualquer cronograma que tenha uma 9ª
+      // Área com uma 1ª Etapa). Duas linhas de cronogramas DIFERENTES podem ter o
+      // mesmo WBS sem serem o mesmo item (resolveExistingMatches já trata isso
+      // certo), mas ao inserir as duas como itens NOVOS, a segunda violava a
+      // constraint de unicidade do banco. Aqui garante um código final único,
+      // testando contra tudo que já existe na tabela + tudo que este import já
+      // inseriu, e desambiguando com um sufixo "-2", "-3"... quando precisa.
+      const usedCodigos: Record<string, Set<string>> = {
+        setores: new Set(existingSetores.map((s) => s.codigo).filter((c): c is string => !!c)),
+        areas: new Set(existingAreas.map((a) => a.codigo).filter((c): c is string => !!c)),
+        subareas: new Set(existingSubareas.map((s) => s.codigo).filter((c): c is string => !!c)),
+        atividades: new Set(existingAtividades.map((a) => a.codigo).filter((c): c is string => !!c)),
+      };
+      function dedupeCodigo(table: string, codigo: string): string {
+        if (!codigo) return codigo;
+        let candidate = codigo;
+        let n = 2;
+        while (usedCodigos[table].has(candidate)) {
+          candidate = `${codigo}-${n}`;
+          n++;
+        }
+        usedCodigos[table].add(candidate);
+        return candidate;
+      }
+
       let inserted = 0;
       let skipped = 0;
       let failed = 0;
@@ -410,7 +437,7 @@ export default function ImportarEapPage() {
 
         const payload: Record<string, any> = {
           nome: row.nome,
-          codigo: row.codigo,
+          codigo: dedupeCodigo(table, row.codigo),
           ativo: row.ativo,
         };
 
@@ -423,6 +450,9 @@ export default function ImportarEapPage() {
           failed++;
           toast.error(`Erro ao importar "${row.nome}": ${error.message}`);
         } else if (data?.id) {
+          // dbIdByCodigo usa o código ORIGINAL do WBS (o que os filhos referenciam
+          // via parentCodigo), não o código final (possivelmente desambiguado)
+          // gravado no banco — são dois códigos diferentes de propósito.
           dbIdByCodigo.set(row.codigo, data.id);
           inserted++;
         }
