@@ -19,6 +19,7 @@ export type Apontamento = {
   qntdd_funcao: number;
   total: number;
   obs_planejamento: string | null;
+  criado_em?: string;
 };
 
 const HEADERS = [

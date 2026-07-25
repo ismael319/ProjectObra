@@ -1,5 +1,5 @@
 import * as React from "react"
-import { DayPicker } from "react-day-picker"
+import { DayPicker, type DayButtonProps } from "react-day-picker"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { buttonVariants } from "@/components/ui/button"
@@ -57,8 +57,12 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: () => <ChevronLeft className="h-4 w-4" />,
-        IconRight: () => <ChevronRight className="h-4 w-4" />,
+        Chevron: ({ orientation, className }) =>
+          orientation === "left" ? (
+            <ChevronLeft className={cn("h-4 w-4", className)} />
+          ) : (
+            <ChevronRight className={cn("h-4 w-4", className)} />
+          ),
       }}
       {...props}
     />
@@ -66,18 +70,16 @@ function Calendar({
 }
 Calendar.displayName = "Calendar"
 
-function CalendarDayButton(props: React.ComponentProps<typeof DayPicker["components"]["DayButton"]>) {
+function CalendarDayButton(props: DayButtonProps) {
   return <DayButton {...props} />
 }
 
-function DayButton({ day, modifiers, ...props }: React.ComponentProps<typeof DayPicker["components"]["DayButton"]>) {
+function DayButton({ day, modifiers, ...props }: DayButtonProps) {
   const ref = React.useRef<HTMLButtonElement>(null)
   return (
     <button
       ref={ref}
       type="button"
-      day={day}
-      modifiers={modifiers}
       aria-label={day.date.toLocaleDateString()}
       className={cn(
         buttonVariants({ variant: "ghost" }),
