@@ -403,8 +403,15 @@ export function buildCurveFromRawPoints(
   // extensão precisar de semanas de mais pra fechar — na prática, nunca fechando
   // dentro do limite de segurança abaixo. Sem histórico de ritmo (avgPace = 0) não
   // há como extrapolar; o forecast permanece como está.
+  //
+  // O "total" aqui é o MESMO que o gráfico usa como referência de 100% — BL0 quando
+  // ela existe, senão o Planejado (mesma prioridade de SCurve.tsx/finalPlanned). Sem
+  // isso, o Forecast fechava certinho em 100% do Planejado (PV) internamente, mas o
+  // gráfico converte tudo dividindo pela BL0 — se o cronograma foi replanejado com um
+  // total diferente da baseline original, o Forecast "100%" do PV virava um número
+  // diferente de 100% na tela. Não mexe em blCum/BL0 (só decide o alvo do Forecast).
   {
-    const finalBAC = periods[periods.length - 1].planned
+    const finalBAC = sumBL0(periods[periods.length - 1].blCum) || periods[periods.length - 1].planned
     const forecastAtEnd = periods[periods.length - 1].forecast
     const remainingDeficit = round2(finalBAC - forecastAtEnd)
     const elapsedPeriods = Math.max(1, statusIdx - firstWorkIdx + 1)
