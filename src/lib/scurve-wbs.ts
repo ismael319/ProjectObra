@@ -53,18 +53,30 @@ export function computeWbsNodeMetrics(
 
   const EMPTY = { blAcum: 0, blSemana: 0, realAcum: 0, realSemana: 0, forecast7d: 0, spi: 0, deltaSemana: 0, deltaAcum: 0, hasData: false }
 
-  // Memoiza os pontos "próprios + de todos os descendentes" de cada wbs — evita
-  // refazer a busca por prefixo pra cada nó independentemente.
+  // Filhos diretos de cada wbs (pai = o próprio código sem o último segmento, ex.:
+  // pai de "1.2.3" é "1.2") — construído uma vez em O(n), em vez de escanear TODAS
+  // as atividades pra achar descendentes de CADA nó (O(n²), pesado em cronogramas
+  // com centenas/milhares de tarefas — era a causa da Curva S ficar lenta).
+  const childrenByWbs = new Map<string, WBSActivity[]>()
+  for (const a of activities) {
+    const lastDot = a.wbs.lastIndexOf('.')
+    if (lastDot === -1) continue
+    const parentWbs = a.wbs.slice(0, lastDot)
+    const arr = childrenByWbs.get(parentWbs)
+    if (arr) arr.push(a)
+    else childrenByWbs.set(parentWbs, [a])
+  }
+
+  // Memoiza os pontos "próprios + de todos os descendentes" de cada wbs — cada nó só
+  // concatena os resultados (já calculados) dos filhos diretos, em vez de re-escanear
+  // a árvore inteira.
   const pointsCache = new Map<string, TimephasedDataPoint[]>()
   function pointsForSubtree(activity: WBSActivity): TimephasedDataPoint[] {
     const cached = pointsCache.get(activity.wbs)
     if (cached) return cached
-    const prefix = activity.wbs + '.'
-    let pts: TimephasedDataPoint[] = [...(ownAssignmentUidsByTask.get(activity.uid) ?? []).flatMap((uid) => pointsByAssignmentUid.get(uid) ?? [])]
-    for (const other of activities) {
-      if (other.wbs === activity.wbs || !other.wbs.startsWith(prefix)) continue
-      const otherOwn = ownAssignmentUidsByTask.get(other.uid) ?? []
-      for (const uid of otherOwn) pts = pts.concat(pointsByAssignmentUid.get(uid) ?? [])
+    let pts: TimephasedDataPoint[] = (ownAssignmentUidsByTask.get(activity.uid) ?? []).flatMap((uid) => pointsByAssignmentUid.get(uid) ?? [])
+    for (const child of childrenByWbs.get(activity.wbs) ?? []) {
+      pts = pts.concat(pointsForSubtree(child))
     }
     pointsCache.set(activity.wbs, pts)
     return pts

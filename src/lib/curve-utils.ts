@@ -223,23 +223,10 @@ export function buildCurveFromRawPoints(
   // Para PV, preferimos Type 1 (se disponível), fallback para Type 4 (BL0).
   // Type 22 (Custo Planejado) é usado como PV apenas quando unit='R$'.
   let totalType1 = 0
-  let totalType2 = 0
-  let totalType4 = 0
-  let type1Periods = 0
   for (const point of rawPoints) {
-    if (point.type === 1) { totalType1 += point.valueHours; type1Periods++ }
-    if (point.type === 2) totalType2 += point.valueHours
-    if (point.type === 4) totalType4 += point.valueHours
+    if (point.type === 1) totalType1 += point.valueHours
   }
   const hasWorkPlanned = totalType1 > 0
-
-  console.groupCollapsed('[CurveDebug] buildCurveFromRawPoints')
-  console.log('Total rawPoints:', rawPoints.length)
-  console.log('Type 1 (Planejado):', { total: round2(totalType1), points: type1Periods })
-  console.log('Type 2 (Real):', { total: round2(totalType2) })
-  console.log('Type 4 (BL0):', { total: round2(totalType4) })
-  console.log('hasWorkPlanned:', hasWorkPlanned)
-  console.log('unit:', unit, '| granularity:', granularity)
 
   const now = new Date()
 
@@ -470,23 +457,6 @@ export function buildCurveFromRawPoints(
   if (lastWorkIdx < periods.length - 1) {
     periods.length = lastWorkIdx + 1
   }
-
-  // Debug: mostrar períodos construídos e forecast
-  const lastP = periods[periods.length - 1]
-  console.log('Períodos construídos:', periods.length)
-  console.log('Primeiro período:', periods[0]?.label, '| Último:', lastP?.label)
-  console.log('BAC (planned total):', lastP?.planned)
-  console.log('Actual total:', lastP?.actual)
-  console.log('Forecast total:', lastP?.forecast)
-  console.table(periods.filter((p) => p.plannedPeriod > 0 || p.actualPeriod > 0).map((p) => ({
-    label: p.label,
-    plannedP: round2(p.plannedPeriod),
-    actualP: round2(p.actualPeriod),
-    planned: round2(p.planned),
-    actual: round2(p.actual),
-    forecast: round2(p.forecast),
-  })))
-  console.groupEnd()
 
   return periods
 }
