@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 
@@ -42,6 +43,7 @@ export default function WeekBar({
   const end = parseISODateStr(endDate)
   const isoLabel = `${isoYear}-S${String(isoWeek).padStart(2, '0')}`
   const locked = status === 'consolidado'
+  const [actionsOpen, setActionsOpen] = useState(false)
 
   return (
     <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 shadow-sm">
@@ -99,71 +101,80 @@ export default function WeekBar({
         </div>
       </div>
 
-      <div className="relative group">
-        <button className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition">
+      <div className="relative">
+        <button
+          onClick={() => setActionsOpen((v) => !v)}
+          className="px-3 py-1.5 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition"
+        >
           Ações
         </button>
-        <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-1 hidden group-hover:block">
-          {locked ? (
-            <button
-              onClick={onUnlock}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
-            >
-              <Unlock size={14} className="text-green-600" />
-              Desbloquear semana
-            </button>
-          ) : (
-            <button
-              onClick={onLock}
-              className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
-            >
-              <Lock size={14} className="text-red-600" />
-              Bloquear semana
-            </button>
-          )}
-          <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
-          <button
-            onClick={onImportActivities}
-            disabled={locked}
-            title={locked ? 'Desbloqueie a semana para importar atividades' : undefined}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Download size={14} className="text-purple-600" />
-            Importar atividades
-          </button>
-          <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
-          <button
-            onClick={onExportExcel}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
-          >
-            <FileDown size={14} className="text-blue-600" />
-            Exportar Excel
-          </button>
-          <label className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition cursor-pointer">
-            <FileUp size={14} className="text-orange-600" />
-            Importar Excel
-            <input
-              type="file"
-              accept=".xlsx,.xls"
-              className="hidden"
-              onChange={(e) => {
-                const f = e.target.files?.[0]
-                if (f) onImportExcel(f)
-                e.target.value = ''
-              }}
-            />
-          </label>
-          <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
-          <button
-            onClick={onClearWeek}
-            disabled={locked}
-            title={locked ? 'Desbloqueie a semana para limpar' : undefined}
-            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
-          >
-            <Eraser size={14} />
-            Limpar semana
-          </button>
-        </div>
+        {actionsOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setActionsOpen(false)} />
+            <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-1">
+              {locked ? (
+                <button
+                  onClick={() => { setActionsOpen(false); onUnlock() }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                >
+                  <Unlock size={14} className="text-green-600" />
+                  Desbloquear semana
+                </button>
+              ) : (
+                <button
+                  onClick={() => { setActionsOpen(false); onLock() }}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                >
+                  <Lock size={14} className="text-red-600" />
+                  Bloquear semana
+                </button>
+              )}
+              <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+              <button
+                onClick={() => { setActionsOpen(false); onImportActivities() }}
+                disabled={locked}
+                title={locked ? 'Desbloqueie a semana para importar atividades' : undefined}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Download size={14} className="text-purple-600" />
+                Importar atividades
+              </button>
+              <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+              <button
+                onClick={() => { setActionsOpen(false); onExportExcel() }}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+              >
+                <FileDown size={14} className="text-blue-600" />
+                Exportar Excel
+              </button>
+              <label className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition cursor-pointer">
+                <FileUp size={14} className="text-orange-600" />
+                Importar Excel
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0]
+                    setActionsOpen(false)
+                    if (f) onImportExcel(f)
+                    e.target.value = ''
+                  }}
+                />
+              </label>
+              <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+              <button
+                onClick={() => { setActionsOpen(false); onClearWeek() }}
+                disabled={locked}
+                title={locked ? 'Desbloqueie a semana para limpar' : undefined}
+                className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+              >
+                <Eraser size={14} />
+                Limpar semana
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   )
