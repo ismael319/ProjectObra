@@ -105,6 +105,9 @@ export default function EapPage() {
   const [deleteSelected, setDeleteSelected] = useState<Map<string, TreeNode>>(new Map());
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
+  const [bulkMoveMode, setBulkMoveMode] = useState(false);
+  const [bulkMoveSelected, setBulkMoveSelected] = useState<Map<string, TreeNode>>(new Map());
+
   const [modeloDialogOpen, setModeloDialogOpen] = useState(false);
   const [modeloNome, setModeloNome] = useState("");
   const [viewingModelo, setViewingModelo] = useState<EapModelo | null>(null);
@@ -531,6 +534,118 @@ export default function EapPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Move vários itens de uma vez (mesma leva, um clique só) — agrupa por
+  // (nível, pai), já que só faz sentido reordenar entre irmãos, e desloca o bloco
+  // selecionado de cada grupo um passo pra cima/baixo, preservando a ordem
+  // relativa entre eles (igual a "mover linhas selecionadas" de uma planilha).
+  const moveBulkMut = useMutation({
+    mutationFn: async ({ nodes, direction }: { nodes: TreeNode[]; direction: "up" | "down" }) => {
+      const groups = new Map<string, TreeNode[]>();
+      for (const n of nodes) {
+        const key = `${n.nivel}::${n.parentId ?? ""}`;
+        const arr = groups.get(key) ?? [];
+        arr.push(n);
+        groups.set(key, arr);
+      }
+      const updates: { table: string; id: string; ordem: number }[] = [];
+      for (const [key, groupNodes] of groups) {
+        const nvl = key.split("::")[0] as Nivel;
+        const parentId = key.split("::")[1] || null;
+        const siblings = siblingsOf(nvl, parentId);
+        const selectedIds = new Set(groupNodes.map((n) => n.id));
+        const ordens = siblings.map((s) => s.ordem);
+        const order = [...siblings];
+        if (direction === "up") {
+          for (let i = 1; i < order.length; i++) {
+            if (selectedIds.has(order[i].id) && !selectedIds.has(order[i - 1].id)) {
+              [order[i - 1], order[i]] = [order[i], order[i - 1]];
+            }
+          }
+        } else {
+          for (let i = order.length - 2; i >= 0; i--) {
+            if (selectedIds.has(order[i].id) && !selectedIds.has(order[i + 1].id)) {
+              [order[i], order[i + 1]] = [order[i + 1], order[i]];
+            }
+          }
+        }
+        for (let i = 0; i < order.length; i++) {
+          if (order[i].ordem !== ordens[i]) {
+            updates.push({ table: NIVEL_TABLE[nvl], id: order[i].id, ordem: ordens[i] });
+          }
+        }
+      }
+      for (const u of updates) {
+        const { error } = await supabase.from(u.table).update({ ordem: u.ordem }).eq("id", u.id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => invalidateAll(),
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Recua/avança vários itens de uma vez. Recuar é sempre seguro em lote (o alvo é
+  // o avô, não depende de outros itens selecionados). Avançar depende do item
+  // IMEDIATAMENTE ACIMA virar pai — se esse item acima também estiver selecionado
+  // (e por isso também estiver se movendo nesta mesma leva), pula com aviso em vez
+  // de arriscar quebrar a referência (o "pai" escolhido mudaria de tabela debaixo
+  // do item que acabou de apontar pra ele).
+  const changeLevelBulkMut = useMutation({
+    mutationFn: async ({ nodes, direction }: { nodes: TreeNode[]; direction: "up" | "down" }) => {
+      const selectedIds = new Set(nodes.map((n) => n.id));
+      function hasSelectedAncestor(n: TreeNode): boolean {
+        let pId = n.parentId;
+        while (pId) {
+          if (selectedIds.has(pId)) return true;
+          pId = parentIdByNodeId.get(pId) ?? null;
+        }
+        return false;
+      }
+      const roots = nodes.filter((n) => !hasSelectedAncestor(n));
+
+      let done = 0;
+      let skipped = 0;
+      for (const node of roots) {
+        if (direction === "up") {
+          if (node.nivel === "setor") {
+            skipped++;
+            toast.error(`"${node.nome}" já está no nível mais alto — não dá pra recuar.`);
+            continue;
+          }
+          await changeLevelMut.mutateAsync({ node, direction: "up" });
+          done++;
+        } else {
+          if (node.nivel === "atividade") {
+            skipped++;
+            toast.error(`"${node.nome}" já está no nível mais baixo — não dá pra avançar.`);
+            continue;
+          }
+          const siblings = siblingsOf(node.nivel, node.parentId);
+          const idx = siblings.findIndex((s) => s.id === node.id);
+          if (idx <= 0) {
+            skipped++;
+            toast.error(`"${node.nome}" é o primeiro do grupo — não há item acima pra virar pai.`);
+            continue;
+          }
+          const aboveId = siblings[idx - 1].id;
+          if (selectedIds.has(aboveId)) {
+            skipped++;
+            toast.error(`"${node.nome}" não foi avançado: o item acima dele também está selecionado — avance um de cada vez nesse caso.`);
+            continue;
+          }
+          await changeLevelMut.mutateAsync({ node, direction: "down", newParentId: aboveId });
+          done++;
+        }
+      }
+      return { done, skipped };
+    },
+    onSuccess: ({ done }) => {
+      if (done > 0) toast.success(`${done} item(ns) atualizado(s)`);
+      invalidateAll();
+      qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
+    },
+    onError: (e: Error) => toast.error(friendlyDbError(e)),
+  });
+
   const saveModeloMut = useMutation({
     mutationFn: async () => {
       if (!modeloNome.trim()) throw new Error("Dê um nome ao modelo");
@@ -598,6 +713,15 @@ export default function EapPage() {
     if (next.has(node.id)) next.delete(node.id);
     else next.set(node.id, node);
     setDeleteSelected(next);
+  }
+
+  function cancelBulkMove() { setBulkMoveMode(false); setBulkMoveSelected(new Map()); }
+
+  function toggleBulkMoveSelect(node: TreeNode) {
+    const next = new Map(bulkMoveSelected);
+    if (next.has(node.id)) next.delete(node.id);
+    else next.set(node.id, node);
+    setBulkMoveSelected(next);
   }
 
   // Some vários itens selecionados de uma vez: descarta os que já estão "dentro" de
@@ -693,12 +817,17 @@ export default function EapPage() {
           {mergeMode ? (
             <Button variant="outline" onClick={cancelMerge}><X className="h-4 w-4" /> Cancelar mesclagem</Button>
           ) : (
-            <Button variant="outline" onClick={() => setMergeMode(true)} disabled={deleteMode}><GitMerge className="h-4 w-4" /> Mesclar</Button>
+            <Button variant="outline" onClick={() => setMergeMode(true)} disabled={deleteMode || bulkMoveMode}><GitMerge className="h-4 w-4" /> Mesclar</Button>
           )}
           {deleteMode ? (
             <Button variant="outline" onClick={cancelDeleteMode}><X className="h-4 w-4" /> Cancelar exclusão</Button>
           ) : (
-            <Button variant="outline" onClick={() => setDeleteMode(true)} disabled={mergeMode}><Trash2 className="h-4 w-4" /> Excluir em massa</Button>
+            <Button variant="outline" onClick={() => setDeleteMode(true)} disabled={mergeMode || bulkMoveMode}><Trash2 className="h-4 w-4" /> Excluir em massa</Button>
+          )}
+          {bulkMoveMode ? (
+            <Button variant="outline" onClick={cancelBulkMove}><X className="h-4 w-4" /> Cancelar seleção</Button>
+          ) : (
+            <Button variant="outline" onClick={() => setBulkMoveMode(true)} disabled={mergeMode || deleteMode}><MoveUp className="h-4 w-4" /> Mover em lote</Button>
           )}
           <Button onClick={() => openNew("setor")}><Plus className="h-4 w-4" /> Novo Setor</Button>
         </div>
@@ -771,6 +900,56 @@ export default function EapPage() {
         </Card>
       )}
 
+      {bulkMoveMode && (
+        <Card className="border-blue-300 bg-blue-50/50 dark:bg-blue-950/20">
+          <CardContent className="p-3 space-y-3">
+            <p className="text-sm">
+              {bulkMoveSelected.size === 0
+                ? "Clique nos itens da árvore pra selecionar quais mover/recuar/avançar juntos, de uma vez."
+                : `${bulkMoveSelected.size} item(ns) selecionado(s).`}
+            </p>
+            {bulkMoveSelected.size > 0 && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {[...bulkMoveSelected.values()].map((n) => (
+                  <span key={n.id} className="flex items-center gap-1.5 text-sm rounded-full border px-2.5 py-1 bg-background">
+                    {n.nome}
+                    <button onClick={() => toggleBulkMoveSelect(n)} className="text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+                  </span>
+                ))}
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => moveBulkMut.mutate({ nodes: [...bulkMoveSelected.values()], direction: "up" })}
+                  disabled={moveBulkMut.isPending || changeLevelBulkMut.isPending}
+                >
+                  <MoveUp className="h-3.5 w-3.5" /> Mover pra cima
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => moveBulkMut.mutate({ nodes: [...bulkMoveSelected.values()], direction: "down" })}
+                  disabled={moveBulkMut.isPending || changeLevelBulkMut.isPending}
+                >
+                  <MoveDown className="h-3.5 w-3.5" /> Mover pra baixo
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => changeLevelBulkMut.mutate({ nodes: [...bulkMoveSelected.values()], direction: "up" })}
+                  disabled={moveBulkMut.isPending || changeLevelBulkMut.isPending}
+                >
+                  <IndentDecrease className="h-3.5 w-3.5" /> Recuar
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  onClick={() => changeLevelBulkMut.mutate({ nodes: [...bulkMoveSelected.values()], direction: "down" })}
+                  disabled={moveBulkMut.isPending || changeLevelBulkMut.isPending}
+                >
+                  {changeLevelBulkMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <IndentIncrease className="h-3.5 w-3.5" />} Avançar
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       <Card className="border-blue-200 dark:border-blue-900 bg-blue-50/50 dark:bg-blue-950/20">
         <CardContent className="p-3 flex items-center gap-3">
           <div className="p-2 rounded-md bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300"><Layers className="h-4 w-4" /></div>
@@ -823,6 +1002,7 @@ export default function EapPage() {
               getHoras={getHoras}
               mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={toggleMergeSelect}
               deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={toggleDeleteSelect}
+              bulkMoveMode={bulkMoveMode} bulkMoveSelected={bulkMoveSelected} onBulkMoveToggle={toggleBulkMoveSelect}
             />
           ))}
         </CardContent>
@@ -961,7 +1141,7 @@ export default function EapPage() {
   );
 }
 
-function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onOutdent, onMoveUp, onMoveDown, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, deleteMode, deleteSelected, onDeleteToggle, defaultOpen = true }: {
+function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onOutdent, onMoveUp, onMoveDown, getHoras, mergeMode, mergeNivel, mergeSelected, onMergeToggle, deleteMode, deleteSelected, onDeleteToggle, bulkMoveMode, bulkMoveSelected, onBulkMoveToggle, defaultOpen = true }: {
   node: TreeNode; depth: number; onEdit: (node: TreeNode) => void; onAdd: (nivel: Nivel, parentId?: string) => void;
   onDelete: (node: TreeNode) => void; onToggle: (args: { id: string; nivel: Nivel; ativo: boolean }) => void;
   onIndent: (node: TreeNode) => void; onOutdent: (node: TreeNode) => void;
@@ -969,6 +1149,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
   getHoras: (nivel: Nivel, id: string) => number;
   mergeMode: boolean; mergeNivel: Nivel | null; mergeSelected: Map<string, string>; onMergeToggle: (node: TreeNode) => void;
   deleteMode: boolean; deleteSelected: Map<string, TreeNode>; onDeleteToggle: (node: TreeNode) => void;
+  bulkMoveMode: boolean; bulkMoveSelected: Map<string, TreeNode>; onBulkMoveToggle: (node: TreeNode) => void;
   defaultOpen?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -991,6 +1172,14 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
             onChange={() => onMergeToggle(node)}
           />
         )}
+        {bulkMoveMode && (
+          <input
+            type="checkbox"
+            className="mr-1"
+            checked={bulkMoveSelected.has(node.id)}
+            onChange={() => onBulkMoveToggle(node)}
+          />
+        )}
         {deleteMode && (
           <input
             type="checkbox"
@@ -1009,8 +1198,8 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
         <Icon className={`h-3.5 w-3.5 shrink-0 ${cfg.color}`} />
         {node.codigo && <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1 rounded">{node.codigo}</span>}
         <span
-          className={`text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode || deleteMode ? "cursor-pointer" : ""}`}
-          onClick={() => { if (mergeMode) onMergeToggle(node); else if (deleteMode) onDeleteToggle(node); }}
+          className={`text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode || deleteMode || bulkMoveMode ? "cursor-pointer" : ""}`}
+          onClick={() => { if (mergeMode) onMergeToggle(node); else if (deleteMode) onDeleteToggle(node); else if (bulkMoveMode) onBulkMoveToggle(node); }}
         >
           {node.nome}
         </span>
@@ -1019,7 +1208,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
             <Clock className="h-3 w-3" /> {horas.toLocaleString("pt-BR")}h
           </span>
         )}
-        {!mergeMode && !deleteMode && (
+        {!mergeMode && !deleteMode && !bulkMoveMode && (
           <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
             <Switch checked={node.ativo} onCheckedChange={() => onToggle({ id: node.id, nivel: node.nivel, ativo: !node.ativo })} className="scale-75" />
             {nextNivel && (
@@ -1080,6 +1269,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
                 getHoras={getHoras}
                 mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle}
                 deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={onDeleteToggle}
+                bulkMoveMode={bulkMoveMode} bulkMoveSelected={bulkMoveSelected} onBulkMoveToggle={onBulkMoveToggle}
               />
             ))}
           </div>
