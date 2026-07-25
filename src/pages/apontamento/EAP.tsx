@@ -57,6 +57,7 @@ const NIVEL_CONFIG: Record<Nivel, { label: string; icon: React.ComponentType<{ c
 };
 
 const NIVEL_ORDER: Nivel[] = ["setor", "area", "subarea", "atividade"];
+const NIVEL_PREFIX: Record<Nivel, string> = { setor: "S", area: "A", subarea: "SA", atividade: "AT" };
 const NIVEL_TABLE: Record<Nivel, string> = { setor: "setores", area: "areas", subarea: "subareas", atividade: "atividades" };
 const NIVEL_APONT_FIELD: Record<Nivel, string> = { setor: "setor_id", area: "area_id", subarea: "subarea_id", atividade: "atividade_id" };
 const NIVEL_APONT_NOME_FIELD: Record<Nivel, string> = { setor: "setor_nome", area: "area_nome", subarea: "subarea_nome", atividade: "atividade_nome" };
@@ -69,6 +70,17 @@ function collectSubtree(node: TreeNode): TreeNode[] {
   const result: TreeNode[] = [node];
   for (const child of node.children) result.push(...collectSubtree(child));
   return result;
+}
+
+// Troca o erro cru do Postgres (ex.: "duplicate key value violates unique
+// constraint atividades_codigo_uniq") por uma mensagem que faz sentido pra quem
+// está cadastrando — o Código EAP é único em cada nível.
+function friendlyDbError(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e);
+  if (msg.includes("duplicate key value violates unique constraint") && msg.includes("codigo")) {
+    return "Já existe um item com esse Código EAP nesse nível. Escolha outro código.";
+  }
+  return msg;
 }
 
 export default function EapPage() {
@@ -209,6 +221,21 @@ export default function EapPage() {
     return siblings.length > 0 ? Math.max(...siblings.map((s) => s.ordem)) + 1 : 0;
   }
 
+  // Sugere o próximo código livre pro nível (S01, S02.../A01, A02.../SA01.../AT01...)
+  // — olha todos os itens já cadastrados nesse nível (o Código EAP é único por
+  // tabela) e propõe o número seguinte ao maior já usado com esse prefixo.
+  function suggestCodigo(nvl: Nivel): string {
+    const prefix = NIVEL_PREFIX[nvl];
+    const source = nvl === "setor" ? setores : nvl === "area" ? areas : nvl === "subarea" ? subareas : atividades;
+    const re = new RegExp(`^${prefix}(\\d+)$`, "i");
+    let max = 0;
+    for (const r of source as { codigo: string | null }[]) {
+      const m = r.codigo?.match(re);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `${prefix}${String(max + 1).padStart(2, "0")}`;
+  }
+
   const horasPorNivel = useMemo(() => {
     const horasDiaMap = new Map(diasTrabalho.map((d) => [d.data, d.horas_dia]));
     const maps: Record<Nivel, Map<string, number>> = {
@@ -320,7 +347,7 @@ export default function EapPage() {
       }
     },
     onSuccess: () => { toast.success(editing ? "Atualizado" : "Cadastrado"); setOpen(false); setEditing(null); setForm(EMPTY_FORM); invalidateAll(); },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyDbError(e)),
   });
 
   const toggleMut = useMutation({
@@ -470,7 +497,7 @@ export default function EapPage() {
       invalidateAll();
       qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyDbError(e)),
   });
 
   // Troca a ordem entre dois irmãos adjacentes (mesmo nível, mesmo pai) — mover um
@@ -520,7 +547,7 @@ export default function EapPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
-  function openNew(n: Nivel, pId?: string) { setEditing(null); setForm(EMPTY_FORM); setNivel(n); setParentId(pId); setOpen(true); }
+  function openNew(n: Nivel, pId?: string) { setEditing(null); setForm({ ...EMPTY_FORM, codigo: suggestCodigo(n) }); setNivel(n); setParentId(pId); setOpen(true); }
   function openEdit(node: TreeNode) { setEditing({ id: node.id, nome: node.nome, codigo: node.codigo, ativo: node.ativo, nivel: node.nivel, parentId: node.parentId ?? undefined }); setForm({ nome: node.nome, codigo: node.codigo ?? "", ativo: node.ativo }); setNivel(node.nivel); setParentId(node.parentId ?? undefined); setOpen(true); }
   function handleDelete(node: TreeNode) {
     if (node.bloqueado) {
@@ -819,7 +846,7 @@ export default function EapPage() {
           <DialogHeader><DialogTitle>{editing ? "Editar" : "Novo"} {NIVEL_CONFIG[nivel].label}</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1.5"><Label>Nome *</Label><Input value={form.nome} onChange={(e) => setForm((p) => ({ ...p, nome: e.target.value }))} /></div>
-            <div className="space-y-1.5"><Label>Código EAP</Label><Input value={form.codigo} onChange={(e) => setForm((p) => ({ ...p, codigo: e.target.value }))} placeholder="Ex: S01, A01, SA01" /></div>
+            <div className="space-y-1.5"><Label>Código EAP</Label><Input value={form.codigo} onChange={(e) => setForm((p) => ({ ...p, codigo: e.target.value }))} placeholder={`Ex: ${NIVEL_PREFIX[nivel]}01 (sugerido automaticamente)`} /></div>
             <div className="flex items-center gap-2"><Switch checked={form.ativo} onCheckedChange={(v) => setForm((p) => ({ ...p, ativo: v }))} /><Label>Ativo</Label></div>
           </div>
           <DialogFooter>
