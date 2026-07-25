@@ -20,6 +20,8 @@ export interface ActivityLike {
   source?: string;
   /** Nível 2/3 da EDT do cronograma de origem (ex.: "GALPÃO / COBERTURA") — só em atividades importadas */
   areaPath?: string | null;
+  /** UID da tarefa no cronograma de origem (WBSActivity.uid, como string) — só em atividades importadas via cronograma; null em extras manuais e em importações antigas feitas antes desse campo existir. */
+  taskUid?: string | null;
 }
 
 export interface WeekIndicators {

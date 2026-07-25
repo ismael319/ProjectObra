@@ -1,7 +1,19 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle } from 'lucide-react'
 import type { ActivityLike, ActivityStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
+import type { WBSActivity } from '@/lib/xml-parser'
+
+// Dias de atraso (0 se não estiver atrasada): término já passou e ainda não chegou
+// a 100% de avanço. Compara só a data (sem hora), pra "vence hoje" não contar atraso.
+function computeDelayDays(detail: WBSActivity): number {
+  const finish = detail.finish instanceof Date ? detail.finish : new Date(detail.finish)
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const finishDay = new Date(finish.getFullYear(), finish.getMonth(), finish.getDate())
+  if (finishDay >= today || detail.percentComplete >= 100) return 0
+  return Math.round((today.getTime() - finishDay.getTime()) / 86400000)
+}
 
 interface Props {
   open: boolean
@@ -22,6 +34,10 @@ interface Props {
   }) => Promise<void>
   onClearDay: () => void
   onAddFromCronograma: () => void
+  /** Resolve a atividade importada pra sua WBSActivity de origem no cronograma (pra
+   * mostrar atraso, % avanço atual e datas de início/término) — null quando a
+   * atividade é extra manual ou foi importada antes desse vínculo existir. */
+  getActivityDetail: (activity: ActivityLike) => WBSActivity | null
 }
 
 const EXTRAS_GROUP = '__extras__'
@@ -66,6 +82,7 @@ export default function ModalDetalheDia({
   onAddExtra,
   onClearDay,
   onAddFromCronograma,
+  getActivityDetail,
 }: Props) {
   const [showExtra, setShowExtra] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -174,6 +191,7 @@ export default function ModalDetalheDia({
                         weekConsolidated={weekConsolidated}
                         onSetStatus={onSetStatus}
                         onDelete={onDelete}
+                        detail={getActivityDetail(a)}
                       />
                     ))}
                   </div>
@@ -223,14 +241,17 @@ function ActivityRow({
   weekConsolidated,
   onSetStatus,
   onDelete,
+  detail,
 }: {
   activity: ActivityLike
   weekConsolidated: boolean
   onSetStatus: Props['onSetStatus']
   onDelete: Props['onDelete']
+  detail: WBSActivity | null
 }) {
   const [obs, setObs] = useState(activity.observation ?? '')
   const canDelete = !weekConsolidated || activity.is_extra
+  const delayDays = detail ? computeDelayDays(detail) : 0
 
   return (
     <div className={`rounded-md border p-3 transition-colors ${cardColorClasses(activity)}`}>
@@ -255,6 +276,18 @@ function ActivityRow({
             {activity.company && <span>Empresa: {activity.company}</span>}
             <span>Previsto: {activity.planned_pct}%</span>
           </div>
+          {detail && (
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+              <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>
+              <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>
+              <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>
+              {delayDays > 0 && (
+                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
+                  <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
+                </span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <StatusButton

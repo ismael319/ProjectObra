@@ -158,6 +158,7 @@ export default function ModalImportarAtividades({
           isExtra: false,
           sourceCronograma: a.cronogramaNome,
           areaPath: a.areaPath || null,
+          taskUid: a.taskUid,
         })),
       )
       await addActivitiesBulk(rows)

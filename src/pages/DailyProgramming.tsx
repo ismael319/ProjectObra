@@ -18,6 +18,7 @@ import {
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
 import { findActivitiesWithWorkInWeek, type WeekActivity } from '@/lib/week-activities'
+import type { WBSActivity } from '@/lib/xml-parser'
 
 import WeekBar from '@/components/programacao/WeekBar'
 import CardDia from '@/components/programacao/CardDia'
@@ -110,6 +111,30 @@ export default function DailyProgramming() {
         availableBLIndices: c.dados!.baselines.filter((bl) => bl.available).map((bl) => bl.index).sort((a, b) => a - b),
       }))
   }, [currentProject])
+
+  // Índice cronograma+uid -> WBSActivity, pra buscar atraso/% avanço/datas ao vivo
+  // do cronograma quando o modal do dia mostra uma atividade importada. Só funciona
+  // pra atividades importadas DEPOIS que o campo taskUid passou a ser gravado —
+  // programações antigas (ou extras manuais) não têm essa referência e simplesmente
+  // não mostram esses dados extras.
+  const cronogramaActivityIndex = useMemo(() => {
+    const map = new Map<string, WBSActivity>()
+    for (const c of currentProject?.cronogramas || []) {
+      if (!c.ativo || !c.dados) continue
+      for (const act of c.dados.activities) {
+        map.set(`${c.nome}::${act.uid}`, act)
+      }
+    }
+    return map
+  }, [currentProject])
+
+  const getActivityDetail = useCallback(
+    (a: ActivityLike): WBSActivity | null => {
+      if (!a.source || !a.taskUid) return null
+      return cronogramaActivityIndex.get(`${a.source}::${a.taskUid}`) ?? null
+    },
+    [cronogramaActivityIndex],
+  )
 
   const handleSearchWeekActivities = () => {
     if (!currentProject?.cronogramas?.length) {
@@ -384,6 +409,7 @@ export default function DailyProgramming() {
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
+        getActivityDetail={getActivityDetail}
       />
 
       <ModalImportarAtividades

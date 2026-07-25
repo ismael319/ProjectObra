@@ -132,6 +132,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     observation: a.observation,
     source: a.is_extra ? undefined : (a.company ?? undefined),
     areaPath: a.is_extra ? null : a.area,
+    taskUid: a.task_uid,
   }))
 
   return { week, activities: mappedActivities, partialWeight }
@@ -167,6 +168,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     observation: a.observation,
     source: a.is_extra ? undefined : (a.company ?? undefined),
     areaPath: a.is_extra ? null : a.area,
+    taskUid: a.task_uid,
   }))
 }
 
@@ -235,6 +237,9 @@ export interface NewActivityPayload {
   isExtra?: boolean
   sourceCronograma?: string | null
   areaPath?: string | null
+  /** WBSActivity.uid da tarefa de origem no cronograma — permite depois buscar
+   * atraso/% avanço/datas ao vivo do cronograma. Só faz sentido quando isExtra=false. */
+  taskUid?: number | null
 }
 
 // Adicionar atividade extra (ou, com isExtra=false, uma atividade "oficial" vinda da
@@ -267,6 +272,7 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
       foreman: payload.foreman ?? null,
       observation: payload.observation ?? null,
       planned_pct: 100,
+      task_uid: !isExtra && payload.taskUid != null ? String(payload.taskUid) : null,
     }
   })
 
