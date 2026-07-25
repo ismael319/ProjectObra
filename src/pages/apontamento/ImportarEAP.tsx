@@ -271,6 +271,35 @@ export default function ImportarEapPage() {
   function selectAll() { setRows((prev) => prev.map((r) => ({ ...r, selected: true }))); }
   function deselectAll() { setRows((prev) => prev.map((r) => ({ ...r, selected: false }))); }
 
+  // Os checkboxes de nível no topo da "Estrutura de Tópicos" filtram o que
+  // aparece na árvore, mas também precisam marcar/desmarcar pra importação os
+  // itens daquele nível — senão o usuário tem que clicar item por item mesmo
+  // depois de já ter dito "quero todas as Atividades", por exemplo.
+  function toggleNivelFilter(nivel: number, checked: boolean) {
+    setNivelFilter((p) => ({ ...p, [nivel]: checked }));
+    setRows((prev) => {
+      if (!checked) {
+        return prev.map((r) => (r.nivel === nivel ? { ...r, selected: false } : r));
+      }
+      // Marca o nível inteiro e também a cadeia de ancestrais de cada item —
+      // senão entrariam órfãos (sem pai selecionado nem já existente) no import.
+      const byCodigo = new Map(prev.map((r) => [r.codigo, r]));
+      const toSelect = new Set<string>();
+      for (const r of prev) {
+        if (r.nivel !== nivel) continue;
+        toSelect.add(r.id);
+        let cur: EapRow | undefined = r;
+        while (cur?.parentCodigo) {
+          const parent: EapRow | undefined = byCodigo.get(cur.parentCodigo);
+          if (!parent) break;
+          toSelect.add(parent.id);
+          cur = parent;
+        }
+      }
+      return prev.map((r) => (toSelect.has(r.id) ? { ...r, selected: true } : r));
+    });
+  }
+
   const matchedIds = useMemo(
     () => resolveExistingMatches(rows, existingIndex, targetSetorId || undefined),
     [rows, existingIndex, targetSetorId],
@@ -615,13 +644,17 @@ export default function ImportarEapPage() {
               Estrutura de Tópicos
             </DialogTitle>
           </DialogHeader>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Marcar/desmarcar um nível abaixo também marca/desmarca pra importação todos os itens desse nível
+            (e a cadeia de pais, quando marca).
+          </p>
           <div className="flex flex-wrap gap-3 py-2 border-b">
             {[1, 2, 3, 4].map((nivel) => (
               <label key={nivel} className="flex items-center gap-2 text-sm cursor-pointer">
                 <input
                   type="checkbox"
                   checked={nivelFilter[nivel]}
-                  onChange={(e) => setNivelFilter((p) => ({ ...p, [nivel]: e.target.checked }))}
+                  onChange={(e) => toggleNivelFilter(nivel, e.target.checked)}
                   className="h-4 w-4 rounded"
                 />
                 {React.createElement(NIVEL_ICONS[nivel]!, { className: `h-3.5 w-3.5 ${NIVEL_COLORS[nivel]}` })}
