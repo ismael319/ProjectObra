@@ -63,14 +63,18 @@ interface ExistingIndex {
 // entrar dentro do setor de outro só por coincidência de numeração. Nível 2+ casa
 // pelo par (pai já resolvido + código), nunca pelo código isolado, pelo mesmo
 // motivo (duas Áreas "1.1" de setores diferentes não podem colidir).
-function resolveExistingMatches(rows: EapRow[], index: ExistingIndex): Map<string, string> {
+// forcedSetorId: quando o usuário escolhe explicitamente "importar pra dentro
+// do Setor X" (em vez de deixar casar pelo nome/criar um novo), TODA linha de
+// nível 1 vira filha desse setor, sem nem olhar o nome — dá controle manual pra
+// quando o nome do setor raiz do cronograma não é o que se quer usar como chave.
+function resolveExistingMatches(rows: EapRow[], index: ExistingIndex, forcedSetorId?: string): Map<string, string> {
   const matched = new Map<string, string>(); // row.id -> id existente no banco
   const dbIdByCodigo = new Map<string, string>(); // código (nesta leva) -> id já resolvido (só p/ casados)
   const sorted = [...rows].sort((a, b) => a.nivel - b.nivel);
   for (const row of sorted) {
     let existingId: string | undefined;
     if (row.nivel === 1) {
-      existingId = index.setorIdByNome.get(row.nome.trim().toLowerCase());
+      existingId = forcedSetorId || index.setorIdByNome.get(row.nome.trim().toLowerCase());
     } else if (row.parentCodigo) {
       const parentDbId = dbIdByCodigo.get(row.parentCodigo);
       if (parentDbId) {
@@ -167,6 +171,10 @@ export default function ImportarEapPage() {
   );
   const [selectedCronogramaId, setSelectedCronogramaId] = useState<string>("");
   const [levelOffset, setLevelOffset] = useState(0);
+  // "" = criar um Setor novo (comportamento padrão, casa pelo nome). Qualquer
+  // outro valor = id de um Setor já existente pra onde TUDO deste cronograma
+  // (a partir do nível 1) deve ir, ignorando o nome do WBS raiz.
+  const [targetSetorId, setTargetSetorId] = useState<string>("");
 
   const selectedCronograma = useMemo(
     () => cronogramas.find((c) => c.id === selectedCronogramaId) ?? cronogramas[0] ?? null,
@@ -263,7 +271,10 @@ export default function ImportarEapPage() {
   function selectAll() { setRows((prev) => prev.map((r) => ({ ...r, selected: true }))); }
   function deselectAll() { setRows((prev) => prev.map((r) => ({ ...r, selected: false }))); }
 
-  const matchedIds = useMemo(() => resolveExistingMatches(rows, existingIndex), [rows, existingIndex]);
+  const matchedIds = useMemo(
+    () => resolveExistingMatches(rows, existingIndex, targetSetorId || undefined),
+    [rows, existingIndex, targetSetorId],
+  );
 
   const stats = useMemo(() => {
     const s = { setores: 0, areas: 0, etapas: 0, atividades: 0, total: rows.length, selected: 0, duplicados: 0 };
@@ -296,11 +307,11 @@ export default function ImportarEapPage() {
       return;
     }
     const parsed = activitiesToEapRows(acts, levelOffset);
-    const matched = resolveExistingMatches(parsed, existingIndex);
+    const matched = resolveExistingMatches(parsed, existingIndex, targetSetorId || undefined);
     setRows(parsed.map((r) => ({ ...r, selected: matched.has(r.id) })));
     setFileName(`Cronograma: ${selectedCronograma.nome}`);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCronograma, levelOffset, existingIndex]);
+  }, [selectedCronograma, levelOffset, existingIndex, targetSetorId]);
 
   const importMut = useMutation({
     mutationFn: async () => {
@@ -316,7 +327,7 @@ export default function ImportarEapPage() {
       // cadastrado (e por isso foi pulado como duplicado) ficava sem setor_id/
       // area_id/subarea_id no insert: entrava na tabela mas ficava órfão, e a
       // árvore da EAP (que só desce por FK) nunca mostrava esse item.
-      const matched = resolveExistingMatches(rows, existingIndex);
+      const matched = resolveExistingMatches(rows, existingIndex, targetSetorId || undefined);
       const dbIdByCodigo = new Map<string, string>();
       for (const r of rows) {
         const existingId = matched.get(r.id);
@@ -485,6 +496,30 @@ export default function ImportarEapPage() {
                         OutlineLevel 1 → Nível {Math.min(4, Math.max(1, 1 + levelOffset))}
                       </span>
                     </div>
+
+                    <div className="flex items-center gap-4 pt-1">
+                      <Label className="text-xs text-muted-foreground shrink-0">Setor de destino</Label>
+                      <Select value={targetSetorId || "__novo__"} onValueChange={(v) => setTargetSetorId(v === "__novo__" ? "" : v)}>
+                        <SelectTrigger className="w-full max-w-xs h-8 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__novo__">+ Criar novo Setor</SelectItem>
+                          {existingSetores
+                            .slice()
+                            .sort((a, b) => a.nome.localeCompare(b.nome))
+                            .map((s) => (
+                              <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
+                            ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    {targetSetorId && (
+                      <p className="text-xs text-amber-600">
+                        Tudo a partir do nível 1 deste cronograma vai entrar dentro do Setor escolhido acima — o
+                        item raiz do WBS não vira um Setor novo, mesmo que o nome seja diferente.
+                      </p>
+                    )}
                   </div>
                 )}
 
