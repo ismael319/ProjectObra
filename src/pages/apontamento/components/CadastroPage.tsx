@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -11,7 +11,7 @@ import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Combobox } from "@/components/ui/combobox";
 import { toast } from "sonner";
-import { Pencil, Plus, Search, Trash2, PowerOff } from "lucide-react";
+import { Pencil, Plus, Search, Trash2, PowerOff, ListChecks, X, Loader2 } from "lucide-react";
 
 type TableName = "empresas" | "liderancas" | "setores" | "areas" | "subareas" | "atividades";
 
@@ -27,6 +27,13 @@ const APONTAMENTO_FK: Record<string, string> = {
 const CHILD_TABLES: Record<string, { table: string; fk: string }> = {
   setores: { table: "areas", fk: "setor_id" },
   areas: { table: "subareas", fk: "area_id" },
+};
+
+// Prefixo do Código EAP sugerido automaticamente ao criar um item novo — mesmo
+// esquema usado na árvore da EAP (S01, A01, SA01, AT01...), já que as duas telas
+// gravam nas mesmas tabelas e o código é único por tabela.
+const CODIGO_PREFIX: Partial<Record<TableName, string>> = {
+  setores: "S", areas: "A", subareas: "SA", atividades: "AT",
 };
 
 interface ComboboxOption {
@@ -67,6 +74,9 @@ export function CadastroPage({
   const [editing, setEditing] = useState<any | null>(null);
   const [form, setForm] = useState<Record<string, any>>({});
   const [confirm, setConfirm] = useState<{ id: string; nome: string } | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ["cadastro", table],
@@ -76,6 +86,49 @@ export function CadastroPage({
       return data;
     },
   });
+
+  // Ids que NÃO podem ser excluídos: já têm apontamento de horas vinculado, ou
+  // (no caso de setor/área) já têm filhos (área/etapa) dependendo deles. Calculado
+  // aqui pra já desabilitar o botão de excluir na hora, em vez de só descobrir
+  // depois de tentar (e tomar o erro cru de FK vindo do banco).
+  const fkField = APONTAMENTO_FK[table];
+  const childCfg = CHILD_TABLES[table];
+
+  const { data: apontIds = [] } = useQuery({
+    queryKey: ["cadastro", table, "apont-vinculados"],
+    queryFn: async () => {
+      if (!fkField) return [];
+      const { data, error } = await supabase.from("apontamentos_diarios").select(fkField).not(fkField, "is", null);
+      if (error) throw error;
+      return (data as unknown as Record<string, string>[]).map((r) => r[fkField]);
+    },
+  });
+
+  const { data: childIds = [] } = useQuery({
+    queryKey: ["cadastro", table, "filhos-vinculados"],
+    queryFn: async () => {
+      if (!childCfg) return [];
+      const { data, error } = await supabase.from(childCfg.table).select(childCfg.fk).not(childCfg.fk, "is", null);
+      if (error) throw error;
+      return (data as unknown as Record<string, string>[]).map((r) => r[childCfg.fk]);
+    },
+  });
+
+  const blockedIds = useMemo(() => new Set([...apontIds, ...childIds]), [apontIds, childIds]);
+
+  // Sugere o próximo Código EAP livre nesse nível (S01, S02.../A01...), olhando
+  // os códigos já cadastrados — mesmo esquema da árvore da EAP.
+  function suggestCodigo(): string {
+    const prefix = CODIGO_PREFIX[table];
+    if (!prefix) return "";
+    const re = new RegExp(`^${prefix}(\\d+)$`, "i");
+    let max = 0;
+    for (const r of rows as { codigo?: string | null }[]) {
+      const m = r.codigo?.match(re);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `${prefix}${String(max + 1).padStart(2, "0")}`;
+  }
 
   const filtered = rows
     .filter((r: any) => {
@@ -124,22 +177,22 @@ export function CadastroPage({
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      const fkField = APONTAMENTO_FK[table];
       if (fkField) {
-        const { data: vinculos } = await supabase.from("apontamentos_diarios")
+        const { count, error: countErr } = await supabase.from("apontamentos_diarios")
           .select("id", { count: "exact", head: true })
           .eq(fkField, id);
-        if (vinculos && vinculos.length > 0) {
+        if (countErr) throw countErr;
+        if (count && count > 0) {
           throw new Error("Registro possui apontamentos vinculados. Recomenda-se inativar ao invés de excluir.");
         }
       }
-      const child = CHILD_TABLES[table];
-      if (child) {
-        const { data: filhos } = await supabase.from(child.table)
+      if (childCfg) {
+        const { count, error: countErr } = await supabase.from(childCfg.table)
           .select("id", { count: "exact", head: true })
-          .eq(child.fk, id);
-        if (filhos && filhos.length > 0) {
-          throw new Error(`Registro possui ${child.table} vinculados. Recomenda-se inativar ao invés de excluir.`);
+          .eq(childCfg.fk, id);
+        if (countErr) throw countErr;
+        if (count && count > 0) {
+          throw new Error(`Registro possui ${childCfg.table} vinculados. Recomenda-se inativar ao invés de excluir.`);
         }
       }
       const { error } = await supabase.from(table).delete().eq("id", id);
@@ -149,6 +202,27 @@ export function CadastroPage({
       toast.success("Excluído");
       setConfirm(null);
       qc.invalidateQueries({ queryKey: ["cadastro", table] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
+  // Exclui vários de uma vez — pula (sem quebrar o lote) qualquer id que ainda
+  // esteja bloqueado por apontamento/filho, mesmo que a seleção já tenha filtrado
+  // isso; é só uma segunda trava de segurança.
+  const deleteBulkMut = useMutation({
+    mutationFn: async (ids: string[]) => {
+      const deletable = ids.filter((id) => !blockedIds.has(id));
+      for (const id of deletable) {
+        const { error } = await supabase.from(table).delete().eq("id", id);
+        if (error) throw error;
+      }
+      return { deletedCount: deletable.length, skippedCount: ids.length - deletable.length };
+    },
+    onSuccess: ({ deletedCount, skippedCount }) => {
+      if (deletedCount > 0) toast.success(`${deletedCount} excluído(s)`);
+      if (skippedCount > 0) toast.error(`${skippedCount} item(ns) com vínculos foram ignorados — inative-os em vez de excluir.`);
+      qc.invalidateQueries({ queryKey: ["cadastro", table] });
+      cancelSelectMode();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -167,7 +241,12 @@ export function CadastroPage({
 
   function openNew() {
     setEditing(null);
-    setForm({});
+    const f: Record<string, any> = {};
+    if (fields.some((fl) => fl.key === "codigo")) {
+      const suggestion = suggestCodigo();
+      if (suggestion) f.codigo = suggestion;
+    }
+    setForm(f);
     setOpen(true);
   }
 
@@ -177,6 +256,23 @@ export function CadastroPage({
     for (const field of fields) f[field.key] = row[field.key] ?? "";
     setForm(f);
     setOpen(true);
+  }
+
+  function cancelSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+    setBulkConfirmOpen(false);
+  }
+
+  function toggleSelect(row: any) {
+    if (blockedIds.has(row.id)) {
+      toast.error("Registro com apontamentos/vínculos — não pode ser selecionado para exclusão.");
+      return;
+    }
+    const next = new Set(selectedIds);
+    if (next.has(row.id)) next.delete(row.id);
+    else next.add(row.id);
+    setSelectedIds(next);
   }
 
   function handleDelete(row: any) {
@@ -190,8 +286,33 @@ export function CadastroPage({
           <h1 className="text-2xl font-bold">{title}</h1>
           {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
-        <Button onClick={openNew}><Plus className="h-4 w-4" /> Novo</Button>
+        <div className="flex items-center gap-2">
+          {selectMode ? (
+            <Button variant="outline" onClick={cancelSelectMode}><X className="h-4 w-4" /> Cancelar seleção</Button>
+          ) : (
+            <Button variant="outline" onClick={() => setSelectMode(true)}><ListChecks className="h-4 w-4" /> Selecionar</Button>
+          )}
+          <Button onClick={openNew}><Plus className="h-4 w-4" /> Novo</Button>
+        </div>
       </div>
+
+      {selectMode && (
+        <Card className="border-destructive/40 bg-destructive/5">
+          <CardContent className="p-3 flex items-center gap-3 flex-wrap">
+            <p className="text-sm">
+              {selectedIds.size === 0
+                ? "Marque na tabela quais registros excluir. Itens com apontamentos ou vínculos não podem ser selecionados."
+                : `${selectedIds.size} item(ns) selecionado(s).`}
+            </p>
+            {selectedIds.size > 0 && (
+              <Button size="sm" variant="destructive" onClick={() => setBulkConfirmOpen(true)} disabled={deleteBulkMut.isPending}>
+                {deleteBulkMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                Excluir {selectedIds.size} item(ns)
+              </Button>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -207,6 +328,7 @@ export function CadastroPage({
             <Table>
               <TableHeader>
                 <TableRow>
+                  {selectMode && <TableHead className="w-[40px]" />}
                   <TableHead>Nome</TableHead>
                   {extraColumns.map((c) => <TableHead key={c.key}>{c.label}</TableHead>)}
                   <TableHead className="w-[100px]">Ativo</TableHead>
@@ -214,23 +336,44 @@ export function CadastroPage({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && <TableRow><TableCell colSpan={3 + extraColumns.length} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
-                {!isLoading && filtered.length === 0 && <TableRow><TableCell colSpan={3 + extraColumns.length} className="text-center py-8 text-muted-foreground">Nenhum registro</TableCell></TableRow>}
-                {filtered.map((row: any) => (
-                  <TableRow key={row.id} className={!row.ativo ? "opacity-50" : ""}>
-                    <TableCell className="font-medium">{row[orderBy] ?? row.nome}</TableCell>
-                    {extraColumns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? "—")}</TableCell>)}
-                    <TableCell>
-                      <Switch checked={row.ativo} onCheckedChange={() => toggleMut.mutate({ id: row.id, ativo: !row.ativo })} />
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row)}><Pencil className="h-3.5 w-3.5" /></Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => handleDelete(row)}><Trash2 className="h-3.5 w-3.5" /></Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {isLoading && <TableRow><TableCell colSpan={3 + extraColumns.length + (selectMode ? 1 : 0)} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
+                {!isLoading && filtered.length === 0 && <TableRow><TableCell colSpan={3 + extraColumns.length + (selectMode ? 1 : 0)} className="text-center py-8 text-muted-foreground">Nenhum registro</TableCell></TableRow>}
+                {filtered.map((row: any) => {
+                  const bloqueado = blockedIds.has(row.id);
+                  return (
+                    <TableRow key={row.id} className={!row.ativo ? "opacity-50" : ""}>
+                      {selectMode && (
+                        <TableCell>
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(row.id)}
+                            disabled={bloqueado}
+                            title={bloqueado ? "Possui apontamentos/vínculos — não pode ser excluído" : undefined}
+                            onChange={() => toggleSelect(row)}
+                          />
+                        </TableCell>
+                      )}
+                      <TableCell className="font-medium">{row[orderBy] ?? row.nome}</TableCell>
+                      {extraColumns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? "—")}</TableCell>)}
+                      <TableCell>
+                        <Switch checked={row.ativo} onCheckedChange={() => toggleMut.mutate({ id: row.id, ativo: !row.ativo })} />
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex gap-1">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button
+                            size="icon" variant="ghost" className="h-8 w-8 text-destructive disabled:opacity-30"
+                            disabled={bloqueado}
+                            title={bloqueado ? "Possui apontamentos/vínculos — inative em vez de excluir" : "Excluir"}
+                            onClick={() => handleDelete(row)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
@@ -283,6 +426,26 @@ export function CadastroPage({
             </AlertDialogAction>
             <AlertDialogAction onClick={() => confirm && inactivateMut.mutate(confirm.id)}>
               <PowerOff className="h-4 w-4 mr-1" /> Inativar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={bulkConfirmOpen} onOpenChange={setBulkConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir {selectedIds.size} item(ns)?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir os itens selecionados? Essa ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteBulkMut.mutate([...selectedIds])}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              <Trash2 className="h-4 w-4 mr-1" /> Excluir
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
