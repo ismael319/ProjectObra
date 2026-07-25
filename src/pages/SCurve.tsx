@@ -566,8 +566,6 @@ export default function SCurve() {
         scheduleInfo={scheduleInfo}
       />
 
-      <SCurveRootCauseCards openOccurrencesCount={occurrences.filter((o) => o.status === 'aberta').length} />
-
       {advances && (
         <SCurveAdvanceCard
           statusDate={advances.statusDate}
@@ -984,6 +982,8 @@ export default function SCurve() {
           occurrences={attentionOccurrences}
         />
       </div>
+
+      <SCurveRootCauseCards openOccurrencesCount={occurrences.filter((o) => o.status === 'aberta').length} />
 
       {curveData.length > 0 && showTable && (
         <>
