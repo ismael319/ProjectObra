@@ -31,6 +31,9 @@ interface TreeNode {
   ordem: number;
   bloqueado: boolean;
   children: TreeNode[];
+  // Itens do MESMO nível que foram mesclados pra dentro deste (ver mergeMut) —
+  // não são apagados, só ficam inativos e aparecem aqui só pra referência visual.
+  mescladoDe: TreeNode[];
 }
 
 // Estrutura mínima gravada num modelo salvo — só forma da árvore, sem horas
@@ -295,34 +298,64 @@ export default function EapPage() {
       list.push(at);
       ativBySubarea.set(key, list);
     }
+
+    // Agrupa, por nível, quem foi mesclado pra dentro de quem — usado só pra
+    // anexar essas linhas (inativas, sem filhos/apontamentos próprios mais) como
+    // referência visual embaixo do item que "ganhou" a mesclagem.
+    function mescladosPorAlvo(source: any[]): Map<string, any[]> {
+      const map = new Map<string, any[]>();
+      for (const r of source) {
+        if (!r.mesclado_em) continue;
+        const list = map.get(r.mesclado_em) ?? [];
+        list.push(r);
+        map.set(r.mesclado_em, list);
+      }
+      return map;
+    }
+    const setoresMescladosPorAlvo = mescladosPorAlvo(setores);
+    const areasMescladasPorAlvo = mescladosPorAlvo(areas);
+    const subareasMescladasPorAlvo = mescladosPorAlvo(subareas);
+    const atividadesMescladasPorAlvo = mescladosPorAlvo(atividades);
+
+    function toMescladoNode(r: any, nivel: Nivel): TreeNode {
+      return {
+        id: r.id, nome: r.nome, codigo: r.codigo, ativo: r.ativo, nivel, parentId: null, ordem: r.ordem ?? 0,
+        bloqueado: false, children: [], mescladoDe: [],
+      };
+    }
+
     return setores
-      .filter((s) => s.ativo || !search)
+      .filter((s) => !s.mesclado_em && (s.ativo || !search))
       .map((s) => {
         const areaChildren = areas
-          .filter((a) => a.setor_id === s.id && (a.ativo || !search))
+          .filter((a) => !a.mesclado_em && a.setor_id === s.id && (a.ativo || !search))
           .map((a) => {
             const subareaChildren = subareas
-              .filter((sa) => sa.area_id === a.id && (sa.ativo || !search))
+              .filter((sa) => !sa.mesclado_em && sa.area_id === a.id && (sa.ativo || !search))
               .map((sa) => {
                 const atividadeChildren = (ativBySubarea.get(sa.id) ?? [])
-                  .filter((at) => at.ativo || !search)
+                  .filter((at) => !at.mesclado_em && (at.ativo || !search))
                   .map((at) => ({
                     id: at.id, nome: at.nome, codigo: at.codigo, ativo: at.ativo, nivel: "atividade" as Nivel, parentId: sa.id, ordem: at.ordem ?? 0,
                     bloqueado: atividadesComApontamento.has(at.id), children: [] as TreeNode[],
+                    mescladoDe: (atividadesMescladasPorAlvo.get(at.id) ?? []).map((r) => toMescladoNode(r, "atividade")),
                   }));
                 return {
                   id: sa.id, nome: sa.nome, codigo: sa.codigo, ativo: sa.ativo, nivel: "subarea" as Nivel, parentId: a.id, ordem: sa.ordem ?? 0,
                   bloqueado: atividadeChildren.some((c) => c.bloqueado), children: atividadeChildren,
+                  mescladoDe: (subareasMescladasPorAlvo.get(sa.id) ?? []).map((r) => toMescladoNode(r, "subarea")),
                 };
               });
             return {
               id: a.id, nome: a.nome, codigo: a.codigo, ativo: a.ativo, nivel: "area" as Nivel, parentId: s.id, ordem: a.ordem ?? 0,
               bloqueado: subareaChildren.some((c) => c.bloqueado), children: subareaChildren,
+              mescladoDe: (areasMescladasPorAlvo.get(a.id) ?? []).map((r) => toMescladoNode(r, "area")),
             };
           });
         return {
           id: s.id, nome: s.nome, codigo: s.codigo, ativo: s.ativo, nivel: "setor" as Nivel, parentId: null, ordem: s.ordem ?? 0,
           bloqueado: areaChildren.some((c) => c.bloqueado), children: areaChildren,
+          mescladoDe: (setoresMescladosPorAlvo.get(s.id) ?? []).map((r) => toMescladoNode(r, "setor")),
         };
       });
   }, [setores, areas, subareas, atividades, search, atividadesComApontamento]);
@@ -392,8 +425,10 @@ export default function EapPage() {
   });
 
   // Mescla N itens do mesmo nível em 1: reatribui filhos e apontamentos históricos
-  // pro item de destino, depois apaga os itens de origem. Preserva o total de
-  // horas já apontado — ele passa a contar pro item resultante.
+  // pro item de destino. Os itens de origem NÃO são apagados — ficam inativos
+  // (ativo=false) e marcados com mesclado_em apontando pro alvo, só pra
+  // referência visual (aparecem embaixo do item resultante na árvore). Preserva
+  // o total de horas já apontado — ele passa a contar pro item resultante.
   const mergeMut = useMutation({
     mutationFn: async () => {
       if (!mergeNivel || !mergeTargetId) throw new Error("Selecione o item de destino");
@@ -421,8 +456,11 @@ export default function EapPage() {
       if (mergeNivel === "atividade") {
         await supabase.from("cronograma_itens").update({ atividade_id: mergeTargetId }).in("atividade_id", sourceIds);
       }
-      const { error: delErr } = await supabase.from(table).delete().in("id", sourceIds);
-      if (delErr) throw delErr;
+      const { error: mescladoErr } = await supabase
+        .from(table)
+        .update({ ativo: false, mesclado_em: mergeTargetId })
+        .in("id", sourceIds);
+      if (mescladoErr) throw mescladoErr;
 
       if (mergeNewName.trim()) {
         const { error: renameErr } = await supabase.from(table).update({ nome: targetNome }).eq("id", mergeTargetId);
@@ -430,12 +468,12 @@ export default function EapPage() {
       }
     },
     onSuccess: () => {
-      toast.success("Itens mesclados — histórico de horas preservado no item resultante");
+      toast.success("Itens mesclados — histórico de horas preservado no item resultante. Origens ficam inativas, listadas abaixo dele.");
       invalidateAll();
       qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
       cancelMerge();
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(friendlyDbError(e)),
   });
 
   // Recua ("up"/outdent) ou avança ("down"/indent) o nível de um item e de toda a
@@ -1155,7 +1193,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
   const [open, setOpen] = useState(defaultOpen);
   const cfg = NIVEL_CONFIG[node.nivel];
   const Icon = cfg.icon;
-  const hasChildren = node.children.length > 0;
+  const hasChildren = node.children.length > 0 || node.mescladoDe.length > 0;
   const nextNivel: Nivel | null = node.nivel === "setor" ? "area" : node.nivel === "area" ? "subarea" : node.nivel === "subarea" ? "atividade" : null;
   const horas = getHoras(node.nivel, node.id);
   const desabilitadoNoMerge = mergeMode && mergeNivel !== null && mergeNivel !== node.nivel && !mergeSelected.has(node.id);
@@ -1271,6 +1309,28 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
                 deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={onDeleteToggle}
                 bulkMoveMode={bulkMoveMode} bulkMoveSelected={bulkMoveSelected} onBulkMoveToggle={onBulkMoveToggle}
               />
+            ))}
+            {node.mescladoDe.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center gap-1.5 py-1 px-2 opacity-50"
+                style={{ marginLeft: `${(depth + 1) * 20}px` }}
+              >
+                <span className="w-3.5 shrink-0" />
+                <GitMerge className="h-3 w-3 text-muted-foreground shrink-0" />
+                {m.codigo && <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1 rounded">{m.codigo}</span>}
+                <span className="text-sm line-through decoration-muted-foreground/50">{m.nome}</span>
+                <span className="text-[10px] text-muted-foreground">(mesclado aqui)</span>
+                {!mergeMode && !deleteMode && !bulkMoveMode && (
+                  <button
+                    onClick={() => onDelete(m)}
+                    className="ml-auto p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                    title="Remover esta referência definitivamente"
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
             ))}
           </div>
         </CollapsibleContent>
