@@ -1,6 +1,8 @@
 // Cálculos de aderência para o módulo de Programação Semanal.
 // Adaptado do Weekly Craft Pro.
 
+import type { WBSActivity } from "./xml-parser";
+
 export type ActivityStatus = "pendente" | "concluida" | "parcial" | "nao_concluida";
 
 export interface ActivityLike {
@@ -70,6 +72,20 @@ export function computeIndicators(
     ppc: denom ? concluidas / denom : 0,
     aderencia: denom ? weighted / denom : 0,
   };
+}
+
+// Dias de atraso (0 se não estiver atrasada): término já passou e ainda não chegou
+// a 100% de avanço. Compara só a data (sem hora), pra "vence hoje" não contar atraso.
+// Usado tanto no card do dia (CardDia) quanto no detalhe de cada atividade
+// (ModalDetalheDia) — só funciona pra atividades com vínculo ao cronograma (ver
+// ActivityLike.taskUid / getActivityDetail em DailyProgramming.tsx).
+export function computeDelayDays(detail: WBSActivity): number {
+  const finish = detail.finish instanceof Date ? detail.finish : new Date(detail.finish);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const finishDay = new Date(finish.getFullYear(), finish.getMonth(), finish.getDate());
+  if (finishDay >= today || detail.percentComplete >= 100) return 0;
+  return Math.round((today.getTime() - finishDay.getTime()) / 86400000);
 }
 
 export function computeSegment(

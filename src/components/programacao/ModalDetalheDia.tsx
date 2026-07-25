@@ -1,19 +1,8 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle } from 'lucide-react'
-import type { ActivityLike, ActivityStatus } from '@/lib/adherence'
+import { computeDelayDays, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
 import type { WBSActivity } from '@/lib/xml-parser'
-
-// Dias de atraso (0 se não estiver atrasada): término já passou e ainda não chegou
-// a 100% de avanço. Compara só a data (sem hora), pra "vence hoje" não contar atraso.
-function computeDelayDays(detail: WBSActivity): number {
-  const finish = detail.finish instanceof Date ? detail.finish : new Date(detail.finish)
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const finishDay = new Date(finish.getFullYear(), finish.getMonth(), finish.getDate())
-  if (finishDay >= today || detail.percentComplete >= 100) return 0
-  return Math.round((today.getTime() - finishDay.getTime()) / 86400000)
-}
 
 interface Props {
   open: boolean
@@ -280,10 +269,14 @@ function ActivityRow({
             {detail && <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>}
             {detail && <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>}
             {detail && <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>}
-            {delayDays > 0 && (
-              <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
-                <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
-              </span>
+            {detail && (
+              delayDays > 0 ? (
+                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
+                  <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
+                </span>
+              ) : (
+                <span>Atraso: 0 dias</span>
+              )
             )}
           </div>
         </div>
