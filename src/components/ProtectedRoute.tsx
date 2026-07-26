@@ -25,7 +25,13 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/login" replace />
   }
 
-  if (userProfile?.papel === 'campo' && location.pathname !== CAMPO_HOME) {
+  // Perfil ausente (erro ao buscar) ou solicitação ainda não aprovada:
+  // nunca libera acesso ao app, só à tela de aguardando aprovação.
+  if (!userProfile || userProfile.status_solicitacao !== 'aprovado') {
+    return <Navigate to="/aguardando-aprovacao" replace />
+  }
+
+  if (userProfile.papel === 'campo' && location.pathname !== CAMPO_HOME) {
     return <Navigate to={CAMPO_HOME} replace />
   }
 

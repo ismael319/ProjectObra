@@ -38,7 +38,7 @@ export default function Signup() {
     if (error) {
       setError('Erro ao criar conta. Tente novamente.')
     } else {
-      setSuccess('Conta criada! Verifique seu email para confirmar.')
+      setSuccess('Conta criada! Confirme seu email e aguarde a aprovação de um gestor para acessar o sistema.')
       setTimeout(() => navigate('/login'), 3000)
     }
   }

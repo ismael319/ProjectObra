@@ -6,6 +6,7 @@ import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth } from '@/lib/auth-context'
+import { supabase } from '@/lib/supabase'
 
 export default function DashboardLayout() {
   const { isDark, toggle, brandColor } = useTheme()
@@ -14,10 +15,22 @@ export default function DashboardLayout() {
   const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
   const isCampo = userProfile?.papel === 'campo'
+  const podeGerenciarUsuarios = userProfile?.papel === 'admin' || userProfile?.papel === 'gestor'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [pendingCount, setPendingCount] = useState(0)
   const userMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!podeGerenciarUsuarios) return
+
+    supabase
+      .from('user_profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('status_solicitacao', 'pendente')
+      .then(({ count }) => setPendingCount(count ?? 0))
+  }, [podeGerenciarUsuarios])
 
   const userInitials = user?.email
     ? user.email.split('@')[0].slice(0, 2).toUpperCase()
@@ -116,10 +129,20 @@ export default function DashboardLayout() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
 
-            <button className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
-              <Bell size={19} />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full ring-2 ring-slate-900" />
-            </button>
+            {podeGerenciarUsuarios && (
+              <button
+                onClick={() => navigate('/dashboard/admin/users')}
+                className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                title="Solicitações de acesso pendentes"
+              >
+                <Bell size={19} />
+                {pendingCount > 0 && (
+                  <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full ring-2 ring-slate-900">
+                    {pendingCount > 9 ? '9+' : pendingCount}
+                  </span>
+                )}
+              </button>
+            )}
 
             <div className="relative" ref={userMenuRef}>
               <button
@@ -180,7 +203,7 @@ export default function DashboardLayout() {
         onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
         mobileOpen={mobileMenuOpen}
         onMobileClose={() => setMobileMenuOpen(false)}
-        papel={userProfile?.papel}
+        papel={userProfile?.papel ?? undefined}
       />
 
       {/* Conteúdo principal */}

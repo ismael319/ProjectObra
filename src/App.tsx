@@ -7,6 +7,7 @@ import { ProjectStoreProvider } from '@/lib/project-store'
 import { ProjectProvider } from '@/lib/project-context'
 import { ThemeProvider } from '@/lib/theme-context'
 import ProtectedRoute from '@/components/ProtectedRoute'
+import SessionOnlyRoute from '@/components/SessionOnlyRoute'
 
 const queryClient = new QueryClient()
 
@@ -25,6 +26,8 @@ const LaborTracking = lazy(() => import('@/pages/LaborTracking'))
 const ProjectSelection = lazy(() => import('@/pages/ProjectSelection'))
 const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
+const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
+const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
 
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
@@ -67,6 +70,15 @@ function App() {
                     <Route path="/signup" element={<Signup />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/update-password" element={<UpdatePassword />} />
+
+                    <Route
+                      path="/aguardando-aprovacao"
+                      element={
+                        <SessionOnlyRoute>
+                          <PendingApproval />
+                        </SessionOnlyRoute>
+                      }
+                    />
 
                     <Route
                       path="/projects"
@@ -117,6 +129,7 @@ function App() {
                       <Route path="mapa-chuvas" element={<MapaChuvas />} />
                       <Route path="security/rdr" element={<RdrDashboard />} />
                       <Route path="security/rdr/registros" element={<RdrRegistros />} />
+                      <Route path="admin/users" element={<UserApprovalManagement />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/projects" replace />} />

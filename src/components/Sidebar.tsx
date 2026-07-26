@@ -8,6 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
+  UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -61,6 +62,13 @@ const navSectionsBase: { title: string; items: NavItem[] }[] = [
   },
 ]
 
+const navSectionAdministracao: { title: string; items: NavItem[] } = {
+  title: 'Administração',
+  items: [
+    { icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' },
+  ],
+}
+
 // Apontadores (papel "campo") só enxergam o lançamento de efetivo.
 const navSectionsCampo: { title: string; items: NavItem[] }[] = [
   {
@@ -113,7 +121,12 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, papel }: SidebarProps) {
   const isCampo = papel === 'campo'
-  const navSections = isCampo ? navSectionsCampo : navSectionsBase
+  const podeGerenciarUsuarios = papel === 'admin' || papel === 'gestor'
+  const navSections = isCampo
+    ? navSectionsCampo
+    : podeGerenciarUsuarios
+      ? [...navSectionsBase, navSectionAdministracao]
+      : navSectionsBase
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )
