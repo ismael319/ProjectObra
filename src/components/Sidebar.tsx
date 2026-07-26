@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  UserCog,
+  UserCog, Building2,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -20,53 +20,44 @@ interface NavItem {
   children?: NavItem[]
 }
 
-const navSectionsBase: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Engenharia',
-    items: [
-      {
-        icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
-        children: [
-          { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-          { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
-          { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-          { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
-        ],
-      },
-      {
-        icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
-        children: [
-          { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
-          { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
-          { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
-          { icon: BarChart, label: 'Resumo Diário', path: '/dashboard/people/resumo' },
-          { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
-          { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
-          { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
-        ],
-      },
-      { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
-      { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
-      { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
-    ],
-  },
-  {
-    title: 'Segurança',
-    items: [
-      { icon: Shield, label: 'RDR - Dashboard', path: '/dashboard/security/rdr' },
-    ],
-  },
-  {
-    title: 'Qualidade',
-    items: [],
-  },
-]
+// Telas do Gantt Livre, Apontamento/EAP, Programação semanal, Mapa de Chuvas
+// e RDR ainda não são isoladas por empresa no banco (ver
+// RequireOrganizacaoPiloto) — por isso só aparecem no menu pra quem é da
+// empresa piloto. Isso é só cosmético: a proteção de verdade é o RLS.
+function buildNavSections(organizacaoPiloto: boolean): { title: string; items: NavItem[] }[] {
+  const planejamentoChildren: NavItem[] = [
+    { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
+    ...(organizacaoPiloto ? [{ icon: Calendar, label: 'Programação', path: '/dashboard/daily' }] : []),
+    ...(organizacaoPiloto ? [{ icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' }] : []),
+    { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
+  ]
 
-const navSectionAdministracao: { title: string; items: NavItem[] } = {
-  title: 'Administração',
-  items: [
-    { icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' },
-  ],
+  const engenhariaItems: NavItem[] = [
+    { icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning', children: planejamentoChildren },
+    ...(organizacaoPiloto ? [{
+      icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
+      children: [
+        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
+        { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
+        { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
+        { icon: BarChart, label: 'Resumo Diário', path: '/dashboard/people/resumo' },
+        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
+        { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
+        { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
+      ],
+    }] : []),
+    { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
+    ...(organizacaoPiloto ? [{ icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' }] : []),
+    { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
+  ]
+
+  return [
+    { title: 'Engenharia', items: engenhariaItems },
+    ...(organizacaoPiloto
+      ? [{ title: 'Segurança', items: [{ icon: Shield, label: 'RDR - Dashboard', path: '/dashboard/security/rdr' }] }]
+      : []),
+    { title: 'Qualidade', items: [] },
+  ]
 }
 
 // Apontadores (papel "campo") só enxergam o lançamento de efetivo.
@@ -117,16 +108,26 @@ interface SidebarProps {
   mobileOpen: boolean
   onMobileClose: () => void
   papel?: PapelUsuario
+  organizacaoPiloto?: boolean
+  isSuperAdmin?: boolean
 }
 
-export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, papel }: SidebarProps) {
+export default function Sidebar({
+  collapsed, onToggle, mobileOpen, onMobileClose, papel,
+  organizacaoPiloto = false, isSuperAdmin = false,
+}: SidebarProps) {
   const isCampo = papel === 'campo'
   const podeGerenciarUsuarios = papel === 'admin' || papel === 'gestor'
+
+  const adminItems: NavItem[] = []
+  if (podeGerenciarUsuarios) adminItems.push({ icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' })
+  if (isSuperAdmin) adminItems.push({ icon: Building2, label: 'Empresas Clientes', path: '/dashboard/admin/organizacoes' })
+
   const navSections = isCampo
     ? navSectionsCampo
-    : podeGerenciarUsuarios
-      ? [...navSectionsBase, navSectionAdministracao]
-      : navSectionsBase
+    : adminItems.length > 0
+      ? [...buildNavSections(organizacaoPiloto), { title: 'Administração', items: adminItems }]
+      : buildNavSections(organizacaoPiloto)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )

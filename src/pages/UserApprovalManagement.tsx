@@ -1,17 +1,25 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 
 interface SolicitacaoRow {
   id: string
   email: string | null
   papel: PapelUsuario | null
   status_solicitacao: 'pendente' | 'aprovado' | 'rejeitado'
+  criado_em: string
+}
+
+interface ConviteRow {
+  id: string
+  email: string
+  papel_convidado: PapelUsuario
   criado_em: string
 }
 
@@ -29,20 +37,44 @@ function statusBadge(status: SolicitacaoRow['status_solicitacao']) {
 }
 
 export default function UserApprovalManagement() {
-  const { userProfile } = useAuth()
+  const { user, userProfile } = useAuth()
   const isAdmin = userProfile?.papel === 'admin'
   const isGestor = userProfile?.papel === 'gestor'
-  const papeisDisponiveis: PapelUsuario[] = isAdmin
-    ? ['admin', 'gestor', 'engenheiro', 'campo']
-    : ['gestor', 'engenheiro', 'campo']
+  // "campo" só faz sentido na empresa piloto por enquanto — a tela de
+  // lançamento (única que esse papel acessa) ainda não é isolada por empresa.
+  const papeisBase: PapelUsuario[] = isAdmin ? ['admin', 'gestor', 'engenheiro', 'campo'] : ['gestor', 'engenheiro', 'campo']
+  const papeisDisponiveis = userProfile?.organizacao_piloto ? papeisBase : papeisBase.filter((p) => p !== 'campo')
 
-  const [tab, setTab] = useState<'pendentes' | 'historico'>('pendentes')
+  const [tab, setTab] = useState<'pendentes' | 'historico' | 'convidar'>('pendentes')
   const [rows, setRows] = useState<SolicitacaoRow[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [selectedPapel, setSelectedPapel] = useState<Record<string, PapelUsuario>>({})
   const [processingId, setProcessingId] = useState<string | null>(null)
 
+  const [convites, setConvites] = useState<ConviteRow[]>([])
+  const [isLoadingConvites, setIsLoadingConvites] = useState(true)
+  const [conviteEmail, setConviteEmail] = useState('')
+  const [convitePapel, setConvitePapel] = useState<PapelUsuario>(papeisDisponiveis[0])
+  const [isSendingConvite, setIsSendingConvite] = useState(false)
+
   const load = useCallback(async () => {
+    if (tab === 'convidar') {
+      setIsLoadingConvites(true)
+      const { data, error } = await supabase
+        .from('convites')
+        .select('id, email, papel_convidado, criado_em')
+        .is('usado_em', null)
+        .order('criado_em', { ascending: false })
+
+      if (error) {
+        toast.error('Erro ao carregar convites')
+      } else {
+        setConvites((data as ConviteRow[]) ?? [])
+      }
+      setIsLoadingConvites(false)
+      return
+    }
+
     setIsLoading(true)
     const query = supabase
       .from('user_profiles')
@@ -70,7 +102,7 @@ export default function UserApprovalManagement() {
     setProcessingId(row.id)
     const { data, error } = await supabase
       .from('user_profiles')
-      .update({ papel, status_solicitacao: 'aprovado' })
+      .update({ papel, status_solicitacao: 'aprovado', organizacao_id: userProfile?.organizacao_id })
       .eq('id', row.id)
       .select('id')
 
@@ -83,6 +115,36 @@ export default function UserApprovalManagement() {
       setRows((prev) => prev.filter((r) => r.id !== row.id))
     }
     setProcessingId(null)
+  }
+
+  const handleConvidar = async () => {
+    if (!conviteEmail.trim() || !userProfile?.organizacao_id) return
+    setIsSendingConvite(true)
+    const { error } = await supabase.from('convites').insert({
+      email: conviteEmail.trim(),
+      papel_convidado: convitePapel,
+      organizacao_id: userProfile.organizacao_id,
+      criado_por: user?.id,
+    })
+
+    if (error) {
+      toast.error(`Não foi possível criar o convite: ${error.message}`)
+    } else {
+      toast.success(`Convite criado para ${conviteEmail.trim()}. Avise a pessoa para criar conta em /signup com esse mesmo email.`)
+      setConviteEmail('')
+      load()
+    }
+    setIsSendingConvite(false)
+  }
+
+  const handleCancelarConvite = async (convite: ConviteRow) => {
+    const { error } = await supabase.from('convites').delete().eq('id', convite.id)
+    if (error) {
+      toast.error(`Não foi possível cancelar: ${error.message}`)
+    } else {
+      toast.success(`Convite de ${convite.email} cancelado`)
+      setConvites((prev) => prev.filter((c) => c.id !== convite.id))
+    }
   }
 
   const handleRejeitar = async (row: SolicitacaoRow) => {
@@ -136,8 +198,87 @@ export default function UserApprovalManagement() {
         >
           Histórico
         </button>
+        <button
+          onClick={() => setTab('convidar')}
+          className={`px-4 py-2 text-sm font-medium rounded-md transition ${
+            tab === 'convidar' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500'
+          }`}
+        >
+          Convidar
+        </button>
       </div>
 
+      {tab === 'convidar' ? (
+        <div className="space-y-6">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-4">
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Convide alguém da sua equipe por email. A pessoa entra automaticamente aprovada, já no papel
+              escolhido, assim que criar a conta em <span className="font-mono">/signup</span> usando exatamente
+              esse email — sem precisar de aprovação manual depois.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Input
+                type="email"
+                placeholder="email@empresa.com"
+                value={conviteEmail}
+                onChange={(e) => setConviteEmail(e.target.value)}
+                className="flex-1"
+              />
+              <select
+                value={convitePapel}
+                onChange={(e) => setConvitePapel(e.target.value as PapelUsuario)}
+                className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-3 py-2 text-sm"
+              >
+                {papeisDisponiveis.map((papel) => (
+                  <option key={papel} value={papel}>
+                    {PAPEL_LABELS[papel]}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={handleConvidar} disabled={isSendingConvite || !conviteEmail.trim()}>
+                <Send size={14} /> Convidar
+              </Button>
+            </div>
+          </div>
+
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Email convidado</TableHead>
+                  <TableHead>Papel</TableHead>
+                  <TableHead>Criado em</TableHead>
+                  <TableHead className="text-right">Ações</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {isLoadingConvites && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-gray-400 py-6">Carregando...</TableCell>
+                  </TableRow>
+                )}
+                {!isLoadingConvites && convites.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-gray-400 py-6">Nenhum convite pendente.</TableCell>
+                  </TableRow>
+                )}
+                {convites.map((convite) => (
+                  <TableRow key={convite.id}>
+                    <TableCell className="font-medium">{convite.email}</TableCell>
+                    <TableCell>{PAPEL_LABELS[convite.papel_convidado]}</TableCell>
+                    <TableCell>{new Date(convite.criado_em).toLocaleString('pt-BR')}</TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => handleCancelarConvite(convite)}>
+                        <Trash2 size={14} /> Cancelar
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
+      ) : (
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         <Table>
           <TableHeader>
@@ -220,6 +361,7 @@ export default function UserApprovalManagement() {
           </TableBody>
         </Table>
       </div>
+      )}
     </div>
   )
 }

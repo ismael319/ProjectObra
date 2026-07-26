@@ -8,6 +8,7 @@ import { ProjectProvider } from '@/lib/project-context'
 import { ThemeProvider } from '@/lib/theme-context'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
+import RequireOrganizacaoPiloto from '@/components/RequireOrganizacaoPiloto'
 
 const queryClient = new QueryClient()
 
@@ -28,6 +29,7 @@ const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
 const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
 const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
+const OrganizacoesManagement = lazy(() => import('@/pages/admin/OrganizacoesManagement'))
 
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
@@ -109,27 +111,28 @@ function App() {
                       <Route index element={<DashboardHome />} />
                       <Route path="activities" element={<Activities />} />
                       <Route path="planning" element={<SCurve />} />
-                      <Route path="gantt" element={<GanttChart />} />
+                      <Route path="gantt" element={<RequireOrganizacaoPiloto><GanttChart /></RequireOrganizacaoPiloto>} />
                       <Route path="resources" element={<ResourceHistogram />} />
-                      <Route path="daily" element={<DailyProgramming />} />
+                      <Route path="daily" element={<RequireOrganizacaoPiloto><DailyProgramming /></RequireOrganizacaoPiloto>} />
                       <Route path="occurrences" element={<Occurrences />} />
                       <Route path="labor" element={<LaborTracking />} />
-                      <Route path="people" element={<ApontamentoDashboard />} />
-                      <Route path="people/lancamento" element={<ApontamentoLancamento />} />
-                      <Route path="people/validacao" element={<ApontamentoValidacao />} />
-                      <Route path="people/consulta" element={<ApontamentoConsulta />} />
-                      <Route path="people/resumo" element={<ApontamentoDashboard />} />
-                      <Route path="people/evolucao" element={<ApontamentoEvolucao />} />
-                      <Route path="people/exportar" element={<ApontamentoExportar />} />
-                      <Route path="people/cadastro" element={<ApontamentoCadastro />} />
-                      <Route path="people/eap" element={<ApontamentoEap />} />
-                      <Route path="people/cronograma" element={<ApontamentoEapCronograma />} />
-                      <Route path="people/importar-xml" element={<ApontamentoImportarXml />} />
-                      <Route path="people/importar-eap" element={<ApontamentoImportarEap />} />
-                      <Route path="mapa-chuvas" element={<MapaChuvas />} />
-                      <Route path="security/rdr" element={<RdrDashboard />} />
-                      <Route path="security/rdr/registros" element={<RdrRegistros />} />
+                      <Route path="people" element={<RequireOrganizacaoPiloto><ApontamentoDashboard /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/lancamento" element={<RequireOrganizacaoPiloto><ApontamentoLancamento /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/validacao" element={<RequireOrganizacaoPiloto><ApontamentoValidacao /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/consulta" element={<RequireOrganizacaoPiloto><ApontamentoConsulta /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/resumo" element={<RequireOrganizacaoPiloto><ApontamentoDashboard /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/evolucao" element={<RequireOrganizacaoPiloto><ApontamentoEvolucao /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/exportar" element={<RequireOrganizacaoPiloto><ApontamentoExportar /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/cadastro" element={<RequireOrganizacaoPiloto><ApontamentoCadastro /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/eap" element={<RequireOrganizacaoPiloto><ApontamentoEap /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/cronograma" element={<RequireOrganizacaoPiloto><ApontamentoEapCronograma /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/importar-xml" element={<RequireOrganizacaoPiloto><ApontamentoImportarXml /></RequireOrganizacaoPiloto>} />
+                      <Route path="people/importar-eap" element={<RequireOrganizacaoPiloto><ApontamentoImportarEap /></RequireOrganizacaoPiloto>} />
+                      <Route path="mapa-chuvas" element={<RequireOrganizacaoPiloto><MapaChuvas /></RequireOrganizacaoPiloto>} />
+                      <Route path="security/rdr" element={<RequireOrganizacaoPiloto><RdrDashboard /></RequireOrganizacaoPiloto>} />
+                      <Route path="security/rdr/registros" element={<RequireOrganizacaoPiloto><RdrRegistros /></RequireOrganizacaoPiloto>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
+                      <Route path="admin/organizacoes" element={<OrganizacoesManagement />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/projects" replace />} />

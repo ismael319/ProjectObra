@@ -31,7 +31,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/aguardando-aprovacao" replace />
   }
 
-  if (userProfile.papel === 'campo' && location.pathname !== CAMPO_HOME) {
+  // O papel "campo" só existe na tela de lançamento, que ainda não é
+  // isolada por empresa (ver RequireOrganizacaoPiloto) — então essa regra
+  // só vale pra empresa piloto, senão vira loop de redirecionamento.
+  if (userProfile.papel === 'campo' && userProfile.organizacao_piloto && location.pathname !== CAMPO_HOME) {
     return <Navigate to={CAMPO_HOME} replace />
   }
 

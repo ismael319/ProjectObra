@@ -8,6 +8,9 @@ export type StatusSolicitacao = 'pendente' | 'aprovado' | 'rejeitado'
 interface UserProfile {
   papel: PapelUsuario | null
   status_solicitacao: StatusSolicitacao
+  organizacao_id: string | null
+  is_super_admin: boolean
+  organizacao_piloto: boolean
 }
 
 interface AuthContextType {
@@ -49,10 +52,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLoadingProfile(true)
     const { data } = await supabase
       .from('user_profiles')
-      .select('papel, status_solicitacao')
+      .select('papel, status_solicitacao, organizacao_id, is_super_admin, organizacoes(is_piloto)')
       .eq('id', userId)
       .single()
-    setUserProfile((data as UserProfile | null) ?? null)
+
+    if (data) {
+      const organizacaoEmbutida = Array.isArray(data.organizacoes) ? data.organizacoes[0] : data.organizacoes
+      setUserProfile({
+        papel: data.papel,
+        status_solicitacao: data.status_solicitacao,
+        organizacao_id: data.organizacao_id,
+        is_super_admin: data.is_super_admin,
+        organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
+      })
+    } else {
+      setUserProfile(null)
+    }
     setIsLoadingProfile(false)
   }
 
