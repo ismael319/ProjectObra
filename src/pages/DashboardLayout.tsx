@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown } from 'lucide-react'
+import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
@@ -11,9 +11,11 @@ export default function DashboardLayout() {
   const { isDark, toggle, brandColor } = useTheme()
   const { currentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
-  const { user, signOut } = useAuth()
+  const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
+  const isCampo = userProfile?.papel === 'campo'
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
@@ -22,6 +24,10 @@ export default function DashboardLayout() {
     : 'U'
 
   useEffect(() => {
+    // Apontadores (papel "campo") não navegam pela seleção de projetos/cronogramas —
+    // vão direto para a tela de lançamento, que não depende disso.
+    if (isCampo) return
+
     if (!currentProject) {
       navigate('/projects')
       return
@@ -46,7 +52,7 @@ export default function DashboardLayout() {
     } else {
       setMultipleProjects(dadosAtivos)
     }
-  }, [currentProject])
+  }, [currentProject, isCampo])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -60,10 +66,10 @@ export default function DashboardLayout() {
     }
   }, [userMenuOpen])
 
-  if (!currentProject) return null
+  if (!isCampo && !currentProject) return null
 
-  const activeCount = (currentProject.cronogramas || []).filter((c) => c.ativo).length
-  const totalCount = (currentProject.cronogramas || []).length
+  const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
+  const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
@@ -71,6 +77,13 @@ export default function DashboardLayout() {
       <header className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] px-4 sm:px-6 z-40">
         <div className="flex items-center justify-between h-full">
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+            <button
+              onClick={() => setMobileMenuOpen(true)}
+              className="lg:hidden p-2 -ml-2 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
+              aria-label="Abrir menu"
+            >
+              <Menu size={20} />
+            </button>
             <div
               className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg text-sm font-extrabold text-white shrink-0"
               style={{ backgroundColor: brandColor }}
@@ -78,17 +91,23 @@ export default function DashboardLayout() {
               PE
             </div>
             <div className="hidden sm:block h-6 w-px bg-white/10" />
-            <button
-              onClick={() => navigate('/projects')}
-              className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
-            >
-              <FolderOpen size={18} />
-              <span className="hidden md:inline">Meus Projetos</span>
-            </button>
-            <div className="h-6 w-px bg-white/10 shrink-0" />
+            {!isCampo && (
+              <>
+                <button
+                  onClick={() => navigate('/projects')}
+                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
+                >
+                  <FolderOpen size={18} />
+                  <span className="hidden md:inline">Meus Projetos</span>
+                </button>
+                <div className="h-6 w-px bg-white/10 shrink-0" />
+              </>
+            )}
             <div className="min-w-0">
-              <h1 className="text-base font-bold text-white truncate">{currentProject.nome}</h1>
-              {totalCount > 1 && (
+              <h1 className="text-base font-bold text-white truncate">
+                {isCampo ? 'Lançamento de Efetivo' : currentProject?.nome}
+              </h1>
+              {!isCampo && totalCount > 1 && (
                 <span className="inline-block text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-full">
                   {activeCount}/{totalCount} cronogramas
                 </span>
@@ -122,13 +141,15 @@ export default function DashboardLayout() {
                     <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.email}</p>
                   </div>
                   <div className="py-1">
-                    <button
-                      onClick={() => { navigate('/profile'); setUserMenuOpen(false) }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <User size={16} />
-                      Meu Perfil
-                    </button>
+                    {!isCampo && (
+                      <button
+                        onClick={() => { navigate('/profile'); setUserMenuOpen(false) }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                      >
+                        <User size={16} />
+                        Meu Perfil
+                      </button>
+                    )}
                     <button
                       onClick={toggle}
                       className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
@@ -154,7 +175,13 @@ export default function DashboardLayout() {
       </header>
 
       {/* Sidebar abaixo do header */}
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={mobileMenuOpen}
+        onMobileClose={() => setMobileMenuOpen(false)}
+        papel={userProfile?.papel}
+      />
 
       {/* Conteúdo principal */}
       <main className={`pt-16 transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>

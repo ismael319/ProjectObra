@@ -12,7 +12,12 @@ export default function Dashboard() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Sidebar collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed(!sidebarCollapsed)} />
+      <Sidebar
+        collapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        mobileOpen={false}
+        onMobileClose={() => {}}
+      />
 
       {/* Main content */}
       <main className="lg:ml-64 pt-16 lg:pt-0">

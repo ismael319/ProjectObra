@@ -216,10 +216,12 @@ CREATE POLICY "Delete atividades" ON public.atividades
   USING (public.user_papel() = 'admin');
 
 -- ---------- apontamentos_diarios ----------
+-- "campo" (apontador de campo) também lê para ver os lançamentos já feitos no
+-- dia antes de adicionar um novo, evitando duplicidade.
 DROP POLICY IF EXISTS "Leitura apontamentos" ON public.apontamentos_diarios;
 CREATE POLICY "Leitura apontamentos" ON public.apontamentos_diarios
   FOR SELECT TO authenticated
-  USING (public.user_papel() IN ('admin','gestor','engenheiro'));
+  USING (public.user_papel() IN ('admin','gestor','engenheiro','campo'));
 
 DROP POLICY IF EXISTS "Insert apontamentos" ON public.apontamentos_diarios;
 CREATE POLICY "Insert apontamentos" ON public.apontamentos_diarios

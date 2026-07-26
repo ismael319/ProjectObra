@@ -10,6 +10,7 @@ import {
   FolderTree, FileSpreadsheet, CloudRain,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
+import type { PapelUsuario } from '@/lib/auth-context'
 
 interface NavItem {
   icon: React.ElementType
@@ -18,7 +19,7 @@ interface NavItem {
   children?: NavItem[]
 }
 
-const navSections: { title: string; items: NavItem[] }[] = [
+const navSectionsBase: { title: string; items: NavItem[] }[] = [
   {
     title: 'Engenharia',
     items: [
@@ -60,6 +61,16 @@ const navSections: { title: string; items: NavItem[] }[] = [
   },
 ]
 
+// Apontadores (papel "campo") só enxergam o lançamento de efetivo.
+const navSectionsCampo: { title: string; items: NavItem[] }[] = [
+  {
+    title: 'Distribuição Efetivo',
+    items: [
+      { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
+    ],
+  },
+]
+
 function hexToHSL(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255
   const g = parseInt(hex.slice(3, 5), 16) / 255
@@ -95,12 +106,16 @@ function shadeColor(hex: string, percent: number): string {
 interface SidebarProps {
   collapsed: boolean
   onToggle: () => void
+  mobileOpen: boolean
+  onMobileClose: () => void
+  papel?: PapelUsuario
 }
 
-export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
-  const [isOpen, setIsOpen] = useState(false)
+export default function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose, papel }: SidebarProps) {
+  const isCampo = papel === 'campo'
+  const navSections = isCampo ? navSectionsCampo : navSectionsBase
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['Visão Geral', 'Engenharia'])
+    new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const location = useLocation()
@@ -144,35 +159,39 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
   return (
     <>
-      {isOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px] z-40 lg:hidden" onClick={() => setIsOpen(false)} />
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px] z-40 lg:hidden" onClick={() => onMobileClose()} />
       )}
 
       <aside
-        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 overflow-y-auto border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64'} ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 overflow-y-auto border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
         style={{ backgroundColor: sidebarBg }}
       >
         <nav className={`${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
-          <Link
-            to="/dashboard"
-            onClick={() => setIsOpen(false)}
-            className={`flex items-center gap-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${
-              collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-            } ${
-              isActive('/dashboard')
-                ? 'text-white'
-                : 'text-white/80 hover:text-white'
-            }`}
-            style={activeStyle('/dashboard')}
-            onMouseEnter={(e) => { if (!isActive('/dashboard')) e.currentTarget.style.backgroundColor = sidebarHover }}
-            onMouseLeave={(e) => { if (!isActive('/dashboard')) e.currentTarget.style.backgroundColor = 'transparent' }}
-            title="Visão Geral"
-          >
-            <LayoutDashboard size={18} />
-            {!collapsed && <span>Visão Geral</span>}
-          </Link>
+          {!isCampo && (
+            <>
+              <Link
+                to="/dashboard"
+                onClick={() => onMobileClose()}
+                className={`flex items-center gap-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${
+                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+                } ${
+                  isActive('/dashboard')
+                    ? 'text-white'
+                    : 'text-white/80 hover:text-white'
+                }`}
+                style={activeStyle('/dashboard')}
+                onMouseEnter={(e) => { if (!isActive('/dashboard')) e.currentTarget.style.backgroundColor = sidebarHover }}
+                onMouseLeave={(e) => { if (!isActive('/dashboard')) e.currentTarget.style.backgroundColor = 'transparent' }}
+                title="Visão Geral"
+              >
+                <LayoutDashboard size={18} />
+                {!collapsed && <span>Visão Geral</span>}
+              </Link>
 
-          {!collapsed && <div className="h-px" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
+              {!collapsed && <div className="h-px" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
+            </>
+          )}
 
           {navSections.map((section) => (
             <div key={section.title}>
@@ -224,7 +243,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                                 <Link
                                   key={child.path}
                                   to={child.path}
-                                  onClick={() => setIsOpen(false)}
+                                  onClick={() => onMobileClose()}
                                   className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors duration-150 ${
                                     isItemActive(child.path)
                                       ? 'text-white font-semibold'
@@ -248,7 +267,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       <Link
                         key={item.path}
                         to={item.path}
-                        onClick={() => setIsOpen(false)}
+                        onClick={() => onMobileClose()}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-md text-sm transition-colors duration-150 ${
                           isActive(item.path)
                             ? 'text-white font-semibold'
@@ -274,7 +293,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                         <div key={item.path} className="relative group">
                           <Link
                             to={item.path}
-                            onClick={() => setIsOpen(false)}
+                            onClick={() => onMobileClose()}
                             title={item.label}
                             className={`flex items-center justify-center px-2 py-2.5 rounded-md text-sm transition-colors duration-150 ${
                               isItemOrChildActive(item)
@@ -293,7 +312,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                                 <Link
                                   key={child.path}
                                   to={child.path}
-                                  onClick={() => setIsOpen(false)}
+                                  onClick={() => onMobileClose()}
                                   className={`flex items-center gap-2 px-3 py-1.5 text-sm ${
                                     isItemActive(child.path)
                                       ? 'text-white font-semibold'
@@ -314,7 +333,7 @@ export default function Sidebar({ collapsed, onToggle }: SidebarProps) {
                       <Link
                         key={item.path}
                         to={item.path}
-                        onClick={() => setIsOpen(false)}
+                        onClick={() => onMobileClose()}
                         title={item.label}
                         className={`flex items-center justify-center px-2 py-2.5 rounded-md text-sm transition-colors duration-150 ${
                           isActive(item.path)
