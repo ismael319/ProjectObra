@@ -212,6 +212,19 @@ function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
 // Todas rodam "em segundo plano" (fire-and-forget): o estado local já foi
 // atualizado antes de chamá-las, então a tela nunca fica esperando a rede.
 
+// Erros do PostgREST (Supabase) não são instâncias de Error — são objetos
+// { message, details, hint, code }. Extrai algo legível pra mostrar direto
+// no toast, sem depender do usuário abrir o DevTools pra ver a causa real.
+function mensagemDeErro(error: unknown): string {
+  if (error instanceof Error) return error.message
+  if (error && typeof error === 'object') {
+    const e = error as { message?: string; details?: string; hint?: string; code?: string }
+    const partes = [e.message, e.details, e.hint].filter(Boolean)
+    if (partes.length > 0) return `${partes.join(' — ')}${e.code ? ` (${e.code})` : ''}`
+  }
+  return String(error)
+}
+
 async function loadProjectsRemote(): Promise<Project[]> {
   const { data, error } = await supabase
     .from('projetos')
@@ -238,7 +251,7 @@ async function insertProjectRemote(project: Project, organizacaoId: string, user
     if (error) throw error
   } catch (error) {
     console.error('Falha ao criar projeto no Supabase.', error)
-    toast.error('Não foi possível salvar o projeto na nuvem.')
+    toast.error('Não foi possível salvar o projeto na nuvem.', { description: mensagemDeErro(error), duration: 20000 })
   }
 }
 
@@ -248,7 +261,7 @@ async function updateProjectRemote(project: Project) {
     if (error) throw error
   } catch (error) {
     console.error('Falha ao atualizar projeto no Supabase.', error)
-    toast.error('Não foi possível salvar as alterações do projeto.')
+    toast.error('Não foi possível salvar as alterações do projeto.', { description: mensagemDeErro(error), duration: 20000 })
   }
 }
 
@@ -258,7 +271,7 @@ async function deleteProjectRemote(id: string) {
     if (error) throw error
   } catch (error) {
     console.error('Falha ao remover projeto no Supabase.', error)
-    toast.error('Não foi possível remover o projeto.')
+    toast.error('Não foi possível remover o projeto.', { description: mensagemDeErro(error), duration: 20000 })
   }
 }
 
@@ -283,7 +296,10 @@ async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaI
     if (erroDelete) throw erroDelete
   } catch (error) {
     console.error('Falha ao salvar cronogramas no Supabase.', error)
-    toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a tela mostra a versão local, mas ela pode se perder ao recarregar.')
+    toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a versão local pode se perder ao recarregar.', {
+      description: mensagemDeErro(error),
+      duration: 20000,
+    })
   }
 }
 
