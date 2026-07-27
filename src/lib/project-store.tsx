@@ -227,52 +227,64 @@ async function loadProjectsRemote(): Promise<Project[]> {
 }
 
 async function insertProjectRemote(project: Project, organizacaoId: string, userId?: string) {
-  const { error } = await supabase.from('projetos').insert({
-    id: project.id,
-    organizacao_id: organizacaoId,
-    criado_por: userId,
-    criado_em: project.criadoEm,
-    ...projectToRow(project),
-  })
-  if (error) {
+  try {
+    const { error } = await supabase.from('projetos').insert({
+      id: project.id,
+      organizacao_id: organizacaoId,
+      criado_por: userId,
+      criado_em: project.criadoEm,
+      ...projectToRow(project),
+    })
+    if (error) throw error
+  } catch (error) {
     console.error('Falha ao criar projeto no Supabase.', error)
     toast.error('Não foi possível salvar o projeto na nuvem.')
   }
 }
 
 async function updateProjectRemote(project: Project) {
-  const { error } = await supabase.from('projetos').update(projectToRow(project)).eq('id', project.id)
-  if (error) {
+  try {
+    const { error } = await supabase.from('projetos').update(projectToRow(project)).eq('id', project.id)
+    if (error) throw error
+  } catch (error) {
     console.error('Falha ao atualizar projeto no Supabase.', error)
     toast.error('Não foi possível salvar as alterações do projeto.')
   }
 }
 
 async function deleteProjectRemote(id: string) {
-  const { error } = await supabase.from('projetos').delete().eq('id', id)
-  if (error) {
+  try {
+    const { error } = await supabase.from('projetos').delete().eq('id', id)
+    if (error) throw error
+  } catch (error) {
     console.error('Falha ao remover projeto no Supabase.', error)
     toast.error('Não foi possível remover o projeto.')
   }
 }
 
+// Envolve tudo em try/catch de propósito: erros de rede (timeout, payload
+// grande demais, conexão caindo) lançam exceção em vez de retornar
+// `{ error }` estruturado — sem isso, essas falhas ficavam silenciosas
+// (promise rejeitada sem handler) e o cronograma "sumia" sem nenhum aviso.
 async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaInfo[]) {
-  if (cronogramas.length > 0) {
-    const { error } = await supabase
-      .from('projeto_cronogramas')
-      .upsert(cronogramas.map((c) => cronogramaToRow(projetoId, c)))
-    if (error) {
-      console.error('Falha ao salvar cronogramas no Supabase.', error)
-      toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a tela mostra a versão local, mas ela pode se perder ao recarregar.')
+  try {
+    if (cronogramas.length > 0) {
+      const { error } = await supabase
+        .from('projeto_cronogramas')
+        .upsert(cronogramas.map((c) => cronogramaToRow(projetoId, c)))
+      if (error) throw error
     }
-  }
 
-  const idsAtuais = cronogramas.map((c) => c.id)
-  const deleteQuery = supabase.from('projeto_cronogramas').delete().eq('projeto_id', projetoId)
-  const { error: erroDelete } = idsAtuais.length > 0
-    ? await deleteQuery.not('id', 'in', `(${idsAtuais.join(',')})`)
-    : await deleteQuery
-  if (erroDelete) console.error('Falha ao remover cronogramas antigos no Supabase.', erroDelete)
+    const idsAtuais = cronogramas.map((c) => c.id)
+    const deleteQuery = supabase.from('projeto_cronogramas').delete().eq('projeto_id', projetoId)
+    const { error: erroDelete } = idsAtuais.length > 0
+      ? await deleteQuery.not('id', 'in', `(${idsAtuais.join(',')})`)
+      : await deleteQuery
+    if (erroDelete) throw erroDelete
+  } catch (error) {
+    console.error('Falha ao salvar cronogramas no Supabase.', error)
+    toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a tela mostra a versão local, mas ela pode se perder ao recarregar.')
+  }
 }
 
 // Salva o projeto inteiro (dados do projeto + cronogramas) depois de qualquer
