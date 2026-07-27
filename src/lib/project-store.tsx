@@ -279,15 +279,24 @@ async function deleteProjectRemote(id: string) {
 // grande demais, conexão caindo) lançam exceção em vez de retornar
 // `{ error }` estruturado — sem isso, essas falhas ficavam silenciosas
 // (promise rejeitada sem handler) e o cronograma "sumia" sem nenhum aviso.
+//
+// Cada cronograma vai em uma requisição própria (não um upsert em lote de
+// todos de uma vez): um cronograma grande demais estourando algum limite do
+// gateway do Supabase não pode derrubar o salvamento dos outros junto.
 async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaInfo[]) {
-  try {
-    if (cronogramas.length > 0) {
-      const { error } = await supabase
-        .from('projeto_cronogramas')
-        .upsert(cronogramas.map((c) => cronogramaToRow(projetoId, c)))
-      if (error) throw error
-    }
+  const falhas: string[] = []
 
+  for (const c of cronogramas) {
+    try {
+      const { error } = await supabase.from('projeto_cronogramas').upsert(cronogramaToRow(projetoId, c))
+      if (error) throw error
+    } catch (error) {
+      console.error(`Falha ao salvar o cronograma "${c.nome}" no Supabase.`, error)
+      falhas.push(`"${c.nome}": ${mensagemDeErro(error)}`)
+    }
+  }
+
+  try {
     const idsAtuais = cronogramas.map((c) => c.id)
     const deleteQuery = supabase.from('projeto_cronogramas').delete().eq('projeto_id', projetoId)
     const { error: erroDelete } = idsAtuais.length > 0
@@ -295,10 +304,14 @@ async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaI
       : await deleteQuery
     if (erroDelete) throw erroDelete
   } catch (error) {
-    console.error('Falha ao salvar cronogramas no Supabase.', error)
-    toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a versão local pode se perder ao recarregar.', {
-      description: mensagemDeErro(error),
-      duration: 20000,
+    console.error('Falha ao remover cronogramas antigos no Supabase.', error)
+    falhas.push(`limpeza de cronogramas antigos: ${mensagemDeErro(error)}`)
+  }
+
+  if (falhas.length > 0) {
+    toast.error('Não foi possível salvar 1 ou mais cronogramas na nuvem — a versão local pode se perder ao recarregar.', {
+      description: falhas.join('\n'),
+      duration: 30000,
     })
   }
 }
