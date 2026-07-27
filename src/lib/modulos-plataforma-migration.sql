@@ -83,8 +83,8 @@ DECLARE
   tabela text;
 BEGIN
   FOREACH tabela IN ARRAY ARRAY[
-    'scenarios','equipes','atividades','paradas',
-    'empresas','liderancas','setores','areas','subareas',
+    'scenarios','equipes','gantt_atividades','paradas',
+    'empresas','liderancas','setores','areas','subareas','atividades',
     'apontamentos_diarios','dias_trabalho','eap_modelos',
     'activities','app_settings','mapa_chuvas'
   ]

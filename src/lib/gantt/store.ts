@@ -72,7 +72,7 @@ export const useGanttStore = create<State>((set, get) => ({
       const [scnRes, eqRes, atvRes, prdRes] = await Promise.all([
         supabase.from('scenarios').select('*').order('created_at'),
         supabase.from('equipes').select('*'),
-        supabase.from('atividades').select('*').order('ordem'),
+        supabase.from('gantt_atividades').select('*').order('ordem'),
         supabase.from('paradas').select('*'),
       ]);
       // Erro de permissão numa tabela não deve travar as outras — reporta e segue
@@ -192,7 +192,7 @@ export const useGanttStore = create<State>((set, get) => ({
     const id = genId('atv');
     const ordem = get().atividades.filter((a) => a.scenario_id === sid && (a.parent_id ?? null) === parentId).length;
     const predecessoras: Dependencia[] = [];
-    const { error } = await supabase.from('atividades').insert({
+    const { error } = await supabase.from('gantt_atividades').insert({
       id,
       scenario_id: sid,
       nome,
@@ -236,7 +236,7 @@ export const useGanttStore = create<State>((set, get) => ({
       siblingCount.set(realParentId, ordem + 1);
       const predecessoras: Dependencia[] = [];
       const percentualConcluido = item.percentualConcluido ?? 0;
-      const { error } = await supabase.from('atividades').insert({
+      const { error } = await supabase.from('gantt_atividades').insert({
         id,
         scenario_id: sid,
         nome: item.nome,
@@ -264,7 +264,7 @@ export const useGanttStore = create<State>((set, get) => ({
   },
 
   updateAtividade: async (id, patch) => {
-    const { error } = await supabase.from('atividades').update(patch).eq('id', id);
+    const { error } = await supabase.from('gantt_atividades').update(patch).eq('id', id);
     if (reportError('atualizar atividade', error)) return;
     set((s) => ({
       atividades: s.atividades.map((a) => (a.id === id ? { ...a, ...patch } : a)),
@@ -272,7 +272,7 @@ export const useGanttStore = create<State>((set, get) => ({
   },
 
   deleteAtividade: async (id) => {
-    const { error } = await supabase.from('atividades').delete().eq('id', id);
+    const { error } = await supabase.from('gantt_atividades').delete().eq('id', id);
     if (reportError('excluir atividade', error)) return;
     set((s) => {
       // O FK de parent_id tem ON DELETE CASCADE — o banco já apagou os
