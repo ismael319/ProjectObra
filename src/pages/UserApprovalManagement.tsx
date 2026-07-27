@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X, Send, Trash2 } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2, Pencil, Save } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
@@ -50,6 +50,9 @@ export default function UserApprovalManagement() {
   const [isLoading, setIsLoading] = useState(true)
   const [selectedPapel, setSelectedPapel] = useState<Record<string, PapelUsuario>>({})
   const [processingId, setProcessingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editPapel, setEditPapel] = useState<PapelUsuario>('gestor')
+  const [editStatus, setEditStatus] = useState<'aprovado' | 'rejeitado'>('aprovado')
 
   const [convites, setConvites] = useState<ConviteRow[]>([])
   const [isLoadingConvites, setIsLoadingConvites] = useState(true)
@@ -162,6 +165,39 @@ export default function UserApprovalManagement() {
     } else {
       toast.success(`Solicitação de ${row.email ?? 'usuário'} rejeitada`)
       setRows((prev) => prev.filter((r) => r.id !== row.id))
+    }
+    setProcessingId(null)
+  }
+
+  const startEdit = (row: SolicitacaoRow) => {
+    setEditingId(row.id)
+    setEditPapel(row.papel ?? papeisDisponiveis[0])
+    setEditStatus(row.status_solicitacao === 'rejeitado' ? 'rejeitado' : 'aprovado')
+  }
+
+  const cancelEdit = () => setEditingId(null)
+
+  const handleSalvarEdicao = async (row: SolicitacaoRow) => {
+    setProcessingId(row.id)
+    // A constraint do banco exige papel=NULL quando não está aprovado — ao
+    // revogar o acesso (rejeitado), o papel some junto.
+    const patch: { status_solicitacao: 'aprovado' | 'rejeitado'; papel: PapelUsuario | null } =
+      editStatus === 'aprovado' ? { status_solicitacao: 'aprovado', papel: editPapel } : { status_solicitacao: 'rejeitado', papel: null }
+
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .update(patch)
+      .eq('id', row.id)
+      .select('id')
+
+    if (error) {
+      toast.error(`Não foi possível salvar: ${error.message}`)
+    } else if (!data || data.length === 0) {
+      toast.error('Não foi possível salvar — sem permissão ou o registro mudou.')
+    } else {
+      toast.success(`${row.email ?? 'Usuário'} atualizado`)
+      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)))
+      setEditingId(null)
     }
     setProcessingId(null)
   }
@@ -286,8 +322,8 @@ export default function UserApprovalManagement() {
               <TableHead>Email</TableHead>
               <TableHead>Solicitado em</TableHead>
               <TableHead>Status</TableHead>
-              {tab === 'pendentes' && <TableHead>Papel</TableHead>}
-              {tab === 'pendentes' && <TableHead className="text-right">Ações</TableHead>}
+              <TableHead>Papel</TableHead>
+              <TableHead className="text-right">Ações</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -305,59 +341,102 @@ export default function UserApprovalManagement() {
                 </TableCell>
               </TableRow>
             )}
-            {rows.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell className="font-medium">{row.email ?? '—'}</TableCell>
-                <TableCell>{new Date(row.criado_em).toLocaleString('pt-BR')}</TableCell>
-                <TableCell>
-                  {tab === 'pendentes' ? statusBadge(row.status_solicitacao) : (
-                    <div className="flex items-center gap-2">
-                      {statusBadge(row.status_solicitacao)}
-                      {row.papel && <span className="text-xs text-gray-500">{PAPEL_LABELS[row.papel]}</span>}
-                    </div>
-                  )}
-                </TableCell>
-                {tab === 'pendentes' && (
+            {rows.map((row) => {
+              const isEditing = tab === 'historico' && editingId === row.id
+              const isSelf = row.id === user?.id
+              return (
+                <TableRow key={row.id}>
+                  <TableCell className="font-medium">{row.email ?? '—'}</TableCell>
+                  <TableCell>{new Date(row.criado_em).toLocaleString('pt-BR')}</TableCell>
                   <TableCell>
-                    <select
-                      value={selectedPapel[row.id] ?? papeisDisponiveis[0]}
-                      onChange={(e) =>
-                        setSelectedPapel((prev) => ({ ...prev, [row.id]: e.target.value as PapelUsuario }))
-                      }
-                      className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
-                    >
-                      {papeisDisponiveis.map((papel) => (
-                        <option key={papel} value={papel}>
-                          {PAPEL_LABELS[papel]}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                )}
-                {tab === 'pendentes' && (
-                  <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Button
-                        size="sm"
-                        variant="default"
-                        disabled={processingId === row.id}
-                        onClick={() => handleAprovar(row)}
+                    {isEditing ? (
+                      <select
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value as 'aprovado' | 'rejeitado')}
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
                       >
-                        <Check size={14} /> Aprovar
-                      </Button>
+                        <option value="aprovado">Aprovado</option>
+                        <option value="rejeitado">Rejeitado (revoga acesso)</option>
+                      </select>
+                    ) : (
+                      statusBadge(row.status_solicitacao)
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    {tab === 'pendentes' ? (
+                      <select
+                        value={selectedPapel[row.id] ?? papeisDisponiveis[0]}
+                        onChange={(e) =>
+                          setSelectedPapel((prev) => ({ ...prev, [row.id]: e.target.value as PapelUsuario }))
+                        }
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
+                      >
+                        {papeisDisponiveis.map((papel) => (
+                          <option key={papel} value={papel}>
+                            {PAPEL_LABELS[papel]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : isEditing && editStatus === 'aprovado' ? (
+                      <select
+                        value={editPapel}
+                        onChange={(e) => setEditPapel(e.target.value as PapelUsuario)}
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
+                      >
+                        {papeisDisponiveis.map((papel) => (
+                          <option key={papel} value={papel}>
+                            {PAPEL_LABELS[papel]}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      row.papel && <span className="text-xs text-gray-500">{PAPEL_LABELS[row.papel]}</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {tab === 'pendentes' ? (
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="default"
+                          disabled={processingId === row.id}
+                          onClick={() => handleAprovar(row)}
+                        >
+                          <Check size={14} /> Aprovar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={processingId === row.id}
+                          onClick={() => handleRejeitar(row)}
+                        >
+                          <X size={14} /> Rejeitar
+                        </Button>
+                      </div>
+                    ) : isEditing ? (
+                      <div className="flex justify-end gap-2">
+                        <Button size="sm" variant="default" disabled={processingId === row.id} onClick={() => handleSalvarEdicao(row)}>
+                          <Save size={14} /> Salvar
+                        </Button>
+                        <Button size="sm" variant="outline" disabled={processingId === row.id} onClick={cancelEdit}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    ) : (
                       <Button
                         size="sm"
                         variant="outline"
-                        disabled={processingId === row.id}
-                        onClick={() => handleRejeitar(row)}
+                        disabled={isSelf}
+                        title={isSelf ? 'Não é permitido editar a própria solicitação' : undefined}
+                        onClick={() => startEdit(row)}
                       >
-                        <X size={14} /> Rejeitar
+                        <Pencil size={14} /> Editar
                       </Button>
-                    </div>
+                    )}
                   </TableCell>
-                )}
-              </TableRow>
-            ))}
+                </TableRow>
+              )
+            })}
           </TableBody>
         </Table>
       </div>
