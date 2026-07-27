@@ -146,7 +146,7 @@ export default function CronogramaManager() {
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Cronogramas</h3>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               {activeCount} ativo{activeCount !== 1 ? 's' : ''} de {cronogramas.length}
-              {totalPeso > 0 && ` · Peso total: ${totalPeso.toFixed(1)}`}
+              {totalPeso > 0 && ` · Peso total: ${totalPeso.toFixed(2)}`}
             </p>
           </div>
         </div>
@@ -282,7 +282,7 @@ export default function CronogramaManager() {
                       <input
                         type="number"
                         min={0.01}
-                        step={0.1}
+                        step={0.01}
                         value={weightValue}
                         onChange={(e) => setWeightValue(e.target.value)}
                         onBlur={() => saveWeight(c.id)}
@@ -300,7 +300,7 @@ export default function CronogramaManager() {
                         }`}
                         title={pendingChanges[c.id]?.peso !== undefined ? 'Peso alterado (não salvo)' : 'Editar peso'}
                       >
-                        {c.peso.toFixed(1)}
+                        {c.peso.toFixed(2)}
                       </button>
                     )}
 
@@ -388,7 +388,7 @@ export default function CronogramaManager() {
       {cronogramas.length > 0 && (
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Soma dos pesos (cronogramas ativos)</span>
-          <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{totalPeso.toFixed(1)}</span>
+          <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{totalPeso.toFixed(2)}</span>
         </div>
       )}
 
