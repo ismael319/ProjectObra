@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  UserCog, Building2,
+  UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -113,19 +113,17 @@ interface SidebarProps {
   onMobileClose: () => void
   papel?: PapelUsuario
   modulos?: string[]
-  isSuperAdmin?: boolean
 }
 
 export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
-  modulos = [], isSuperAdmin = false,
+  modulos = [],
 }: SidebarProps) {
   const isCampo = papel === 'campo'
   const podeGerenciarUsuarios = papel === 'admin' || papel === 'gestor'
 
   const adminItems: NavItem[] = []
   if (podeGerenciarUsuarios) adminItems.push({ icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' })
-  if (isSuperAdmin) adminItems.push({ icon: Building2, label: 'Empresas Clientes', path: '/dashboard/admin/organizacoes' })
 
   const navSections = isCampo
     ? navSectionsCampo

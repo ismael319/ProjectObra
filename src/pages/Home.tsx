@@ -49,7 +49,7 @@ export default function Home() {
           </button>
 
           <button
-            onClick={() => navigate('/dashboard/admin/organizacoes')}
+            onClick={() => navigate('/admin')}
             className="group text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition"
           >
             <div className="w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center mb-4">

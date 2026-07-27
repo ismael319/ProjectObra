@@ -6,7 +6,7 @@ import { z } from 'zod'
 import {
   Plus, Search, FolderOpen, Calendar, User, Building2,
   MoreVertical, Edit3, Copy, Archive, Trash2, Layers,
-  Camera, X,
+  Camera, X, ArrowLeft,
 } from 'lucide-react'
 import { useProjects, type Project, type CronogramaInfo } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
@@ -25,7 +25,7 @@ type ProjectFormData = z.infer<typeof projectSchema>
 
 export default function ProjectSelection() {
   const { projects, currentProject, setCurrentProject, createProject, updateProject, deleteProject, duplicateProject, archiveProject, addCronograma } = useProjects()
-  const { user, signOut } = useAuth()
+  const { user, userProfile, signOut } = useAuth()
   const navigate = useNavigate()
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
@@ -190,6 +190,14 @@ export default function ProjectSelection() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {userProfile?.is_super_admin && (
+              <button
+                onClick={() => navigate('/')}
+                className="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition"
+              >
+                <ArrowLeft size={14} /> Voltar
+              </button>
+            )}
             <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">{user?.email}</span>
             <button onClick={() => signOut()} className="text-sm text-gray-500 hover:text-red-600 transition">
               Sair

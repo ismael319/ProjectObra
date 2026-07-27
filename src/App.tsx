@@ -30,7 +30,7 @@ const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
 const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
 const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
-const OrganizacoesManagement = lazy(() => import('@/pages/admin/OrganizacoesManagement'))
+const PlatformAdmin = lazy(() => import('@/pages/admin/PlatformAdmin'))
 
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
@@ -102,6 +102,15 @@ function App() {
                     />
 
                     <Route
+                      path="/admin"
+                      element={
+                        <ProtectedRoute>
+                          <PlatformAdmin />
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    <Route
                       path="/profile"
                       element={
                         <ProtectedRoute>
@@ -142,7 +151,6 @@ function App() {
                       <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
                       <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
-                      <Route path="admin/organizacoes" element={<OrganizacoesManagement />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/projects" replace />} />

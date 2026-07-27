@@ -205,7 +205,6 @@ export default function DashboardLayout() {
         onMobileClose={() => setMobileMenuOpen(false)}
         papel={userProfile?.papel ?? undefined}
         modulos={userProfile?.modulos}
-        isSuperAdmin={userProfile?.is_super_admin}
       />
 
       {/* Conteúdo principal */}
