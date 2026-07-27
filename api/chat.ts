@@ -27,7 +27,34 @@ interface WBSActivityLike {
 
 interface CronogramaRow {
   nome: string
-  dados: { activities: WBSActivityLike[] } | null
+  dados: unknown
+}
+
+// project-store.tsx comprime "dados" com gzip antes de salvar (o timephased
+// do cronograma sozinho pode passar de limite de tamanho do Supabase) —
+// aqui do lado do servidor também precisa desfazer isso pra ler as atividades.
+const DADOS_GZIP_KEY = '__gzip'
+
+function base64ToUint8(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function decompressDados(raw: unknown): Promise<{ activities?: WBSActivityLike[] } | null> {
+  if (raw && typeof raw === 'object' && DADOS_GZIP_KEY in raw) {
+    const base64 = (raw as Record<string, unknown>)[DADOS_GZIP_KEY]
+    if (typeof base64 === 'string') {
+      const ds = new DecompressionStream('gzip')
+      const writer = ds.writable.getWriter()
+      writer.write(base64ToUint8(base64) as BufferSource)
+      writer.close()
+      const decompressed = new Uint8Array(await new Response(ds.readable).arrayBuffer())
+      return JSON.parse(new TextDecoder().decode(decompressed))
+    }
+  }
+  return raw as { activities?: WBSActivityLike[] } | null
 }
 
 function hojeISODate(): string {
@@ -62,12 +89,15 @@ async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: strin
     .eq('projeto_id', projetoId)
     .eq('ativo', true)
   if (error) throw new Error(error.message)
-  return ((data ?? []) as CronogramaRow[])
+  const grupos = await Promise.all(
+    ((data ?? []) as CronogramaRow[]).map(async (c) => ({ nome: c.nome, dados: await decompressDados(c.dados) })),
+  )
+  return grupos
     .filter((c) => c.dados?.activities)
     .map((c) => ({
       nome: c.nome,
       // Só folhas (não os itens "resumo" do WBS) — é o que representa trabalho de verdade.
-      activities: c.dados!.activities.filter((a) => a.outlineLevel > 0 && !a.isSummary),
+      activities: c.dados!.activities!.filter((a) => a.outlineLevel > 0 && !a.isSummary),
     }))
 }
 

@@ -146,7 +146,60 @@ function reviveDates(value: unknown): unknown {
   return value
 }
 
-function mapCronogramaRow(row: CronogramaRow): CronogramaInfo {
+// ============ Compressão do payload de "dados" ============
+// O maior peso de um cronograma não são as atividades, é o `timephased`
+// (distribuição de trabalho período a período de cada recurso alocado) — pra
+// um cronograma real isso facilmente passa de várias dezenas de milhares de
+// pontos. Sem compressão, o upsert desse JSON estourava algum limite de
+// tamanho/timeout do lado do Supabase e a requisição falhava sem nem voltar
+// resposta ("TypeError: Failed to fetch"). Comprime com gzip (nativo do
+// navegador) antes de enviar, e descomprime ao ler de volta.
+const DADOS_GZIP_KEY = '__gzip'
+
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize))
+  }
+  return btoa(binary)
+}
+
+function base64ToUint8(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  return bytes
+}
+
+async function compressDados(dados: ParsedProject): Promise<{ __gzip: string }> {
+  const bytes = new TextEncoder().encode(JSON.stringify(dados))
+  const cs = new CompressionStream('gzip')
+  const writer = cs.writable.getWriter()
+  writer.write(bytes)
+  writer.close()
+  const compressed = new Uint8Array(await new Response(cs.readable).arrayBuffer())
+  return { [DADOS_GZIP_KEY]: uint8ToBase64(compressed) }
+}
+
+async function decompressDados(raw: unknown): Promise<ParsedProject> {
+  if (raw && typeof raw === 'object' && DADOS_GZIP_KEY in raw) {
+    const base64 = (raw as Record<string, unknown>)[DADOS_GZIP_KEY]
+    if (typeof base64 === 'string') {
+      const ds = new DecompressionStream('gzip')
+      const writer = ds.writable.getWriter()
+      writer.write(base64ToUint8(base64) as BufferSource)
+      writer.close()
+      const decompressed = new Uint8Array(await new Response(ds.readable).arrayBuffer())
+      const parsed = JSON.parse(new TextDecoder().decode(decompressed))
+      return reviveDates(parsed) as ParsedProject
+    }
+  }
+  // Compatibilidade com linhas antigas salvas sem compressão (JSON puro).
+  return reviveDates(raw) as ParsedProject
+}
+
+async function mapCronogramaRow(row: CronogramaRow): Promise<CronogramaInfo> {
   return {
     id: row.id,
     nome: row.nome,
@@ -157,11 +210,11 @@ function mapCronogramaRow(row: CronogramaRow): CronogramaInfo {
     peso: Number(row.peso ?? 0),
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
-    dados: reviveDates(row.dados) as ParsedProject,
+    dados: await decompressDados(row.dados),
   }
 }
 
-function mapProjetoRow(row: ProjetoRow): Project {
+async function mapProjetoRow(row: ProjetoRow): Promise<Project> {
   return {
     id: row.id,
     nome: row.nome,
@@ -181,7 +234,7 @@ function mapProjetoRow(row: ProjetoRow): Project {
     observacoes: row.observacoes ?? '',
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
-    cronogramas: (row.projeto_cronogramas ?? []).map(mapCronogramaRow),
+    cronogramas: await Promise.all((row.projeto_cronogramas ?? []).map(mapCronogramaRow)),
     percentualAvanco: Number(row.percentual_avanco ?? 0),
     imagemCapa: row.imagem_capa ?? undefined,
     cronogramaPadraoId: row.cronograma_padrao_id ?? undefined,
@@ -212,7 +265,7 @@ function projectToRow(project: Project) {
   }
 }
 
-function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
+async function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
   return {
     id: c.id,
     projeto_id: projetoId,
@@ -224,7 +277,7 @@ function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
     peso: c.peso,
     cor: c.cor,
     data_upload: c.dataUpload,
-    dados: c.dados,
+    dados: await compressDados(c.dados),
   }
 }
 
@@ -256,7 +309,7 @@ async function loadProjectsRemote(): Promise<Project[]> {
     toast.error('Não foi possível carregar seus projetos.', { description: mensagemDeErro(error), duration: 20000 })
     return []
   }
-  return (data as ProjetoRow[]).map(mapProjetoRow)
+  return Promise.all((data as ProjetoRow[]).map(mapProjetoRow))
 }
 
 async function insertProjectRemote(project: Project, organizacaoId: string, userId?: string) {
@@ -308,7 +361,8 @@ async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaI
 
   for (const c of cronogramas) {
     try {
-      const { error } = await supabase.from('projeto_cronogramas').upsert(cronogramaToRow(projetoId, c))
+      const row = await cronogramaToRow(projetoId, c)
+      const { error } = await supabase.from('projeto_cronogramas').upsert(row)
       if (error) throw error
     } catch (error) {
       console.error(`Falha ao salvar o cronograma "${c.nome}" no Supabase.`, error)
