@@ -8,14 +8,28 @@ interface Props {
   open: boolean
   onClose: () => void
   onUpload: (cronograma: CronogramaInfo) => void
-  existingCount: number
+  existingColors: string[]
 }
 
 const TIPOS = ['Geral', 'Frente', 'Disciplina', 'Contratado', 'Outro'] as const
 
 type FileStage = 'idle' | 'reading' | 'parsing' | 'done'
 
-export default function CronogramaUploadModal({ open, onClose, onUpload, existingCount }: Props) {
+// Escolhe sempre uma cor que nenhum cronograma existente esteja usando — indexar
+// só pela CONTAGEM (posição) deixava repetir cor quando um cronograma do meio
+// era excluído (a contagem cai, e o próximo upload caía num índice já ocupado).
+function pickCor(existingColors: string[]): string {
+  const used = new Set(existingColors)
+  const free = CRON_COLORS_CONST.find((c) => !used.has(c))
+  if (free) return free
+  // Mais cronogramas do que cores na paleta — cicla pela cor menos repetida em
+  // vez de sempre cair na primeira.
+  const counts = new Map<string, number>(CRON_COLORS_CONST.map((c) => [c, 0]))
+  for (const c of existingColors) counts.set(c, (counts.get(c) ?? 0) + 1)
+  return [...counts.entries()].sort((a, b) => a[1] - b[1])[0][0]
+}
+
+export default function CronogramaUploadModal({ open, onClose, onUpload, existingColors }: Props) {
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [tipo, setTipo] = useState<CronogramaInfo['tipo']>('Geral')
@@ -30,7 +44,7 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
   const parsedRef = useRef<ReturnType<typeof parseMSProjectXML> | null>(null)
   const nomeInputRef = useRef<HTMLInputElement>(null)
 
-  const cor = CRON_COLORS_CONST[existingCount % CRON_COLORS_CONST.length]
+  const cor = pickCor(existingColors)
 
   // ESC para fechar
   useEffect(() => {

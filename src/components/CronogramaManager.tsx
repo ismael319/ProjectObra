@@ -396,7 +396,7 @@ export default function CronogramaManager() {
         open={showUpload}
         onClose={() => setShowUpload(false)}
         onUpload={handleUpload}
-        existingCount={cronogramas.length}
+        existingColors={cronogramas.map((c) => c.cor)}
       />
     </div>
   )
