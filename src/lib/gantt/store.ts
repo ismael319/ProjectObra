@@ -18,7 +18,19 @@ type State = {
   addEquipe: (data: { nome: string; cor: string; funcoes: FuncaoRow[]; equipamentos: EquipamentoRow[] }) => Promise<void>;
   updateEquipe: (id: string, patch: Partial<Equipe>) => Promise<void>;
   deleteEquipe: (id: string) => Promise<void>;
-  addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string) => Promise<void>;
+  addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string, parentId?: string | null) => Promise<void>;
+  // Insere várias atividades de uma vez preservando hierarquia (ex.: import do
+  // cronograma) — `items` já vem em ordem pai-antes-do-filho, referenciando o pai
+  // pelo tempId de outro item da mesma leva (ou null = raiz).
+  addAtividadesBulk: (items: {
+    tempId: string;
+    parentTempId: string | null;
+    nome: string;
+    dataInicio: string;
+    dataFim: string;
+    equipesAlocadas: string[];
+    cor: string;
+  }[]) => Promise<void>;
   updateAtividade: (id: string, patch: Partial<Atividade>) => Promise<void>;
   deleteAtividade: (id: string) => Promise<void>;
   toggleParada: (data: string) => Promise<void>;
@@ -173,11 +185,11 @@ export const useGanttStore = create<State>((set, get) => ({
     }));
   },
 
-  addAtividade: async (nome, dataInicio, dataFim, equipesAlocadas, cor) => {
+  addAtividade: async (nome, dataInicio, dataFim, equipesAlocadas, cor, parentId = null) => {
     const sid = get().activeScenarioId;
     if (!sid) return;
     const id = genId('atv');
-    const ordem = get().atividades.filter((a) => a.scenario_id === sid).length;
+    const ordem = get().atividades.filter((a) => a.scenario_id === sid && (a.parent_id ?? null) === parentId).length;
     const predecessoras: Dependencia[] = [];
     const { error } = await supabase.from('atividades').insert({
       id,
@@ -189,14 +201,61 @@ export const useGanttStore = create<State>((set, get) => ({
       cor,
       ordem,
       predecessoras,
+      parent_id: parentId,
     });
     if (reportError('criar atividade', error)) return;
     set((s) => ({
       atividades: [
         ...s.atividades,
-        { id, scenario_id: sid, nome, data_inicio: dataInicio, data_fim: dataFim, equipes_alocadas: equipesAlocadas, cor, ordem, predecessoras },
+        { id, scenario_id: sid, nome, data_inicio: dataInicio, data_fim: dataFim, equipes_alocadas: equipesAlocadas, cor, ordem, predecessoras, parent_id: parentId },
       ],
     }));
+  },
+
+  addAtividadesBulk: async (items) => {
+    const sid = get().activeScenarioId;
+    if (!sid) return;
+    const tempToRealId = new Map<string, string>();
+    const inserted: Atividade[] = [];
+    // Continua a sequência de ordem a partir de quantos irmãos já existem em
+    // cada grupo (por pai real), em vez de sempre começar do zero.
+    const siblingCount = new Map<string | null, number>();
+    for (const a of get().atividades.filter((a) => a.scenario_id === sid)) {
+      const key = a.parent_id ?? null;
+      siblingCount.set(key, (siblingCount.get(key) ?? 0) + 1);
+    }
+
+    // Sequencial (não Promise.all) — cada item pode depender do pai anterior já
+    // ter um id real gravado no banco antes de inserir o próximo.
+    for (const item of items) {
+      const realParentId = item.parentTempId ? tempToRealId.get(item.parentTempId) ?? null : null;
+      const id = genId('atv');
+      const ordem = siblingCount.get(realParentId) ?? 0;
+      siblingCount.set(realParentId, ordem + 1);
+      const predecessoras: Dependencia[] = [];
+      const { error } = await supabase.from('atividades').insert({
+        id,
+        scenario_id: sid,
+        nome: item.nome,
+        data_inicio: item.dataInicio,
+        data_fim: item.dataFim,
+        equipes_alocadas: item.equipesAlocadas,
+        cor: item.cor,
+        ordem,
+        predecessoras,
+        parent_id: realParentId,
+      });
+      if (reportError(`criar atividade "${item.nome}"`, error)) continue;
+      tempToRealId.set(item.tempId, id);
+      inserted.push({
+        id, scenario_id: sid, nome: item.nome, data_inicio: item.dataInicio, data_fim: item.dataFim,
+        equipes_alocadas: item.equipesAlocadas, cor: item.cor, ordem, predecessoras, parent_id: realParentId,
+      });
+    }
+
+    if (inserted.length > 0) {
+      set((s) => ({ atividades: [...s.atividades, ...inserted] }));
+    }
   },
 
   updateAtividade: async (id, patch) => {
@@ -210,14 +269,30 @@ export const useGanttStore = create<State>((set, get) => ({
   deleteAtividade: async (id) => {
     const { error } = await supabase.from('atividades').delete().eq('id', id);
     if (reportError('excluir atividade', error)) return;
-    set((s) => ({
-      atividades: s.atividades
-        .filter((a) => a.id !== id)
-        .map((a) => ({
-          ...a,
-          predecessoras: a.predecessoras.filter((p) => p.id !== id),
-        })),
-    }));
+    set((s) => {
+      // O FK de parent_id tem ON DELETE CASCADE — o banco já apagou os
+      // descendentes junto. Espelha isso no estado local calculando a
+      // subárvore inteira a partir do que já estava carregado.
+      const toRemove = new Set<string>([id]);
+      let changed = true;
+      while (changed) {
+        changed = false;
+        for (const a of s.atividades) {
+          if (a.parent_id && toRemove.has(a.parent_id) && !toRemove.has(a.id)) {
+            toRemove.add(a.id);
+            changed = true;
+          }
+        }
+      }
+      return {
+        atividades: s.atividades
+          .filter((a) => !toRemove.has(a.id))
+          .map((a) => ({
+            ...a,
+            predecessoras: a.predecessoras.filter((p) => !toRemove.has(p.id)),
+          })),
+      };
+    });
   },
 
   toggleParada: async (data) => {

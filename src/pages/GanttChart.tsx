@@ -6,6 +6,7 @@ import { Toolbar } from '@/components/gantt/Toolbar';
 import { EquipesSidebar } from '@/components/gantt/EquipesSidebar';
 import { GanttChart as GanttLivro } from '@/components/gantt/GanttChart';
 import { Histograma } from '@/components/gantt/Histograma';
+import ModalImportarCronograma from '@/components/gantt/ModalImportarCronograma';
 import { parseDate, addDays, startOfWeek } from '@/lib/gantt/dates';
 import type { Granularidade } from '@/lib/gantt/histograma';
 
@@ -13,6 +14,7 @@ export default function GanttChartPage() {
   const { loading, error, loadAll, atividades, equipes, activeScenarioId } = useGanttStore();
   const [granularidade, setGranularidade] = useState<Granularidade>('dia');
   const [scrollLeft, setScrollLeft] = useState(0);
+  const [showImportModal, setShowImportModal] = useState(false);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
 
   const scenarioAtividades = useMemo(
@@ -77,20 +79,6 @@ export default function GanttChartPage() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImport = () => {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.csv,.json';
-    input.onchange = async (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (!file) return;
-      const text = await file.text();
-      console.log('Imported data:', text);
-      alert('Importação iniciada. Verifique o console para os dados importados.');
-    };
-    input.click();
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -117,7 +105,7 @@ export default function GanttChartPage() {
             onGranularidadeChange={setGranularidade}
             onPrint={handlePrint}
             onExportExcel={handleExportExcel}
-            onImport={handleImport}
+            onImport={() => setShowImportModal(true)}
           />
           <div className="flex flex-1 overflow-hidden">
             <EquipesSidebar />
@@ -143,6 +131,7 @@ export default function GanttChartPage() {
           </div>
         </div>
       </div>
+      <ModalImportarCronograma open={showImportModal} onClose={() => setShowImportModal(false)} />
     </div>
   );
 }

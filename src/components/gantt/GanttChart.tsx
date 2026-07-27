@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect, useCallback, type WheelEvent } from 'react';
-import { Plus, Trash2, Ban } from 'lucide-react';
+import { Plus, Trash2, Ban, ChevronDown, ChevronRight, ListPlus } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
+import type { Atividade } from '@/lib/gantt/supabase';
 import {
   DAY_WIDTH,
   parseDate,
@@ -36,7 +37,8 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const { atividades, equipes, activeScenarioId, addAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '' });
+  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null as string | null });
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
   const [selectingFor, setSelectingFor] = useState<{ mode: 'predecessora' | 'sucessora'; sourceId: string; targetId?: string; lag: number } | null>(null);
   const dragState = useRef<{
@@ -53,6 +55,10 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
   const scenarioParadas = paradas.filter((p) => p.scenario_id === activeScenarioId);
   const paradaSet = new Set(scenarioParadas.map((p) => p.data));
+  // Achata a árvore (pai/filho via parent_id) em ordem visual — respeitando
+  // colapso — pra usar como a lista que efetivamente vira linha na tabela/barras
+  // (mantém as duas colunas, rótulo e timeline, alinhadas pelo mesmo índice).
+  const visibleAtividades = buildVisibleTree(scenarioAtividades, collapsed);
 
   const columns = buildColumns(dataInicio, dataFim, granularidade);
   const totalWidth = columns.length * DAY_WIDTH;
@@ -148,9 +154,24 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
     const end = addDays(start, (form.duracao || 1) - 1);
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
-    await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor);
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '' });
+    await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId);
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null });
     setAdding(false);
+  };
+
+  const handleStartAddSubitem = (parentId: string) => {
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId });
+    setEditing(null);
+    setAdding(true);
+  };
+
+  const handleToggleCollapse = (id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const handleStartEdit = (atvId: string) => {
@@ -165,6 +186,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       cor: atv.cor,
       duracao,
       dataInicio: atv.data_inicio,
+      parentId: atv.parent_id,
     });
     setEditing(atvId);
     setAdding(false);
@@ -185,7 +207,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       equipes_alocadas: form.equipes,
       cor: equipeCor,
     });
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '' });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null });
     setEditing(null);
   };
 
@@ -254,6 +276,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {(adding || editing) && (
         <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-wrap">
+          {form.parentId && (
+            <span className="text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-md shrink-0">
+              Sub-item de: {scenarioAtividades.find((a) => a.id === form.parentId)?.nome ?? '—'}
+            </span>
+          )}
           <input
             autoFocus
             placeholder="Nome da atividade"
@@ -353,7 +380,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       <div className="flex flex-1 overflow-hidden">
         <div className="shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700" style={{ width: LABEL_WIDTH }}>
           <div className="border-b border-gray-200 dark:border-slate-700" style={{ height: HEADER_HEIGHT }} />
-          {scenarioAtividades.map((atv) => {
+          {visibleAtividades.map(({ atv, depth, hasChildren }) => {
             const equipesNomes = atv.equipes_alocadas
               .map((eqId) => scenarioEquipes.find((e) => e.id === eqId)?.nome)
               .filter(Boolean)
@@ -361,19 +388,41 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             return (
               <div
                 key={atv.id}
-                className="group flex items-center justify-between px-3 border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30"
-                style={{ height: ROW_HEIGHT }}
+                className="group flex items-center justify-between px-1 border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30"
+                style={{ height: ROW_HEIGHT, paddingLeft: 4 + depth * 14 }}
               >
-                <div className="min-w-0">
-                  <p className="text-sm text-gray-900 dark:text-white truncate">{atv.nome}</p>
+                <button
+                  onClick={() => hasChildren && handleToggleCollapse(atv.id)}
+                  className="shrink-0 text-gray-400 dark:text-slate-500 p-0.5"
+                >
+                  {hasChildren ? (
+                    collapsed.has(atv.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />
+                  ) : (
+                    <span className="inline-block w-3" />
+                  )}
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className={`text-sm truncate ${hasChildren ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-slate-200'}`}>
+                    {atv.nome}
+                  </p>
                   {equipesNomes && <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
                 </div>
-                <button
-                  onClick={() => deleteAtividade(atv.id)}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400 ml-2 shrink-0"
-                >
-                  <Trash2 size={12} />
-                </button>
+                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleStartAddSubitem(atv.id)}
+                    className="text-gray-400 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400"
+                    title="Adicionar sub-item"
+                  >
+                    <ListPlus size={12} />
+                  </button>
+                  <button
+                    onClick={() => deleteAtividade(atv.id)}
+                    className="text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400"
+                    title="Excluir"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
               </div>
             );
           })}
@@ -385,13 +434,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} />
             </div>
 
-            {scenarioAtividades.length === 0 ? (
+            {visibleAtividades.length === 0 ? (
               <div className="flex items-center justify-center" style={{ height: 200 }}>
                 <p className="text-gray-400 dark:text-slate-500 text-sm">Nenhuma atividade. Clique em "+ Nova Atividade".</p>
               </div>
             ) : (
               <>
-               {scenarioAtividades.map((atv) => {
+               {visibleAtividades.map(({ atv }) => {
                 const start = parseDate(atv.data_inicio);
                 const end = parseDate(atv.data_fim);
                 const offsetDays = daysBetween(dataInicio, start);
@@ -445,17 +494,17 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               })}
               <svg
                 className="absolute top-0 left-0 pointer-events-none z-20"
-                style={{ width: totalWidth, height: scenarioAtividades.length * ROW_HEIGHT }}
+                style={{ width: totalWidth, height: visibleAtividades.length * ROW_HEIGHT }}
               >
                 <defs>
                   <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
                     <polygon points="0 0, 8 3, 0 6" fill="#94a3b8" />
                   </marker>
                 </defs>
-                {scenarioAtividades.map((atv, atvIdx) =>
+                {visibleAtividades.map(({ atv }, atvIdx) =>
                   (atv.predecessoras ?? []).map((dep) => {
-                    const predIdx = scenarioAtividades.findIndex((a) => a.id === dep.id);
-                    const pred = scenarioAtividades[predIdx];
+                    const predIdx = visibleAtividades.findIndex((v) => v.atv.id === dep.id);
+                    const pred = visibleAtividades[predIdx]?.atv;
                     if (predIdx === -1 || !pred) return null;
 
                     const predStart = parseDate(pred.data_inicio);
@@ -520,6 +569,34 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       )}
     </div>
   );
+}
+
+// Achata a árvore (parent_id) em ordem visual pai->filhos, respeitando o
+// colapso — essa é a lista que efetivamente vira linha na tabela/timeline, pra
+// manter as duas colunas alinhadas pelo mesmo índice.
+function buildVisibleTree(
+  list: Atividade[],
+  collapsed: Set<string>,
+): { atv: Atividade; depth: number; hasChildren: boolean }[] {
+  const byParent = new Map<string | null, Atividade[]>();
+  for (const a of list) {
+    const key = a.parent_id ?? null;
+    const arr = byParent.get(key) ?? [];
+    arr.push(a);
+    byParent.set(key, arr);
+  }
+  for (const arr of byParent.values()) arr.sort((x, y) => x.ordem - y.ordem);
+
+  const result: { atv: Atividade; depth: number; hasChildren: boolean }[] = [];
+  function walk(parentId: string | null, depth: number) {
+    for (const a of byParent.get(parentId) ?? []) {
+      const children = byParent.get(a.id) ?? [];
+      result.push({ atv: a, depth, hasChildren: children.length > 0 });
+      if (children.length > 0 && !collapsed.has(a.id)) walk(a.id, depth + 1);
+    }
+  }
+  walk(null, 0);
+  return result;
 }
 
 type Column = { date: Date; label: string };
