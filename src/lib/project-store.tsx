@@ -233,7 +233,7 @@ async function loadProjectsRemote(): Promise<Project[]> {
 
   if (error) {
     console.error('Falha ao carregar projetos do Supabase.', error)
-    toast.error('Não foi possível carregar seus projetos.')
+    toast.error('Não foi possível carregar seus projetos.', { description: mensagemDeErro(error), duration: 20000 })
     return []
   }
   return (data as ProjetoRow[]).map(mapProjetoRow)
