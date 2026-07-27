@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowRight, GitBranch, Link2Off, Pencil } from 'lucide-react';
+import { ArrowRight, GitBranch, Link2Off, Pencil, Users } from 'lucide-react';
 import type { Dependencia } from '@/lib/gantt/supabase';
 
 type Props = {
@@ -10,6 +10,7 @@ type Props = {
   outrasAtividades: { id: string; nome: string }[];
   onClose: () => void;
   onEdit: () => void;
+  onManageEquipes: () => void;
   onStartSetPredecessora: () => void;
   onStartSetSucessora: () => void;
   onRemoveDependencia: (predId: string) => void;
@@ -23,6 +24,7 @@ export function ContextMenu({
   outrasAtividades,
   onClose,
   onEdit,
+  onManageEquipes,
   onStartSetPredecessora,
   onStartSetSucessora,
   onRemoveDependencia,
@@ -61,6 +63,14 @@ export function ContextMenu({
       >
         <Pencil size={14} className="text-amber-500 dark:text-amber-400" />
         Editar Atividade
+      </button>
+
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left"
+        onClick={() => { onManageEquipes(); onClose(); }}
+      >
+        <Users size={14} className="text-purple-500 dark:text-purple-400" />
+        Equipes...
       </button>
 
       <div className="border-t border-gray-100 dark:border-slate-700 my-1" />

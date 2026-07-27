@@ -1,22 +1,24 @@
 import { useRef, useState, useEffect, useCallback, type WheelEvent } from 'react';
-import { Plus, Trash2, Ban, ChevronDown, ChevronRight, ListPlus } from 'lucide-react';
+import { Plus, Trash2, Ban, ChevronDown, ChevronRight, ListPlus, Rows3, ChevronsDown, ChevronsUp } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
 import type { Atividade } from '@/lib/gantt/supabase';
 import {
-  DAY_WIDTH,
+  columnWidthFor,
   parseDate,
   toISODate,
   addDays,
   daysBetween,
+  startOfDay,
   startOfWeek,
   startOfMonth,
   isoWeek,
   isoWeekYear,
-  formatWeekHeader,
   formatMonthYear,
+  formatDayMonth,
 } from '@/lib/gantt/dates';
 import type { Granularidade } from '@/lib/gantt/histograma';
 import { ContextMenu } from './ContextMenu';
+import { EquipeAssocModal } from './EquipeAssocModal';
 
 type Props = {
   granularidade: Granularidade;
@@ -25,22 +27,41 @@ type Props = {
   scrollRef: React.RefObject<HTMLDivElement>;
   onScrollSync: (left: number) => void;
   onDateRangeChange: (inicio: Date, fim: Date) => void;
+  // Controlado pelo componente pai — o Histograma usa a mesma largura, senão
+  // as colunas dos dois painéis desalinham quando o usuário redimensiona.
+  labelWidth: number;
+  onLabelWidthChange: (w: number) => void;
 };
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 64;
-const LABEL_WIDTH = 176;
+export const DEFAULT_LABEL_WIDTH = 176;
+const MIN_LABEL_WIDTH = 120;
+const MAX_LABEL_WIDTH = 520;
+// Mesmo template pro cabeçalho e pra cada linha — trava o alinhamento tipo
+// tabela de verdade: só a coluna do nome (1fr) varia de largura, as outras
+// (%, início, término, ações) ficam sempre no mesmo lugar independente da
+// indentação da hierarquia (que agora fica só dentro da célula do nome).
+const LABEL_GRID_COLS = '1fr 34px 42px 42px 38px';
 
 const COLORS = ['#2F6FE4', '#E07B2F', '#2FAE54', '#B23FE0', '#E0B23F', '#E03F5F', '#3FE0C0', '#5F3FE0'];
+// Índice bate com Date.getDay(): 0=domingo, 1=segunda, ..., 6=sábado.
+const WEEKDAY_LABELS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onScrollSync, onDateRangeChange }: Props) {
+export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onScrollSync, onDateRangeChange, labelWidth, onLabelWidthChange }: Props) {
   const { atividades, equipes, activeScenarioId, addAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null as string | null, percentualConcluido: 0 });
+  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null as string | null, percentualConcluido: 0 });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
   const [selectingFor, setSelectingFor] = useState<{ mode: 'predecessora' | 'sucessora'; sourceId: string; targetId?: string; lag: number } | null>(null);
+  const [equipeAssocAtvId, setEquipeAssocAtvId] = useState<string | null>(null);
+  const [estruturaMenuOpen, setEstruturaMenuOpen] = useState(false);
+  const [paradaMenuOpen, setParadaMenuOpen] = useState(false);
+  const [paradaWeekdays, setParadaWeekdays] = useState<Set<number>>(new Set());
+  const labelResizeState = useRef<{ startX: number; startWidth: number } | null>(null);
+  const labelScrollRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{
     id: string;
     type: 'move' | 'resize-l' | 'resize-r';
@@ -61,14 +82,27 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const visibleAtividades = buildVisibleTree(scenarioAtividades, collapsed);
 
   const columns = buildColumns(dataInicio, dataFim, granularidade);
-  const totalWidth = columns.length * DAY_WIDTH;
+  const colWidth = columnWidthFor(granularidade);
+  const totalWidth = columns.length * colWidth;
+  // Qual coluna contém hoje — dia/semana/mês atual conforme a granularidade —
+  // pra destacar no cabeçalho e nas linhas. -1 se hoje estiver fora do range
+  // visível (ex.: cronograma todo no passado ou no futuro).
+  const todayIdx = findColumnIndex(startOfDay(new Date()), columns, granularidade);
 
   const handleScroll = useCallback(
     (e: WheelEvent<HTMLDivElement>) => {
       onScrollSync(e.currentTarget.scrollLeft);
+      // A coluna de rótulos rola verticalmente por conta própria (senão fica
+      // impossível ver atividades além da altura visível) — sincroniza com o
+      // scroll do timeline pra rótulo e barra continuarem na mesma linha.
+      if (labelScrollRef.current) labelScrollRef.current.scrollTop = e.currentTarget.scrollTop;
     },
     [onScrollSync]
   );
+
+  const handleLabelScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (scrollRef.current) scrollRef.current.scrollTop = e.currentTarget.scrollTop;
+  };
 
   useEffect(() => {
     const findDependentes = (atvId: string, atividades: typeof scenarioAtividades): typeof atividades => {
@@ -79,7 +113,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       const d = dragState.current;
       if (!d) return;
       const deltaPx = e.clientX - d.startX;
-      const deltaDays = Math.round(deltaPx / DAY_WIDTH);
+      // 1 coluna só vale 1 dia em 'dia' — em 'semana'/'mes' cada coluna cobre
+      // vários dias, então o arraste precisa avançar mais dias por pixel pra
+      // continuar acompanhando o mouse (senão a barra "atrasa" dele).
+      const diasPorColuna = granularidade === 'dia' ? 1 : granularidade === 'semana' ? 7 : 30.44;
+      const deltaDays = Math.round((deltaPx / columnWidthFor(granularidade)) * diasPorColuna);
       if (deltaDays === 0) return;
 
       let newStart = new Date(d.origStart);
@@ -130,7 +168,32 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       window.removeEventListener('mousemove', handleMove);
       window.removeEventListener('mouseup', handleUp);
     };
-  }, [updateAtividade, dataInicio, dataFim, onDateRangeChange]);
+  }, [updateAtividade, dataInicio, dataFim, onDateRangeChange, granularidade]);
+
+  // Arraste da coluna de nomes (frentes/atividades) — largura fixa cortava
+  // nomes longos ("ARMAZÉM GRANELEIRO...", etc.) sem dar jeito de ver inteiro.
+  useEffect(() => {
+    const handleMove = (e: MouseEvent) => {
+      const r = labelResizeState.current;
+      if (!r) return;
+      const next = Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, r.startWidth + (e.clientX - r.startX)));
+      onLabelWidthChange(next);
+    };
+    const handleUp = () => {
+      labelResizeState.current = null;
+    };
+    window.addEventListener('mousemove', handleMove);
+    window.addEventListener('mouseup', handleUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMove);
+      window.removeEventListener('mouseup', handleUp);
+    };
+  }, [onLabelWidthChange]);
+
+  const onLabelResizeMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    labelResizeState.current = { startX: e.clientX, startWidth: labelWidth };
+  };
 
   const onBarMouseDown = (e: React.MouseEvent, atvId: string, type: 'move' | 'resize-l' | 'resize-r') => {
     e.preventDefault();
@@ -152,17 +215,49 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       return;
     }
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
-    const end = addDays(start, (form.duracao || 1) - 1);
+    const end = form.dataFim ? parseDate(form.dataFim) : addDays(start, (form.duracao || 1) - 1);
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
     await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId, Math.max(0, Math.min(100, form.percentualConcluido)));
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null, percentualConcluido: 0 });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null, percentualConcluido: 0 });
     setAdding(false);
   };
 
   const handleStartAddSubitem = (parentId: string) => {
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId, percentualConcluido: 0 });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId, percentualConcluido: 0 });
     setEditing(null);
     setAdding(true);
+  };
+
+  // Expandir/recolher tudo de uma vez, ou até um nível específico (igual ao
+  // menu "Estrutura de Tópicos" do MS Project) — sem isso, com muitas
+  // subatividades era clique por clique pra abrir/fechar cada uma.
+  const handleExpandAll = () => setCollapsed(new Set());
+
+  const handleCollapseAll = () => {
+    const parentIds = new Set(scenarioAtividades.filter((a) => a.parent_id).map((a) => a.parent_id as string));
+    setCollapsed(new Set(scenarioAtividades.filter((a) => parentIds.has(a.id)).map((a) => a.id)));
+  };
+
+  const handleCollapseToLevel = (level: number) => {
+    const byParent = new Map<string | null, Atividade[]>();
+    for (const a of scenarioAtividades) {
+      const key = a.parent_id ?? null;
+      const arr = byParent.get(key) ?? [];
+      arr.push(a);
+      byParent.set(key, arr);
+    }
+    const next = new Set<string>();
+    function walk(parentId: string | null, depth: number) {
+      for (const a of byParent.get(parentId) ?? []) {
+        const children = byParent.get(a.id) ?? [];
+        if (children.length > 0) {
+          if (depth >= level - 1) next.add(a.id);
+          else walk(a.id, depth + 1);
+        }
+      }
+    }
+    walk(null, 0);
+    setCollapsed(next);
   };
 
   const handleToggleCollapse = (id: string) => {
@@ -186,6 +281,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       cor: atv.cor,
       duracao,
       dataInicio: atv.data_inicio,
+      dataFim: atv.data_fim,
       parentId: atv.parent_id,
       percentualConcluido: atv.percentual_concluido,
     });
@@ -199,7 +295,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       return;
     }
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
-    const end = addDays(start, (form.duracao || 1) - 1);
+    const end = form.dataFim ? parseDate(form.dataFim) : addDays(start, (form.duracao || 1) - 1);
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
     await updateAtividade(editing, {
       nome: form.nome.trim(),
@@ -209,7 +305,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       cor: equipeCor,
       percentual_concluido: Math.max(0, Math.min(100, form.percentualConcluido)),
     });
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null, percentualConcluido: 0 });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null, percentualConcluido: 0 });
     setEditing(null);
   };
 
@@ -227,6 +323,40 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     });
   };
 
+  // Marca/desmarca de uma vez todos os dias de determinado(s) dia(s) da
+  // semana (ex.: todo domingo) dentro do período visível — sem isso era
+  // clique dia por dia no cabeçalho pra cancelar cada domingo do cronograma.
+  const handleBulkParada = async (weekdays: Set<number>, activate: boolean) => {
+    if (weekdays.size === 0) return;
+    const datas: string[] = [];
+    for (let d = new Date(dataInicio); d <= dataFim; d = addDays(d, 1)) {
+      if (!weekdays.has(d.getDay())) continue;
+      const iso = toISODate(d);
+      const jaParada = paradaSet.has(iso);
+      if (activate ? !jaParada : jaParada) datas.push(iso);
+    }
+    if (datas.length === 0) return;
+
+    // Conta quantos dias novos caem no range ORIGINAL de cada atividade antes
+    // de mexer em qualquer data — senão o término ir crescendo/encolhendo no
+    // meio do loop bagunçaria a contagem dos dias seguintes.
+    const deltaPorAtividade = new Map<string, number>();
+    for (const atv of scenarioAtividades) {
+      const start = parseDate(atv.data_inicio);
+      const end = parseDate(atv.data_fim);
+      const count = datas.filter((iso) => { const t = parseDate(iso); return t >= start && t <= end; }).length;
+      if (count > 0) deltaPorAtividade.set(atv.id, activate ? count : -count);
+    }
+
+    for (const iso of datas) await toggleParada(iso);
+    for (const [atvId, delta] of deltaPorAtividade) {
+      const atv = scenarioAtividades.find((a) => a.id === atvId);
+      if (!atv) continue;
+      const end = parseDate(atv.data_fim);
+      await updateAtividade(atvId, { data_fim: toISODate(addDays(end, delta)) });
+    }
+  };
+
   const onBarContextMenu = (e: React.MouseEvent, atvId: string) => {
     e.preventDefault();
     e.stopPropagation();
@@ -240,6 +370,25 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     setSelectingFor({ ...selectingFor, targetId, lag: 0 });
   };
 
+  // Se a dependente já começa antes do fim da predecessora (+ latência), joga
+  // a dependente pra frente na hora de criar o vínculo (preservando a duração
+  // dela) — sem isso, o vínculo era gravado mas a barra só "obedecia" de
+  // verdade depois de alguém arrastar a predecessora manualmente.
+  const applyPredecessorConstraint = async (predId: string, depId: string, lag: number) => {
+    const pred = scenarioAtividades.find((a) => a.id === predId);
+    const dep = scenarioAtividades.find((a) => a.id === depId);
+    if (!pred || !dep) return;
+    const requiredStart = addDays(parseDate(pred.data_fim), 1 + lag);
+    const depStart = parseDate(dep.data_inicio);
+    if (requiredStart > depStart) {
+      const duration = daysBetween(depStart, parseDate(dep.data_fim));
+      await updateAtividade(depId, {
+        data_inicio: toISODate(requiredStart),
+        data_fim: toISODate(addDays(requiredStart, duration)),
+      });
+    }
+  };
+
   const handleConfirmLag = async () => {
     if (!selectingFor || !selectingFor.targetId) return;
     const lag = selectingFor.lag;
@@ -248,11 +397,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       if (!target) return;
       const newPreds = [...(target.predecessoras ?? []), { id: selectingFor.sourceId, lag }];
       await updateAtividade(selectingFor.targetId, { predecessoras: newPreds });
+      await applyPredecessorConstraint(selectingFor.sourceId, selectingFor.targetId, lag);
     } else {
       const current = scenarioAtividades.find((a) => a.id === selectingFor.sourceId);
       if (!current) return;
       const newPreds = [...(current.predecessoras ?? []), { id: selectingFor.targetId, lag }];
       await updateAtividade(selectingFor.sourceId, { predecessoras: newPreds });
+      await applyPredecessorConstraint(selectingFor.targetId, selectingFor.sourceId, lag);
     }
     setSelectingFor(null);
   };
@@ -296,7 +447,12 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             <input
               type="date"
               value={form.dataInicio || toISODate(dataInicio)}
-              onChange={(e) => setForm({ ...form, dataInicio: e.target.value })}
+              onChange={(e) => {
+                const novoInicio = e.target.value;
+                const start = parseDate(novoInicio);
+                const end = addDays(start, (form.duracao || 1) - 1);
+                setForm({ ...form, dataInicio: novoInicio, dataFim: toISODate(end) });
+              }}
               className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
             />
           </div>
@@ -306,8 +462,28 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               type="number"
               min="1"
               value={form.duracao}
-              onChange={(e) => setForm({ ...form, duracao: parseInt(e.target.value) || 1 })}
+              onChange={(e) => {
+                const duracao = parseInt(e.target.value) || 1;
+                const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
+                const end = addDays(start, duracao - 1);
+                setForm({ ...form, duracao, dataFim: toISODate(end) });
+              }}
               className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-24"
+            />
+          </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-500 dark:text-slate-500 mb-0.5">Término</label>
+            <input
+              type="date"
+              value={form.dataFim || toISODate(addDays(form.dataInicio ? parseDate(form.dataInicio) : dataInicio, (form.duracao || 1) - 1))}
+              onChange={(e) => {
+                const novoFim = e.target.value;
+                const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
+                const end = parseDate(novoFim);
+                const duracao = Math.max(1, daysBetween(start, end) + 1);
+                setForm({ ...form, dataFim: novoFim, duracao });
+              }}
+              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
             />
           </div>
           <div className="flex flex-col">
@@ -354,6 +530,98 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
           <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Gantt Livre</h3>
+          <div className="relative">
+            <button
+              onClick={() => setEstruturaMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors"
+            >
+              <Rows3 size={14} /> Estrutura
+            </button>
+            {estruturaMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setEstruturaMenuOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-20 w-44 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg py-1">
+                  <button
+                    onClick={() => { handleExpandAll(); setEstruturaMenuOpen(false); }}
+                    className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+                  >
+                    <ChevronsDown size={14} /> Expandir tudo
+                  </button>
+                  <button
+                    onClick={() => { handleCollapseAll(); setEstruturaMenuOpen(false); }}
+                    className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+                  >
+                    <ChevronsUp size={14} /> Recolher tudo
+                  </button>
+                  <div className="border-t border-gray-100 dark:border-slate-700 my-1" />
+                  {[1, 2, 3].map((n) => (
+                    <button
+                      key={n}
+                      onClick={() => { handleCollapseToLevel(n); setEstruturaMenuOpen(false); }}
+                      className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+                    >
+                      Nível {n}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+          <div className="relative">
+            <button
+              onClick={() => setParadaMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors"
+            >
+              <Ban size={14} /> Paradas
+            </button>
+            {paradaMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setParadaMenuOpen(false)} />
+                <div className="absolute left-0 top-full mt-1 z-20 w-56 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg p-3">
+                  <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                    Marcar dia(s) da semana como parada
+                  </p>
+                  <div className="space-y-1 mb-3">
+                    {WEEKDAY_LABELS.map((label, idx) => (
+                      <label key={idx} className="flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={paradaWeekdays.has(idx)}
+                          onChange={() => {
+                            setParadaWeekdays((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(idx)) next.delete(idx);
+                              else next.add(idx);
+                              return next;
+                            });
+                          }}
+                          className="w-3.5 h-3.5"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-gray-400 dark:text-slate-500 mb-2">Aplica no período visível no momento.</p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleBulkParada(paradaWeekdays, true)}
+                      disabled={paradaWeekdays.size === 0}
+                      className="flex-1 text-xs font-medium bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md transition-colors"
+                    >
+                      Marcar parada
+                    </button>
+                    <button
+                      onClick={() => handleBulkParada(paradaWeekdays, false)}
+                      disabled={paradaWeekdays.size === 0}
+                      className="flex-1 text-xs font-medium bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-white px-3 py-1.5 rounded-md transition-colors"
+                    >
+                      Desmarcar
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         </div>
         <button
           onClick={() => setAdding(true)}
@@ -391,8 +659,24 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        <div className="shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700" style={{ width: LABEL_WIDTH }}>
-          <div className="border-b border-gray-200 dark:border-slate-700" style={{ height: HEADER_HEIGHT }} />
+        <div
+          ref={labelScrollRef}
+          onScroll={handleLabelScroll}
+          className="shrink-0 bg-white dark:bg-slate-900 overflow-y-auto overflow-x-hidden"
+          style={{ width: labelWidth }}
+        >
+          <div
+            className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-1"
+            style={{ height: HEADER_HEIGHT, display: 'grid', gridTemplateColumns: LABEL_GRID_COLS, alignItems: 'center', columnGap: 4 }}
+          >
+            <span className="min-w-0 pl-4 text-[11px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide truncate">
+              Atividade
+            </span>
+            <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 text-right">%</span>
+            <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 text-right">Início</span>
+            <span className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 text-right">Térm.</span>
+            <span />
+          </div>
           {visibleAtividades.map(({ atv, depth, hasChildren }) => {
             const equipesNomes = atv.equipes_alocadas
               .map((eqId) => scenarioEquipes.find((e) => e.id === eqId)?.nome)
@@ -401,27 +685,31 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             return (
               <div
                 key={atv.id}
-                className="group flex items-center justify-between px-1 border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30"
-                style={{ height: ROW_HEIGHT, paddingLeft: 4 + depth * 14 }}
+                onContextMenu={(e) => onBarContextMenu(e, atv.id)}
+                onDoubleClick={() => handleStartEdit(atv.id)}
+                className="group border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30 px-1"
+                style={{ height: ROW_HEIGHT, display: 'grid', gridTemplateColumns: LABEL_GRID_COLS, alignItems: 'center', columnGap: 4 }}
               >
-                <button
-                  onClick={() => hasChildren && handleToggleCollapse(atv.id)}
-                  className="shrink-0 text-gray-400 dark:text-slate-500 p-0.5"
-                >
-                  {hasChildren ? (
-                    collapsed.has(atv.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />
-                  ) : (
-                    <span className="inline-block w-3" />
-                  )}
-                </button>
-                <div className="min-w-0 flex-1">
-                  <p className={`text-sm truncate ${hasChildren ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-slate-200'}`}>
-                    {atv.nome}
-                  </p>
-                  {equipesNomes && <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
+                <div className="flex items-center min-w-0" style={{ paddingLeft: 4 + depth * 14 }}>
+                  <button
+                    onClick={() => hasChildren && handleToggleCollapse(atv.id)}
+                    className="w-4 shrink-0 flex items-center justify-center text-gray-400 dark:text-slate-500 p-0.5"
+                  >
+                    {hasChildren ? (
+                      collapsed.has(atv.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />
+                    ) : (
+                      <span className="inline-block w-3" />
+                    )}
+                  </button>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm truncate ${hasChildren ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-slate-200'}`}>
+                      {atv.nome}
+                    </p>
+                    {equipesNomes && <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
+                  </div>
                 </div>
                 <span
-                  className={`text-[10px] font-semibold tabular-nums shrink-0 px-1 rounded ${
+                  className={`text-[10px] font-semibold tabular-nums text-right ${
                     atv.percentual_concluido >= 100
                       ? 'text-emerald-600 dark:text-emerald-400'
                       : atv.percentual_concluido > 0
@@ -432,7 +720,19 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 >
                   {atv.percentual_concluido}%
                 </span>
-                <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
+                <span
+                  className="text-[10px] text-gray-400 dark:text-slate-500 tabular-nums text-right whitespace-nowrap"
+                  title="Data de início"
+                >
+                  {formatDayMonth(parseDate(atv.data_inicio))}
+                </span>
+                <span
+                  className="text-[10px] text-gray-400 dark:text-slate-500 tabular-nums text-right whitespace-nowrap"
+                  title="Data de término"
+                >
+                  {formatDayMonth(parseDate(atv.data_fim))}
+                </span>
+                <div className="opacity-0 group-hover:opacity-100 flex items-center justify-end gap-1">
                   <button
                     onClick={() => handleStartAddSubitem(atv.id)}
                     className="text-gray-400 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400"
@@ -453,10 +753,16 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
           })}
         </div>
 
+        <div
+          onMouseDown={onLabelResizeMouseDown}
+          className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 dark:bg-slate-700 hover:bg-blue-400 dark:hover:bg-blue-500 transition-colors"
+          title="Arraste para redimensionar"
+        />
+
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-auto">
           <div style={{ width: totalWidth, position: 'relative' }}>
             <div className="sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-600" style={{ height: HEADER_HEIGHT }}>
-              <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} />
+              <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} />
             </div>
 
             {visibleAtividades.length === 0 ? (
@@ -468,15 +774,14 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                {visibleAtividades.map(({ atv }) => {
                 const start = parseDate(atv.data_inicio);
                 const end = parseDate(atv.data_fim);
-                const offsetDays = daysBetween(dataInicio, start);
                 const duration = daysBetween(start, end) + 1;
-                const left = offsetDays * DAY_WIDTH;
-                const width = duration * DAY_WIDTH;
+                const left = dateToX(start, columns, granularidade, colWidth);
+                const width = dateToX(addDays(end, 1), columns, granularidade, colWidth) - left;
                 const equipeCor = scenarioEquipes.find((e) => e.id === atv.equipes_alocadas[0])?.cor || atv.cor;
 
                 return (
                   <div key={atv.id} className="relative flex" style={{ height: ROW_HEIGHT }}>
-                    <GridRow columns={columns} paradaSet={paradaSet} onToggleParada={handleToggleParada} />
+                    <GridRow columns={columns} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} />
                     <div
                       className={`absolute rounded-md shadow-lg flex items-center px-2 select-none z-10 ${
                         selectingFor
@@ -540,11 +845,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
 
                     const predStart = parseDate(pred.data_inicio);
                     const predEnd = parseDate(pred.data_fim);
-                    const predLeft = daysBetween(dataInicio, predStart) * DAY_WIDTH;
-                    const predWidth = (daysBetween(predStart, predEnd) + 1) * DAY_WIDTH;
+                    const predLeft = dateToX(predStart, columns, granularidade, colWidth);
+                    const predWidth = dateToX(addDays(predEnd, 1), columns, granularidade, colWidth) - predLeft;
 
                     const curStart = parseDate(atv.data_inicio);
-                    const curLeft = daysBetween(dataInicio, curStart) * DAY_WIDTH;
+                    const curLeft = dateToX(curStart, columns, granularidade, colWidth);
 
                     const x1 = predLeft + predWidth;
                     const y1 = predIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
@@ -593,11 +898,17 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
           outrasAtividades={scenarioAtividades.map((a) => ({ id: a.id, nome: a.nome }))}
           onClose={() => setCtxMenu(null)}
           onEdit={() => handleStartEdit(ctxMenu.atvId)}
+          onManageEquipes={() => setEquipeAssocAtvId(ctxMenu.atvId)}
           onStartSetPredecessora={() => setSelectingFor({ mode: 'predecessora', sourceId: ctxMenu.atvId, lag: 0 })}
           onStartSetSucessora={() => setSelectingFor({ mode: 'sucessora', sourceId: ctxMenu.atvId, lag: 0 })}
           onRemoveDependencia={handleRemoveDependencia}
         />
       )}
+
+      <EquipeAssocModal
+        atividade={scenarioAtividades.find((a) => a.id === equipeAssocAtvId) ?? null}
+        onClose={() => setEquipeAssocAtvId(null)}
+      />
     </div>
   );
 }
@@ -630,7 +941,9 @@ function buildVisibleTree(
   return result;
 }
 
-type Column = { date: Date; label: string };
+// Em 'semana', o cabeçalho vem em duas camadas (label = ano-semana, sublabel
+// = período) — uma linha só ficava espremida demais pro que cabe numa coluna.
+type Column = { date: Date; label: string; sublabel?: string };
 
 function buildColumns(inicio: Date, fim: Date, gran: Granularidade): Column[] {
   const cols: Column[] = [];
@@ -641,7 +954,12 @@ function buildColumns(inicio: Date, fim: Date, gran: Granularidade): Column[] {
   } else if (gran === 'semana') {
     let d = startOfWeek(inicio);
     while (d <= fim) {
-      cols.push({ date: new Date(d), label: formatWeekHeader(d) });
+      const we = addDays(d, 6);
+      cols.push({
+        date: new Date(d),
+        label: `${isoWeekYear(d)}-S${String(isoWeek(d)).padStart(2, '0')}`,
+        sublabel: `${formatDayMonth(d)}-${formatDayMonth(we)}`,
+      });
       d = addDays(d, 7);
     }
   } else {
@@ -654,7 +972,58 @@ function buildColumns(inicio: Date, fim: Date, gran: Granularidade): Column[] {
   return cols;
 }
 
-function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; granularidade: Granularidade; paradaSet: Set<string> }) {
+// Quantos dias uma coluna cobre — em 'dia' é sempre 1, em 'semana' é sempre 7,
+// mas em 'mes' varia (28-31) conforme o mês daquela coluna especificamente.
+function columnSpanDays(columns: Column[], idx: number, gran: Granularidade): number {
+  if (idx + 1 < columns.length) return daysBetween(columns[idx].date, columns[idx + 1].date);
+  if (gran === 'mes') {
+    const d = columns[idx].date;
+    return daysBetween(d, new Date(d.getFullYear(), d.getMonth() + 1, 1));
+  }
+  return gran === 'semana' ? 7 : 1;
+}
+
+// Índice da coluna que contém a data — usado tanto pra posicionar barras
+// (dateToX) quanto pra destacar a coluna de "hoje" no cabeçalho/linhas.
+// -1 se a data cair fora do range de colunas (ex.: hoje fora do período
+// visível do cronograma).
+function findColumnIndex(date: Date, columns: Column[], gran: Granularidade): number {
+  for (let i = 0; i < columns.length; i++) {
+    const span = columnSpanDays(columns, i, gran);
+    const spanEnd = addDays(columns[i].date, span);
+    if (date >= columns[i].date && date < spanEnd) return i;
+  }
+  return -1;
+}
+
+// Converte uma data em posição X (px) alinhada às colunas do cabeçalho —
+// crucial pra granularidade 'semana'/'mes', onde 1 coluna = colWidth px mas
+// cobre vários dias, então "dias desde o início * colWidth" (que só vale
+// pra 'dia') colocava as barras muito mais à direita do que o cabeçalho.
+function dateToX(date: Date, columns: Column[], gran: Granularidade, colWidth: number): number {
+  if (columns.length === 0) return 0;
+  let idx = findColumnIndex(date, columns, gran);
+  if (idx === -1) idx = date < columns[0].date ? 0 : columns.length - 1;
+  const span = columnSpanDays(columns, idx, gran);
+  const fracDays = daysBetween(columns[idx].date, date);
+  return idx * colWidth + (span > 0 ? fracDays / span : 0) * colWidth;
+}
+
+function HeaderRow({
+  columns,
+  granularidade,
+  paradaSet,
+  onToggleParada,
+  colWidth,
+  todayIdx,
+}: {
+  columns: Column[];
+  granularidade: Granularidade;
+  paradaSet: Set<string>;
+  onToggleParada: (iso: string) => void;
+  colWidth: number;
+  todayIdx: number;
+}) {
   if (granularidade === 'dia') {
     const weeks: { label: string; span: number }[] = [];
     columns.forEach((c) => {
@@ -672,7 +1041,7 @@ function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; g
             <div
               key={i}
               className="text-xs text-gray-500 dark:text-slate-300 text-center border-r border-gray-200 dark:border-slate-700 py-1.5 font-medium"
-              style={{ width: w.span * DAY_WIDTH }}
+              style={{ width: w.span * colWidth }}
             >
               {w.label}
             </div>
@@ -682,13 +1051,20 @@ function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; g
           {columns.map((c, i) => {
             const iso = toISODate(c.date);
             const isParada = paradaSet.has(iso);
+            const isToday = i === todayIdx;
             return (
               <div
                 key={i}
-                className={`text-xs text-center border-r border-gray-100 dark:border-slate-800 py-1 flex items-center justify-center ${
-                  isParada ? 'bg-red-100 dark:bg-red-950/80 text-red-600 dark:text-red-400 font-bold' : 'text-gray-400 dark:text-slate-400'
+                onClick={() => onToggleParada(iso)}
+                className={`text-xs text-center border-r border-gray-100 dark:border-slate-800 py-1 flex items-center justify-center cursor-pointer transition-colors ${
+                  isParada
+                    ? 'bg-red-100 hover:bg-red-200 dark:bg-red-950/80 dark:hover:bg-red-900/70 text-red-600 dark:text-red-400 font-bold'
+                    : isToday
+                    ? 'bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/60 dark:hover:bg-blue-800/70 text-blue-700 dark:text-blue-300 font-bold ring-1 ring-inset ring-blue-400 dark:ring-blue-500'
+                    : 'text-gray-400 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-700'
                 }`}
-                style={{ width: DAY_WIDTH }}
+                style={{ width: colWidth }}
+                title={isParada ? 'Dia inativo (parada) — clique para reativar' : isToday ? 'Hoje' : 'Clique para marcar como parada'}
               >
                 {isParada ? <Ban size={10} /> : c.label}
               </div>
@@ -699,27 +1075,49 @@ function HeaderRow({ columns, granularidade, paradaSet }: { columns: Column[]; g
     );
   }
   return (
-    <div className="flex">
-      {columns.map((c, i) => (
-        <div
-          key={i}
-          className="text-xs text-gray-500 dark:text-slate-300 text-center border-r border-gray-200 dark:border-slate-700 py-3 font-medium"
-          style={{ width: DAY_WIDTH }}
-        >
-          {c.label}
-        </div>
-      ))}
+    <div className="flex h-full">
+      {columns.map((c, i) => {
+        const isToday = i === todayIdx;
+        return (
+          <div
+            key={i}
+            className={`text-xs text-center border-r border-gray-200 dark:border-slate-700 font-medium flex flex-col items-center justify-center gap-0.5 px-1 ${
+              isToday
+                ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-400 dark:ring-blue-500'
+                : 'text-gray-500 dark:text-slate-300'
+            }`}
+            style={{ width: colWidth }}
+            title={isToday ? 'Período atual' : undefined}
+          >
+            <span className="truncate w-full">{c.label}</span>
+            {c.sublabel && <span className={`text-[10px] font-normal whitespace-nowrap ${isToday ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}`}>{c.sublabel}</span>}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-function GridRow({ columns, paradaSet, onToggleParada }: { columns: Column[]; paradaSet: Set<string>; onToggleParada: (iso: string) => void }) {
+function GridRow({
+  columns,
+  paradaSet,
+  onToggleParada,
+  colWidth,
+  todayIdx,
+}: {
+  columns: Column[];
+  paradaSet: Set<string>;
+  onToggleParada: (iso: string) => void;
+  colWidth: number;
+  todayIdx: number;
+}) {
   return (
     <div className="flex">
       {columns.map((c, i) => {
         const isWeekend = c.date.getDay() === 0 || c.date.getDay() === 6;
         const iso = toISODate(c.date);
         const isParada = paradaSet.has(iso);
+        const isToday = i === todayIdx;
         return (
           <div
             key={i}
@@ -727,11 +1125,13 @@ function GridRow({ columns, paradaSet, onToggleParada }: { columns: Column[]; pa
             className={`border-r border-gray-100 dark:border-slate-800 cursor-pointer transition-colors ${
               isParada
                 ? 'bg-red-100 hover:bg-red-200 dark:bg-red-950/70 dark:hover:bg-red-900/70'
+                : isToday
+                ? 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-800/40'
                 : isWeekend
                 ? 'bg-gray-50 hover:bg-gray-100 dark:bg-slate-800/40 dark:hover:bg-slate-700/40'
                 : 'hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
-            style={{ width: DAY_WIDTH, height: ROW_HEIGHT }}
+            style={{ width: colWidth, height: ROW_HEIGHT }}
             title={isParada ? 'Dia inativo (parada) — clique para reativar' : 'Clique para marcar como parada'}
           />
         );

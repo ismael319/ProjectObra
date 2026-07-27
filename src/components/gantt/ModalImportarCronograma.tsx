@@ -129,6 +129,8 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
   const { currentProject } = useProjects()
   const { addAtividadesBulk } = useGanttStore()
   const [search, setSearch] = useState('')
+  const [percentMin, setPercentMin] = useState<number | ''>('')
+  const [percentMax, setPercentMax] = useState<number | ''>('')
   const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
@@ -167,11 +169,14 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
   // recortar só o item achado sem quebrar a hierarquia visual).
   const filteredGroups = useMemo(() => {
     const term = search.trim().toLowerCase()
+    const min = percentMin === '' ? 0 : percentMin
+    const max = percentMax === '' ? 100 : percentMax
     return groups
       .map((g) => {
         const excluded = excludedByGroup.get(g.id)
         const matches = g.rows.filter((r) => {
           if (excluded?.has(r.uid)) return false
+          if (r.percentComplete < min || r.percentComplete > max) return false
           if (!term) return true
           return r.nome.toLowerCase().includes(term) || r.codigo.toLowerCase().includes(term)
         })
@@ -194,7 +199,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
         return { ...g, rows, roots: childrenByParent.get(null) ?? [], childrenByParent }
       })
       .filter((g): g is CronogramaGroup => g !== null)
-  }, [groups, search, rowById, excludedByGroup])
+  }, [groups, search, percentMin, percentMax, rowById, excludedByGroup])
 
   function toggleRow(row: Row) {
     setSelected((prev) => {
@@ -287,15 +292,45 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
         </div>
 
         <div className="px-5 pt-3 space-y-3">
-          <div className="relative">
-            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Buscar por nome ou código EDT..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <span className="text-xs text-gray-500 dark:text-slate-400 shrink-0">% concluído</span>
             <input
-              type="text"
-              placeholder="Buscar por nome ou código EDT..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              type="number"
+              min={0}
+              max={100}
+              placeholder="Mín"
+              value={percentMin}
+              onChange={(e) => setPercentMin(e.target.value === '' ? '' : Number(e.target.value))}
+              className="w-20 px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
+            <span className="text-gray-400 dark:text-slate-500 text-sm">–</span>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              placeholder="Máx"
+              value={percentMax}
+              onChange={(e) => setPercentMax(e.target.value === '' ? '' : Number(e.target.value))}
+              className="w-20 px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {(percentMin !== '' || percentMax !== '') && (
+              <button
+                onClick={() => { setPercentMin(''); setPercentMax('') }}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+              >
+                Limpar
+              </button>
+            )}
           </div>
           <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-3">
             <ColumnValueFilter

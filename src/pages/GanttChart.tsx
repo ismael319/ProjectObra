@@ -1,21 +1,61 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Loader2 } from 'lucide-react';
+import { Loader2, PanelLeftOpen } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
 import { ScenarioTabs } from '@/components/gantt/ScenarioTabs';
 import { Toolbar } from '@/components/gantt/Toolbar';
 import { EquipesSidebar } from '@/components/gantt/EquipesSidebar';
-import { GanttChart as GanttLivro } from '@/components/gantt/GanttChart';
+import { GanttChart as GanttLivro, DEFAULT_LABEL_WIDTH } from '@/components/gantt/GanttChart';
 import { Histograma } from '@/components/gantt/Histograma';
 import ModalImportarCronograma from '@/components/gantt/ModalImportarCronograma';
-import { parseDate, addDays, startOfWeek } from '@/lib/gantt/dates';
+import { parseDate, addDays, startOfWeek, toISODate } from '@/lib/gantt/dates';
 import type { Granularidade } from '@/lib/gantt/histograma';
+import type { Atividade } from '@/lib/gantt/supabase';
+
+// Achata a árvore (parent_id) em ordem pai->filhos, igual à ordem visual do
+// Gantt — sem isso a exportação saía na ordem crua do banco, misturando
+// projeto, sub-item e item-irmão sem relação nenhuma entre linhas vizinhas.
+function flattenTree(list: Atividade[]): { atv: Atividade; depth: number }[] {
+  const byParent = new Map<string | null, Atividade[]>();
+  for (const a of list) {
+    const key = a.parent_id ?? null;
+    const arr = byParent.get(key) ?? [];
+    arr.push(a);
+    byParent.set(key, arr);
+  }
+  for (const arr of byParent.values()) arr.sort((x, y) => x.ordem - y.ordem);
+
+  const result: { atv: Atividade; depth: number }[] = [];
+  function walk(parentId: string | null, depth: number) {
+    for (const a of byParent.get(parentId) ?? []) {
+      result.push({ atv: a, depth });
+      walk(a.id, depth + 1);
+    }
+  }
+  walk(null, 0);
+  return result;
+}
+
+function excelToISODate(v: unknown): string | null {
+  if (v == null || v === '') return null;
+  if (v instanceof Date) return toISODate(v);
+  if (typeof v === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(v);
+    return parsed ? `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}` : null;
+  }
+  return String(v).trim().slice(0, 10) || null;
+}
 
 export default function GanttChartPage() {
-  const { loading, error, loadAll, atividades, equipes, activeScenarioId } = useGanttStore();
+  const { loading, error, loadAll, atividades, equipes, activeScenarioId, updateAtividade } = useGanttStore();
   const [granularidade, setGranularidade] = useState<Granularidade>('dia');
   const [scrollLeft, setScrollLeft] = useState(0);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [equipesOpen, setEquipesOpen] = useState(true);
+  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
   const ganttScrollRef = useRef<HTMLDivElement>(null);
+  const excelFileRef = useRef<HTMLInputElement>(null);
 
   const scenarioAtividades = useMemo(
     () => atividades.filter((a) => a.scenario_id === activeScenarioId),
@@ -61,22 +101,78 @@ export default function GanttChartPage() {
 
   const handleExportExcel = () => {
     const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
-    const rows: string[] = [];
-    rows.push('ID,Atividade,Data Inicio,Data Fim,Equipes,Cor');
-    scenarioAtividades.forEach((a) => {
-      const eqNomes = a.equipes_alocadas
+    const rows = flattenTree(scenarioAtividades).map(({ atv: a, depth }) => ({
+      ID: a.id,
+      // Indentação por profundidade — sem isso um projeto e seus sub-itens
+      // ficavam visualmente idênticos, uma linha atrás da outra sem hierarquia.
+      Atividade: '    '.repeat(depth) + a.nome,
+      'Data Início': parseDate(a.data_inicio),
+      'Data Fim': parseDate(a.data_fim),
+      '% Concluído': a.percentual_concluido,
+      Equipes: a.equipes_alocadas
         .map((eqId) => scenarioEquipes.find((e) => e.id === eqId)?.nome)
         .filter(Boolean)
-        .join('; ');
-      rows.push(`${a.id},"${a.nome}",${a.data_inicio},${a.data_fim},"${eqNomes}",${a.cor}`);
-    });
-    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'gantt-livre.csv';
-    a.click();
-    URL.revokeObjectURL(url);
+        .join('; '),
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{ wch: 16 }, { wch: 50 }, { wch: 13 }, { wch: 13 }, { wch: 12 }, { wch: 30 }];
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+    const dateFmt = 'dd/mm/yyyy';
+    const range = XLSX.utils.decode_range(ws['!ref'] ?? 'A1');
+    for (let r = range.s.r + 1; r <= range.e.r; r++) {
+      for (const col of ['C', 'D']) {
+        const cell = ws[`${col}${r + 1}`];
+        if (cell) cell.z = dateFmt;
+      }
+    }
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Gantt Livre');
+    XLSX.writeFile(wb, 'gantt-livre.xlsx');
+    toast.success('Excel exportado com sucesso');
+  };
+
+  // Reimporta a planilha exportada (depois de ajustes) — casa cada linha pela
+  // coluna ID com a atividade já existente e atualiza só os campos presentes.
+  // Não cria atividade nova: linhas com ID vazio/desconhecido são ignoradas.
+  const handleImportExcel = async (file: File) => {
+    try {
+      const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, string | number | Date | null>>(ws, { defval: null });
+
+      let atualizadas = 0;
+      let ignoradas = 0;
+      for (const row of rows) {
+        const id = String(row.ID ?? '').trim();
+        const atv = scenarioAtividades.find((a) => a.id === id);
+        if (!id || !atv) { ignoradas++; continue; }
+
+        const patch: Partial<Atividade> = {};
+        // trim: a exportação prefixa espaços pra indentar a hierarquia visualmente.
+        if (row.Atividade != null) patch.nome = String(row.Atividade).trim();
+        const novoInicio = excelToISODate(row['Data Início']);
+        if (novoInicio) patch.data_inicio = novoInicio;
+        const novoFim = excelToISODate(row['Data Fim']);
+        if (novoFim) patch.data_fim = novoFim;
+        if (row['% Concluído'] != null) {
+          patch.percentual_concluido = Math.max(0, Math.min(100, Number(row['% Concluído']) || 0));
+        }
+        if (row.Equipes != null) {
+          const nomes = String(row.Equipes).split(';').map((s) => s.trim()).filter(Boolean);
+          patch.equipes_alocadas = nomes
+            .map((n) => scenarioEquipes.find((e) => e.nome.toLowerCase() === n.toLowerCase())?.id)
+            .filter((v): v is string => !!v);
+        }
+        await updateAtividade(id, patch);
+        atualizadas++;
+      }
+      toast.success(`Excel importado: ${atualizadas} atividade(s) atualizada(s)${ignoradas > 0 ? `, ${ignoradas} linha(s) ignorada(s) (ID não encontrado)` : ''}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Erro ao importar Excel';
+      toast.error(msg);
+    }
   };
 
   if (loading) {
@@ -100,15 +196,38 @@ export default function GanttChartPage() {
       <div className="bg-white dark:bg-slate-900 rounded-xl overflow-hidden" style={{ height: 'calc(100vh - 100px)' }}>
         <div className="h-full flex flex-col">
           <ScenarioTabs />
+          <input
+            ref={excelFileRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleImportExcel(file);
+              e.target.value = '';
+            }}
+          />
           <Toolbar
             granularidade={granularidade}
             onGranularidadeChange={setGranularidade}
             onPrint={handlePrint}
             onExportExcel={handleExportExcel}
-            onImport={() => setShowImportModal(true)}
+            onImportExcel={() => excelFileRef.current?.click()}
+            onImportCronograma={() => setShowImportModal(true)}
           />
           <div className="flex flex-1 overflow-hidden">
-            <EquipesSidebar />
+            {equipesOpen ? (
+              <EquipesSidebar onCollapse={() => setEquipesOpen(false)} />
+            ) : (
+              <button
+                onClick={() => setEquipesOpen(true)}
+                className="shrink-0 w-8 flex flex-col items-center justify-center gap-2 bg-gray-50 dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                title="Mostrar equipes"
+              >
+                <PanelLeftOpen size={16} />
+                <span className="text-[10px] font-medium tracking-wide uppercase [writing-mode:vertical-rl]">Equipes</span>
+              </button>
+            )}
             <div className="flex-1 flex flex-col overflow-hidden">
               <div className="flex-1 overflow-hidden">
                 <GanttLivro
@@ -118,6 +237,8 @@ export default function GanttChartPage() {
                   scrollRef={ganttScrollRef}
                   onScrollSync={onScrollSync}
                   onDateRangeChange={onDateRangeChange}
+                  labelWidth={labelWidth}
+                  onLabelWidthChange={setLabelWidth}
                 />
               </div>
               <Histograma
@@ -126,6 +247,7 @@ export default function GanttChartPage() {
                 dataFim={dataFim}
                 scrollLeft={scrollLeft}
                 onScrollSync={onScrollSync}
+                labelWidth={labelWidth}
               />
             </div>
           </div>

@@ -13,9 +13,19 @@ type State = {
   loadAll: () => Promise<void>;
   setActiveScenario: (id: string) => void;
   addScenario: (name: string) => Promise<void>;
+  // Cria um cenário novo já copiando equipes, atividades (hierarquia,
+  // dependências e vínculo de equipe remapeados pros novos ids) e paradas
+  // de um cenário existente — pra não ter que recriar tudo do zero.
+  duplicateScenario: (name: string, sourceScenarioId: string) => Promise<void>;
+  // Mesma cópia de duplicateScenario, mas a partir de dados de um arquivo
+  // (exportScenarioData/JSON), não de outro cenário já carregado no store —
+  // usado pra importar um cenário exportado (de outro projeto, backup, etc.).
+  importScenario: (name: string, data: ScenarioExportData) => Promise<void>;
   renameScenario: (id: string, name: string) => Promise<void>;
   deleteScenario: (id: string) => Promise<void>;
-  addEquipe: (data: { nome: string; cor: string; funcoes: FuncaoRow[]; equipamentos: EquipamentoRow[] }) => Promise<void>;
+  // Retorna o id criado (ou null se falhou) — usado pra auto-vincular a
+  // equipe recém-criada numa atividade sem o usuário ter que procurar de novo.
+  addEquipe: (data: { nome: string; cor: string; funcoes: FuncaoRow[]; equipamentos: EquipamentoRow[] }) => Promise<string | null>;
   updateEquipe: (id: string, patch: Partial<Equipe>) => Promise<void>;
   deleteEquipe: (id: string) => Promise<void>;
   addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string, parentId?: string | null, percentualConcluido?: number) => Promise<void>;
@@ -39,6 +49,91 @@ type State = {
 
 const genId = (prefix: string) =>
   prefix + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+// Formato do arquivo de exportação de cenário — equipes/atividades/paradas
+// crus (com os ids antigos, que são só remapeados na importação).
+export type ScenarioExportData = {
+  equipes: Equipe[];
+  atividades: Atividade[];
+  paradas: Parada[];
+};
+
+export function exportScenarioData(equipes: Equipe[], atividades: Atividade[], paradas: Parada[], scenarioId: string): ScenarioExportData {
+  return {
+    equipes: equipes.filter((e) => e.scenario_id === scenarioId),
+    atividades: atividades.filter((a) => a.scenario_id === scenarioId),
+    paradas: paradas.filter((p) => p.scenario_id === scenarioId),
+  };
+}
+
+// Copia equipes/atividades/paradas de uma origem (outro cenário no store, ou
+// um arquivo JSON importado) pra dentro de `targetScenarioId` — gera ids
+// novos e remapeia toda referência (parent_id, equipes_alocadas,
+// predecessoras) pros ids novos. Usado por duplicateScenario e importScenario.
+async function copyScenarioData(
+  targetScenarioId: string,
+  sourceEquipes: Equipe[],
+  sourceAtividades: Atividade[],
+  sourceParadas: Parada[],
+): Promise<{ equipes: Equipe[]; atividades: Atividade[]; paradas: Parada[] }> {
+  const equipeIdMap = new Map<string, string>();
+  const novasEquipes: Equipe[] = [];
+  for (const eq of sourceEquipes) {
+    const newId = genId('eq');
+    const { error } = await supabase.from('equipes').insert({
+      id: newId, scenario_id: targetScenarioId, nome: eq.nome, cor: eq.cor, funcoes: eq.funcoes, equipamentos: eq.equipamentos,
+      funcao: eq.funcao, quantidade_funcionarios: eq.quantidade_funcionarios,
+    });
+    if (reportError(`copiar equipe "${eq.nome}"`, error)) continue;
+    equipeIdMap.set(eq.id, newId);
+    novasEquipes.push({ ...eq, id: newId, scenario_id: targetScenarioId });
+  }
+
+  // Pai antes do filho — mesma exigência de addAtividadesBulk (FK de parent_id).
+  const atvIdMap = new Map<string, string>();
+  for (const a of sourceAtividades) atvIdMap.set(a.id, genId('atv'));
+  const byId = new Map(sourceAtividades.map((a) => [a.id, a]));
+  const ordered: Atividade[] = [];
+  const visited = new Set<string>();
+  const visit = (a: Atividade) => {
+    if (visited.has(a.id)) return;
+    visited.add(a.id);
+    if (a.parent_id && byId.has(a.parent_id)) visit(byId.get(a.parent_id)!);
+    ordered.push(a);
+  };
+  sourceAtividades.forEach(visit);
+
+  const novasAtividades: Atividade[] = [];
+  for (const a of ordered) {
+    const newId = atvIdMap.get(a.id)!;
+    const newParentId = a.parent_id ? atvIdMap.get(a.parent_id) ?? null : null;
+    const newEquipes = a.equipes_alocadas.map((eqId) => equipeIdMap.get(eqId)).filter((v): v is string => !!v);
+    const newPreds: Dependencia[] = (a.predecessoras ?? [])
+      .map((p) => ({ id: atvIdMap.get(p.id) ?? '', lag: p.lag }))
+      .filter((p) => p.id !== '');
+    const { error } = await supabase.from('gantt_atividades').insert({
+      id: newId, scenario_id: targetScenarioId, nome: a.nome, data_inicio: a.data_inicio, data_fim: a.data_fim,
+      equipes_alocadas: newEquipes, cor: a.cor, ordem: a.ordem, predecessoras: newPreds,
+      parent_id: newParentId, percentual_concluido: a.percentual_concluido,
+    });
+    if (reportError(`copiar atividade "${a.nome}"`, error)) continue;
+    novasAtividades.push({
+      id: newId, scenario_id: targetScenarioId, nome: a.nome, data_inicio: a.data_inicio, data_fim: a.data_fim,
+      equipes_alocadas: newEquipes, cor: a.cor, ordem: a.ordem, predecessoras: newPreds,
+      parent_id: newParentId, percentual_concluido: a.percentual_concluido,
+    });
+  }
+
+  const novasParadas: Parada[] = [];
+  for (const p of sourceParadas) {
+    const newId = genId('prd');
+    const { error } = await supabase.from('paradas').insert({ id: newId, scenario_id: targetScenarioId, data: p.data });
+    if (reportError('copiar parada', error)) continue;
+    novasParadas.push({ id: newId, scenario_id: targetScenarioId, data: p.data });
+  }
+
+  return { equipes: novasEquipes, atividades: novasAtividades, paradas: novasParadas };
+}
 
 function deriveLegacy(funcoes: FuncaoRow[]): { funcao: string; quantidade_funcionarios: number } {
   const first = funcoes[0];
@@ -114,6 +209,41 @@ export const useGanttStore = create<State>((set, get) => ({
     }));
   },
 
+  duplicateScenario: async (name, sourceScenarioId) => {
+    const id = genId('scn');
+    const { error: scnError } = await supabase.from('scenarios').insert({ id, name });
+    if (reportError('duplicar cenário', scnError)) return;
+
+    const sourceEquipes = get().equipes.filter((e) => e.scenario_id === sourceScenarioId);
+    const sourceAtividades = get().atividades.filter((a) => a.scenario_id === sourceScenarioId);
+    const sourceParadas = get().paradas.filter((p) => p.scenario_id === sourceScenarioId);
+    const { equipes, atividades, paradas } = await copyScenarioData(id, sourceEquipes, sourceAtividades, sourceParadas);
+
+    set((s) => ({
+      scenarios: [...s.scenarios, { id, name }],
+      equipes: [...s.equipes, ...equipes],
+      atividades: [...s.atividades, ...atividades],
+      paradas: [...s.paradas, ...paradas],
+      activeScenarioId: id,
+    }));
+  },
+
+  importScenario: async (name, data) => {
+    const id = genId('scn');
+    const { error: scnError } = await supabase.from('scenarios').insert({ id, name });
+    if (reportError('importar cenário', scnError)) return;
+
+    const { equipes, atividades, paradas } = await copyScenarioData(id, data.equipes, data.atividades, data.paradas);
+
+    set((s) => ({
+      scenarios: [...s.scenarios, { id, name }],
+      equipes: [...s.equipes, ...equipes],
+      atividades: [...s.atividades, ...atividades],
+      paradas: [...s.paradas, ...paradas],
+      activeScenarioId: id,
+    }));
+  },
+
   renameScenario: async (id, name) => {
     const { error } = await supabase.from('scenarios').update({ name }).eq('id', id);
     if (reportError('renomear cenário', error)) return;
@@ -136,7 +266,7 @@ export const useGanttStore = create<State>((set, get) => ({
 
   addEquipe: async ({ nome, cor, funcoes, equipamentos }) => {
     const sid = get().activeScenarioId;
-    if (!sid) return;
+    if (!sid) return null;
     const id = genId('eq');
     const legacy = deriveLegacy(funcoes);
     const { error } = await supabase.from('equipes').insert({
@@ -149,13 +279,14 @@ export const useGanttStore = create<State>((set, get) => ({
       funcao: legacy.funcao,
       quantidade_funcionarios: legacy.quantidade_funcionarios,
     });
-    if (reportError('criar equipe', error)) return;
+    if (reportError('criar equipe', error)) return null;
     set((s) => ({
       equipes: [
         ...s.equipes,
         { id, scenario_id: sid, nome, cor, funcoes, equipamentos, ...legacy },
       ],
     }));
+    return id;
   },
 
   updateEquipe: async (id, patch) => {

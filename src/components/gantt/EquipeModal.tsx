@@ -9,9 +9,12 @@ type Props = {
   open: boolean;
   onClose: () => void;
   editingEquipe?: Equipe | null;
+  // Chamado com o id da equipe recém-criada (só na criação, não na edição) —
+  // usado pra auto-vincular numa atividade sem o usuário procurar de novo.
+  onCreated?: (id: string) => void;
 };
 
-export function EquipeModal({ open, onClose, editingEquipe }: Props) {
+export function EquipeModal({ open, onClose, editingEquipe, onCreated }: Props) {
   const { addEquipe, updateEquipe } = useGanttStore();
   const [nome, setNome] = useState('');
   const [cor, setCor] = useState(COLORS[0]);
@@ -46,7 +49,8 @@ export function EquipeModal({ open, onClose, editingEquipe }: Props) {
     if (editingEquipe) {
       await updateEquipe(editingEquipe.id, { nome: nome.trim(), cor, funcoes: cleanFuncoes, equipamentos: cleanEquip });
     } else {
-      await addEquipe({ nome: nome.trim(), cor, funcoes: cleanFuncoes, equipamentos: cleanEquip });
+      const id = await addEquipe({ nome: nome.trim(), cor, funcoes: cleanFuncoes, equipamentos: cleanEquip });
+      if (id) onCreated?.(id);
     }
     onClose();
   };

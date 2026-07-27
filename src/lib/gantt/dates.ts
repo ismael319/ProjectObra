@@ -1,6 +1,17 @@
 export const DAY_MS = 24 * 60 * 60 * 1000;
 export const DAY_WIDTH = 38;
 
+// Largura de UMA coluna do timeline — em 'dia' cada coluna é 1 dia (compacto
+// de propósito), mas em 'semana'/'mes' cada coluna já representa um período
+// bem maior, então precisa de mais espaço ou o texto do cabeçalho fica
+// espremido. Usado tanto no Gantt quanto no Histograma (compartilham o
+// mesmo scroll horizontal, então precisam da mesma largura por coluna).
+export function columnWidthFor(gran: 'dia' | 'semana' | 'mes'): number {
+  if (gran === 'semana') return 96;
+  if (gran === 'mes') return 76;
+  return DAY_WIDTH;
+}
+
 export function parseDate(s: string): Date {
   const [y, m, d] = s.split('-').map(Number);
   return new Date(y, m - 1, d);

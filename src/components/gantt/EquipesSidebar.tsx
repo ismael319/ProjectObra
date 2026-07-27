@@ -1,10 +1,14 @@
 import { useState } from 'react';
-import { Plus, Trash2, Users, Pencil } from 'lucide-react';
+import { Plus, Trash2, Users, Pencil, PanelLeftClose } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
 import { EquipeModal } from './EquipeModal';
 import type { Equipe } from '@/lib/gantt/supabase';
 
-export function EquipesSidebar() {
+type Props = {
+  onCollapse: () => void;
+};
+
+export function EquipesSidebar({ onCollapse }: Props) {
   const { equipes, activeScenarioId, deleteEquipe } = useGanttStore();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEquipe, setEditingEquipe] = useState<Equipe | null>(null);
@@ -30,12 +34,21 @@ export function EquipesSidebar() {
     <div className="w-52 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
         <h2 className="text-sm font-semibold text-gray-900 dark:text-white tracking-wide uppercase">Equipes</h2>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-md transition-colors"
-        >
-          <Plus size={14} /> Nova
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-md transition-colors"
+          >
+            <Plus size={14} /> Nova
+          </button>
+          <button
+            onClick={onCollapse}
+            className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white p-1.5 rounded-md hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+            title="Ocultar equipes"
+          >
+            <PanelLeftClose size={16} />
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto">
