@@ -28,8 +28,8 @@ export default function CronogramaManager() {
   const activeCount = cronogramas.filter((c) => c.ativo).length
   const hasPendingChanges = Object.keys(pendingChanges).length > 0
 
-  const handleUpload = (cronograma: CronogramaInfo) => {
-    addCronograma(currentProject.id, cronograma)
+  const handleUpload = async (cronograma: CronogramaInfo) => {
+    await addCronograma(currentProject.id, cronograma)
   }
 
   const handleDelete = (id: string) => {

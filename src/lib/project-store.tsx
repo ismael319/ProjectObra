@@ -54,7 +54,7 @@ interface ProjectContextType {
   deleteProject: (id: string) => void
   duplicateProject: (id: string) => Project
   archiveProject: (id: string) => void
-  addCronograma: (projectId: string, cronograma: CronogramaInfo) => void
+  addCronograma: (projectId: string, cronograma: CronogramaInfo) => Promise<void>
   removeCronograma: (projectId: string, cronogramaId: string) => void
   updateCronograma: (projectId: string, cronogramaId: string, data: Partial<CronogramaInfo>) => void
   toggleCronograma: (projectId: string, cronogramaId: string) => void
@@ -450,7 +450,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     updateProject(id, { status: 'arquivado' })
   }
 
-  const addCronograma = (projectId: string, cronograma: CronogramaInfo) => {
+  const addCronograma = async (projectId: string, cronograma: CronogramaInfo) => {
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -476,7 +476,10 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     if (currentProject?.id === projectId && updated) {
       setCurrentProjectState(updated)
     }
-    if (updated) syncProjectRemote(updated)
+    // Diferente das outras ações (fire-and-forget): aqui o chamador (o modal de
+    // upload) precisa aguardar o envio pra nuvem terminar antes de fechar a
+    // tela — senão o usuário acha que salvou e o cronograma pode ter falhado.
+    if (updated) await syncProjectRemote(updated)
   }
 
   const removeCronograma = (projectId: string, cronogramaId: string) => {

@@ -149,9 +149,9 @@ export default function ProjectSelection() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const handleUploadFromManager = (cronograma: CronogramaInfo) => {
+  const handleUploadFromManager = async (cronograma: CronogramaInfo) => {
     if (managingProjectId) {
-      addCronograma(managingProjectId, cronograma)
+      await addCronograma(managingProjectId, cronograma)
     }
   }
 

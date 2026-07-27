@@ -7,7 +7,7 @@ import { CRON_COLORS_CONST } from '@/lib/project-store'
 interface Props {
   open: boolean
   onClose: () => void
-  onUpload: (cronograma: CronogramaInfo) => void
+  onUpload: (cronograma: CronogramaInfo) => Promise<void>
   existingColors: string[]
 }
 
@@ -46,15 +46,16 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
 
   const cor = pickCor(existingColors)
 
-  // ESC para fechar
+  // ESC para fechar — desativado durante o envio, pra não deixar fechar a
+  // tela achando que cancelou enquanto o upload ainda está em andamento.
   useEffect(() => {
-    if (!open) return
+    if (!open || loading) return
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-  }, [open, onClose])
+  }, [open, loading, onClose])
 
   // Focar no campo nome ao abrir
   useEffect(() => {
@@ -114,7 +115,7 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
     reader.readAsArrayBuffer(file)
   }
 
-  const handleUpload = () => {
+  const handleUpload = async () => {
     if (!nome.trim()) { setError('Informe o nome do cronograma.'); return }
     if (!parsedRef.current) { setError('Selecione um arquivo XML válido.'); return }
 
@@ -131,7 +132,9 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
       dataUpload: new Date().toISOString(),
       dados: parsedRef.current,
     }
-    onUpload(cronograma)
+    // Espera o envio pra nuvem terminar antes de fechar — senão a tela some
+    // e o usuário acha que salvou, mesmo se o envio remoto tiver falhado.
+    await onUpload(cronograma)
     setLoading(false)
     resetForm()
     onClose()
@@ -154,11 +157,18 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/50" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50" onClick={loading ? undefined : onClose} />
       <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        {loading && (
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-white/90 dark:bg-gray-800/90 rounded-xl">
+            <div className="w-10 h-10 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin" />
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-200">Salvando cronograma na nuvem...</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500 px-6 text-center">Não feche esta tela — cronogramas grandes podem levar alguns instantes.</p>
+          </div>
+        )}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Upload de Cronograma</h2>
-          <button onClick={onClose} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+          <button onClick={onClose} disabled={loading} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed">
             <X size={20} className="text-gray-500" />
           </button>
         </div>
@@ -271,7 +281,11 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
         </div>
 
         <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-          <button onClick={() => { resetForm(); onClose() }} className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition">
+          <button
+            onClick={() => { resetForm(); onClose() }}
+            disabled={loading}
+            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             Cancelar
           </button>
           <button
