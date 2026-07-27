@@ -126,6 +126,26 @@ interface ProjetoRow {
   projeto_cronogramas: CronogramaRow[] | null
 }
 
+// JSON não tem tipo "Date" — depois que `dados` (o ParsedProject inteiro, com
+// datas de atividades, baselines e timephased) vai pro Supabase e volta, todo
+// campo que era `Date` no parser do XML volta como string ISO simples. Sem
+// reviver isso aqui, qualquer tela que chama .getTime()/.toLocaleDateString()
+// nesses campos quebra — mas só depois de recarregar a página (dados recém
+// parseados na mesma sessão continuam sendo Date de verdade, por isso esse
+// bug só aparece depois que o cronograma já foi salvo e lido de volta).
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})?$/
+
+function reviveDates(value: unknown): unknown {
+  if (typeof value === 'string' && ISO_DATE_RE.test(value)) return new Date(value)
+  if (Array.isArray(value)) return value.map(reviveDates)
+  if (value && typeof value === 'object') {
+    const result: Record<string, unknown> = {}
+    for (const [k, v] of Object.entries(value)) result[k] = reviveDates(v)
+    return result
+  }
+  return value
+}
+
 function mapCronogramaRow(row: CronogramaRow): CronogramaInfo {
   return {
     id: row.id,
@@ -137,7 +157,7 @@ function mapCronogramaRow(row: CronogramaRow): CronogramaInfo {
     peso: Number(row.peso ?? 0),
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
-    dados: row.dados,
+    dados: reviveDates(row.dados) as ParsedProject,
   }
 }
 
