@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
+import ChatWidget from '@/components/ChatWidget'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
@@ -213,6 +214,8 @@ export default function DashboardLayout() {
           <Outlet />
         </div>
       </main>
+
+      <ChatWidget />
     </div>
   )
 }

@@ -1,0 +1,212 @@
+// Serverless function (Vercel) — assistente de IA do dashboard. Fica no
+// servidor de propósito: a chave da Anthropic nunca pode viver no navegador.
+//
+// Segurança: em vez de usar uma service-role key (que ignora RLS e exigiria
+// reimplementar manualmente toda checagem de organização/projeto aqui), o
+// client do Supabase é criado com o token de acesso do PRÓPRIO usuário que
+// está perguntando — a mesma RLS que já protege "projetos"/"projeto_cronogramas"
+// no resto do app se aplica aqui também, de graça.
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import Anthropic from '@anthropic-ai/sdk'
+
+// Edge Function: usa a API padrão Request/Response (não precisa de
+// @vercel/node) — tanto o SDK da Anthropic quanto o do Supabase são
+// baseados em fetch, compatíveis com o runtime Edge.
+export const config = { runtime: 'edge' }
+
+interface WBSActivityLike {
+  uid: number
+  name: string
+  wbs: string
+  outlineLevel: number
+  start: string
+  finish: string
+  percentComplete: number
+  isSummary: boolean
+}
+
+interface CronogramaRow {
+  nome: string
+  dados: { activities: WBSActivityLike[] } | null
+}
+
+function hojeISODate(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function diasAtraso(finish: string, percentComplete: number): number {
+  const fim = new Date(finish)
+  const hoje = new Date(hojeISODate())
+  if (percentComplete >= 100 || fim >= hoje) return 0
+  return Math.round((hoje.getTime() - fim.getTime()) / 86400000)
+}
+
+function formatarAtividade(a: WBSActivityLike, cronogramaNome: string) {
+  const atraso = diasAtraso(a.finish, a.percentComplete)
+  return {
+    nome: a.name,
+    codigo_edt: a.wbs,
+    cronograma: cronogramaNome,
+    percentual_concluido: Math.round(a.percentComplete),
+    inicio: a.start?.slice(0, 10),
+    termino: a.finish?.slice(0, 10),
+    dias_atraso: atraso,
+    status: a.percentComplete >= 100 ? 'concluída' : atraso > 0 ? 'atrasada' : 'em andamento',
+  }
+}
+
+async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: string): Promise<{ nome: string; activities: WBSActivityLike[] }[]> {
+  const { data, error } = await supabaseUser
+    .from('projeto_cronogramas')
+    .select('nome, dados')
+    .eq('projeto_id', projetoId)
+    .eq('ativo', true)
+  if (error) throw new Error(error.message)
+  return ((data ?? []) as CronogramaRow[])
+    .filter((c) => c.dados?.activities)
+    .map((c) => ({
+      nome: c.nome,
+      // Só folhas (não os itens "resumo" do WBS) — é o que representa trabalho de verdade.
+      activities: c.dados!.activities.filter((a) => a.outlineLevel > 0 && !a.isSummary),
+    }))
+}
+
+const TOOLS: Anthropic.Tool[] = [
+  {
+    name: 'buscar_atividade',
+    description: 'Busca atividades do cronograma do projeto atual pelo nome (busca parcial, case-insensitive). Retorna datas, % concluído e atraso.',
+    input_schema: {
+      type: 'object',
+      properties: {
+        nome: { type: 'string', description: 'Trecho do nome da atividade a buscar, ex.: "fundação"' },
+      },
+      required: ['nome'],
+    },
+  },
+  {
+    name: 'listar_atrasadas',
+    description: 'Lista as atividades do cronograma do projeto atual que estão atrasadas (data de término já passou e não estão 100% concluídas).',
+    input_schema: { type: 'object', properties: {} },
+  },
+]
+
+export default async function handler(req: Request): Promise<Response> {
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 })
+  }
+
+  const authHeader = req.headers.get('authorization')
+  if (!authHeader) {
+    return new Response(JSON.stringify({ error: 'Não autenticado' }), { status: 401 })
+  }
+
+  let body: { projetoId?: string; mensagem?: string; historico?: { role: 'user' | 'assistant'; content: string }[] }
+  try {
+    body = await req.json()
+  } catch {
+    return new Response(JSON.stringify({ error: 'Corpo da requisição inválido' }), { status: 400 })
+  }
+  const { projetoId, mensagem, historico = [] } = body
+  if (!projetoId || !mensagem?.trim()) {
+    return new Response(JSON.stringify({ error: 'projetoId e mensagem são obrigatórios' }), { status: 400 })
+  }
+
+  const supabaseUrl = process.env.VITE_SUPABASE_URL
+  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
+  const anthropicKey = process.env.ANTHROPIC_API_KEY
+  if (!supabaseUrl || !supabaseAnonKey || !anthropicKey) {
+    return new Response(JSON.stringify({ error: 'Configuração do servidor incompleta' }), { status: 500 })
+  }
+
+  const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+  })
+
+  // Confirma que o token é válido e pega o nome do projeto — também serve
+  // como checagem indireta de que esse projeto existe e é acessível (RLS).
+  const { data: projeto, error: erroProjeto } = await supabaseUser
+    .from('projetos')
+    .select('nome')
+    .eq('id', projetoId)
+    .maybeSingle()
+  if (erroProjeto) {
+    return new Response(JSON.stringify({ error: `Erro ao verificar projeto: ${erroProjeto.message}` }), { status: 500 })
+  }
+  if (!projeto) {
+    return new Response(JSON.stringify({ error: 'Projeto não encontrado ou sem permissão de acesso' }), { status: 403 })
+  }
+
+  const anthropic = new Anthropic({ apiKey: anthropicKey })
+
+  const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. Se a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`
+
+  const messages: Anthropic.MessageParam[] = [
+    ...historico.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
+    { role: 'user', content: mensagem },
+  ]
+
+  try {
+    let resposta = await anthropic.messages.create({
+      model: 'claude-sonnet-5',
+      max_tokens: 1024,
+      system: systemPrompt,
+      tools: TOOLS,
+      messages,
+    })
+
+    // Loop de tool-use: enquanto o modelo pedir pra chamar uma ferramenta,
+    // executa e devolve o resultado, até ele responder com texto final.
+    let voltas = 0
+    while (resposta.stop_reason === 'tool_use' && voltas < 4) {
+      voltas++
+      messages.push({ role: 'assistant', content: resposta.content })
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = []
+      for (const block of resposta.content) {
+        if (block.type !== 'tool_use') continue
+        let resultado: unknown
+        try {
+          if (block.name === 'buscar_atividade') {
+            const nome = ((block.input as { nome?: string }).nome ?? '').toLowerCase()
+            const grupos = await carregarAtividades(supabaseUser, projetoId)
+            const encontradas = grupos.flatMap((g) =>
+              g.activities.filter((a) => a.name.toLowerCase().includes(nome)).map((a) => formatarAtividade(a, g.nome))
+            ).slice(0, 8)
+            resultado = encontradas.length > 0 ? encontradas : { aviso: 'Nenhuma atividade encontrada com esse nome.' }
+          } else if (block.name === 'listar_atrasadas') {
+            const grupos = await carregarAtividades(supabaseUser, projetoId)
+            const atrasadas = grupos.flatMap((g) =>
+              g.activities.filter((a) => diasAtraso(a.finish, a.percentComplete) > 0).map((a) => formatarAtividade(a, g.nome))
+            ).sort((a, b) => b.dias_atraso - a.dias_atraso).slice(0, 15)
+            resultado = atrasadas.length > 0 ? atrasadas : { aviso: 'Nenhuma atividade atrasada encontrada.' }
+          } else {
+            resultado = { erro: `Ferramenta desconhecida: ${block.name}` }
+          }
+        } catch (e) {
+          resultado = { erro: e instanceof Error ? e.message : 'Erro ao consultar dados' }
+        }
+        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(resultado) })
+      }
+
+      messages.push({ role: 'user', content: toolResults })
+      resposta = await anthropic.messages.create({
+        model: 'claude-sonnet-5',
+        max_tokens: 1024,
+        system: systemPrompt,
+        tools: TOOLS,
+        messages,
+      })
+    }
+
+    const textoFinal = resposta.content.find((b) => b.type === 'text')
+    const texto = textoFinal && textoFinal.type === 'text' ? textoFinal.text : 'Não consegui formular uma resposta.'
+
+    return new Response(JSON.stringify({ resposta: texto }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Erro inesperado'
+    return new Response(JSON.stringify({ error: msg }), { status: 500 })
+  }
+}
