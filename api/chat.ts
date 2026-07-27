@@ -1,5 +1,5 @@
 // Serverless function (Vercel) — assistente de IA do dashboard. Fica no
-// servidor de propósito: a chave da Anthropic nunca pode viver no navegador.
+// servidor de propósito: a chave da Gemini nunca pode viver no navegador.
 //
 // Segurança: em vez de usar uma service-role key (que ignora RLS e exigiria
 // reimplementar manualmente toda checagem de organização/projeto aqui), o
@@ -7,11 +7,11 @@
 // está perguntando — a mesma RLS que já protege "projetos"/"projeto_cronogramas"
 // no resto do app se aplica aqui também, de graça.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenerativeAI, SchemaType, type Part, type Tool } from '@google/generative-ai'
 
 // Edge Function: usa a API padrão Request/Response (não precisa de
-// @vercel/node) — tanto o SDK da Anthropic quanto o do Supabase são
-// baseados em fetch, compatíveis com o runtime Edge.
+// @vercel/node) — tanto o SDK da Gemini quanto o do Supabase são baseados
+// em fetch, compatíveis com o runtime Edge.
 export const config = { runtime: 'edge' }
 
 interface WBSActivityLike {
@@ -71,22 +71,55 @@ async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: strin
     }))
 }
 
-const TOOLS: Anthropic.Tool[] = [
+async function executarFerramenta(
+  nome: string,
+  args: Record<string, unknown>,
+  supabaseUser: SupabaseClient,
+  projetoId: string,
+): Promise<unknown> {
+  try {
+    if (nome === 'buscar_atividade') {
+      const termo = (typeof args.nome === 'string' ? args.nome : '').toLowerCase()
+      const grupos = await carregarAtividades(supabaseUser, projetoId)
+      const encontradas = grupos
+        .flatMap((g) => g.activities.filter((a) => a.name.toLowerCase().includes(termo)).map((a) => formatarAtividade(a, g.nome)))
+        .slice(0, 8)
+      return encontradas.length > 0 ? encontradas : { aviso: 'Nenhuma atividade encontrada com esse nome.' }
+    }
+    if (nome === 'listar_atrasadas') {
+      const grupos = await carregarAtividades(supabaseUser, projetoId)
+      const atrasadas = grupos
+        .flatMap((g) => g.activities.filter((a) => diasAtraso(a.finish, a.percentComplete) > 0).map((a) => formatarAtividade(a, g.nome)))
+        .sort((a, b) => b.dias_atraso - a.dias_atraso)
+        .slice(0, 15)
+      return atrasadas.length > 0 ? atrasadas : { aviso: 'Nenhuma atividade atrasada encontrada.' }
+    }
+    return { erro: `Ferramenta desconhecida: ${nome}` }
+  } catch (e) {
+    return { erro: e instanceof Error ? e.message : 'Erro ao consultar dados' }
+  }
+}
+
+const TOOLS: Tool[] = [
   {
-    name: 'buscar_atividade',
-    description: 'Busca atividades do cronograma do projeto atual pelo nome (busca parcial, case-insensitive). Retorna datas, % concluído e atraso.',
-    input_schema: {
-      type: 'object',
-      properties: {
-        nome: { type: 'string', description: 'Trecho do nome da atividade a buscar, ex.: "fundação"' },
+    functionDeclarations: [
+      {
+        name: 'buscar_atividade',
+        description: 'Busca atividades do cronograma do projeto atual pelo nome (busca parcial, case-insensitive). Retorna datas, % concluído e atraso.',
+        parameters: {
+          type: SchemaType.OBJECT,
+          properties: {
+            nome: { type: SchemaType.STRING, description: 'Trecho do nome da atividade a buscar, ex.: "fundação"' },
+          },
+          required: ['nome'],
+        },
       },
-      required: ['nome'],
-    },
-  },
-  {
-    name: 'listar_atrasadas',
-    description: 'Lista as atividades do cronograma do projeto atual que estão atrasadas (data de término já passou e não estão 100% concluídas).',
-    input_schema: { type: 'object', properties: {} },
+      {
+        name: 'listar_atrasadas',
+        description: 'Lista as atividades do cronograma do projeto atual que estão atrasadas (data de término já passou e não estão 100% concluídas).',
+        parameters: { type: SchemaType.OBJECT, properties: {} },
+      },
+    ],
   },
 ]
 
@@ -113,8 +146,8 @@ export default async function handler(req: Request): Promise<Response> {
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
-  const anthropicKey = process.env.ANTHROPIC_API_KEY
-  if (!supabaseUrl || !supabaseAnonKey || !anthropicKey) {
+  const geminiKey = process.env.GEMINI_API_KEY
+  if (!supabaseUrl || !supabaseAnonKey || !geminiKey) {
     return new Response(JSON.stringify({ error: 'Configuração do servidor incompleta' }), { status: 500 })
   }
 
@@ -136,70 +169,42 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Projeto não encontrado ou sem permissão de acesso' }), { status: 403 })
   }
 
-  const anthropic = new Anthropic({ apiKey: anthropicKey })
-
   const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. Se a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`
 
-  const messages: Anthropic.MessageParam[] = [
-    ...historico.map((h) => ({ role: h.role, content: h.content }) as Anthropic.MessageParam),
-    { role: 'user', content: mensagem },
-  ]
-
   try {
-    let resposta = await anthropic.messages.create({
-      model: 'claude-sonnet-5',
-      max_tokens: 1024,
-      system: systemPrompt,
+    const genAI = new GoogleGenerativeAI(geminiKey)
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash',
+      systemInstruction: systemPrompt,
       tools: TOOLS,
-      messages,
     })
 
-    // Loop de tool-use: enquanto o modelo pedir pra chamar uma ferramenta,
-    // executa e devolve o resultado, até ele responder com texto final.
+    const chat = model.startChat({
+      history: historico.map((h) => ({
+        role: h.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: h.content }],
+      })),
+    })
+
+    let result = await chat.sendMessage(mensagem)
+
+    // Loop de function-calling: enquanto o modelo pedir pra chamar uma
+    // ferramenta, executa e devolve o resultado, até ele responder com texto.
     let voltas = 0
-    while (resposta.stop_reason === 'tool_use' && voltas < 4) {
+    while (voltas < 4) {
+      const chamadas = result.response.functionCalls()
+      if (!chamadas || chamadas.length === 0) break
       voltas++
-      messages.push({ role: 'assistant', content: resposta.content })
 
-      const toolResults: Anthropic.ToolResultBlockParam[] = []
-      for (const block of resposta.content) {
-        if (block.type !== 'tool_use') continue
-        let resultado: unknown
-        try {
-          if (block.name === 'buscar_atividade') {
-            const nome = ((block.input as { nome?: string }).nome ?? '').toLowerCase()
-            const grupos = await carregarAtividades(supabaseUser, projetoId)
-            const encontradas = grupos.flatMap((g) =>
-              g.activities.filter((a) => a.name.toLowerCase().includes(nome)).map((a) => formatarAtividade(a, g.nome))
-            ).slice(0, 8)
-            resultado = encontradas.length > 0 ? encontradas : { aviso: 'Nenhuma atividade encontrada com esse nome.' }
-          } else if (block.name === 'listar_atrasadas') {
-            const grupos = await carregarAtividades(supabaseUser, projetoId)
-            const atrasadas = grupos.flatMap((g) =>
-              g.activities.filter((a) => diasAtraso(a.finish, a.percentComplete) > 0).map((a) => formatarAtividade(a, g.nome))
-            ).sort((a, b) => b.dias_atraso - a.dias_atraso).slice(0, 15)
-            resultado = atrasadas.length > 0 ? atrasadas : { aviso: 'Nenhuma atividade atrasada encontrada.' }
-          } else {
-            resultado = { erro: `Ferramenta desconhecida: ${block.name}` }
-          }
-        } catch (e) {
-          resultado = { erro: e instanceof Error ? e.message : 'Erro ao consultar dados' }
-        }
-        toolResults.push({ type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(resultado) })
+      const respostas: Part[] = []
+      for (const chamada of chamadas) {
+        const resultado = await executarFerramenta(chamada.name, chamada.args as Record<string, unknown>, supabaseUser, projetoId)
+        respostas.push({ functionResponse: { name: chamada.name, response: { resultado } } })
       }
-
-      messages.push({ role: 'user', content: toolResults })
-      resposta = await anthropic.messages.create({
-        model: 'claude-sonnet-5',
-        max_tokens: 1024,
-        system: systemPrompt,
-        tools: TOOLS,
-        messages,
-      })
+      result = await chat.sendMessage(respostas)
     }
 
-    const textoFinal = resposta.content.find((b) => b.type === 'text')
-    const texto = textoFinal && textoFinal.type === 'text' ? textoFinal.text : 'Não consegui formular uma resposta.'
+    const texto = result.response.text() || 'Não consegui formular uma resposta.'
 
     return new Response(JSON.stringify({ resposta: texto }), {
       status: 200,
