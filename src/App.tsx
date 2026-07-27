@@ -8,7 +8,7 @@ import { ProjectProvider } from '@/lib/project-context'
 import { ThemeProvider } from '@/lib/theme-context'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
-import RequireOrganizacaoPiloto from '@/components/RequireOrganizacaoPiloto'
+import RequireModulo from '@/components/RequireModulo'
 
 const queryClient = new QueryClient()
 
@@ -111,26 +111,26 @@ function App() {
                       <Route index element={<DashboardHome />} />
                       <Route path="activities" element={<Activities />} />
                       <Route path="planning" element={<SCurve />} />
-                      <Route path="gantt" element={<RequireOrganizacaoPiloto><GanttChart /></RequireOrganizacaoPiloto>} />
+                      <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />
                       <Route path="resources" element={<ResourceHistogram />} />
-                      <Route path="daily" element={<RequireOrganizacaoPiloto><DailyProgramming /></RequireOrganizacaoPiloto>} />
+                      <Route path="daily" element={<RequireModulo modulo="engenharia"><DailyProgramming /></RequireModulo>} />
                       <Route path="occurrences" element={<Occurrences />} />
                       <Route path="labor" element={<LaborTracking />} />
-                      <Route path="people" element={<RequireOrganizacaoPiloto><ApontamentoDashboard /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/lancamento" element={<RequireOrganizacaoPiloto><ApontamentoLancamento /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/validacao" element={<RequireOrganizacaoPiloto><ApontamentoValidacao /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/consulta" element={<RequireOrganizacaoPiloto><ApontamentoConsulta /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/resumo" element={<RequireOrganizacaoPiloto><ApontamentoDashboard /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/evolucao" element={<RequireOrganizacaoPiloto><ApontamentoEvolucao /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/exportar" element={<RequireOrganizacaoPiloto><ApontamentoExportar /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/cadastro" element={<RequireOrganizacaoPiloto><ApontamentoCadastro /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/eap" element={<RequireOrganizacaoPiloto><ApontamentoEap /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/cronograma" element={<RequireOrganizacaoPiloto><ApontamentoEapCronograma /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/importar-xml" element={<RequireOrganizacaoPiloto><ApontamentoImportarXml /></RequireOrganizacaoPiloto>} />
-                      <Route path="people/importar-eap" element={<RequireOrganizacaoPiloto><ApontamentoImportarEap /></RequireOrganizacaoPiloto>} />
-                      <Route path="mapa-chuvas" element={<RequireOrganizacaoPiloto><MapaChuvas /></RequireOrganizacaoPiloto>} />
-                      <Route path="security/rdr" element={<RequireOrganizacaoPiloto><RdrDashboard /></RequireOrganizacaoPiloto>} />
-                      <Route path="security/rdr/registros" element={<RequireOrganizacaoPiloto><RdrRegistros /></RequireOrganizacaoPiloto>} />
+                      <Route path="people" element={<RequireModulo modulo="engenharia"><ApontamentoDashboard /></RequireModulo>} />
+                      <Route path="people/lancamento" element={<RequireModulo modulo="engenharia"><ApontamentoLancamento /></RequireModulo>} />
+                      <Route path="people/validacao" element={<RequireModulo modulo="engenharia"><ApontamentoValidacao /></RequireModulo>} />
+                      <Route path="people/consulta" element={<RequireModulo modulo="engenharia"><ApontamentoConsulta /></RequireModulo>} />
+                      <Route path="people/resumo" element={<RequireModulo modulo="engenharia"><ApontamentoDashboard /></RequireModulo>} />
+                      <Route path="people/evolucao" element={<RequireModulo modulo="engenharia"><ApontamentoEvolucao /></RequireModulo>} />
+                      <Route path="people/exportar" element={<RequireModulo modulo="engenharia"><ApontamentoExportar /></RequireModulo>} />
+                      <Route path="people/cadastro" element={<RequireModulo modulo="engenharia"><ApontamentoCadastro /></RequireModulo>} />
+                      <Route path="people/eap" element={<RequireModulo modulo="engenharia"><ApontamentoEap /></RequireModulo>} />
+                      <Route path="people/cronograma" element={<RequireModulo modulo="engenharia"><ApontamentoEapCronograma /></RequireModulo>} />
+                      <Route path="people/importar-xml" element={<RequireModulo modulo="engenharia"><ApontamentoImportarXml /></RequireModulo>} />
+                      <Route path="people/importar-eap" element={<RequireModulo modulo="engenharia"><ApontamentoImportarEap /></RequireModulo>} />
+                      <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
+                      <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
+                      <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
                       <Route path="admin/organizacoes" element={<OrganizacoesManagement />} />
                     </Route>

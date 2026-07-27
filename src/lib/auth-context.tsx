@@ -11,6 +11,10 @@ interface UserProfile {
   organizacao_id: string | null
   is_super_admin: boolean
   organizacao_piloto: boolean
+  // Chaves dos módulos (pacote) que a empresa do usuário tem contratado —
+  // ex.: ['engenharia', 'seguranca']. Quem decide isso é o Dono da Plataforma,
+  // em Empresas Clientes.
+  modulos: string[]
 }
 
 interface AuthContextType {
@@ -58,12 +62,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     if (data) {
       const organizacaoEmbutida = Array.isArray(data.organizacoes) ? data.organizacoes[0] : data.organizacoes
+      // Módulos contratados pela empresa — busca à parte porque é uma tabela
+      // separada (organizacao_modulos), não um join direto em user_profiles.
+      let modulos: string[] = []
+      if (data.organizacao_id) {
+        const { data: modulosRows } = await supabase
+          .from('organizacao_modulos')
+          .select('modulo_key')
+          .eq('organizacao_id', data.organizacao_id)
+          .eq('ativo', true)
+        modulos = (modulosRows ?? []).map((r) => r.modulo_key as string)
+      }
       setUserProfile({
         papel: data.papel,
         status_solicitacao: data.status_solicitacao,
         organizacao_id: data.organizacao_id,
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
+        modulos,
       })
     } else {
       setUserProfile(null)

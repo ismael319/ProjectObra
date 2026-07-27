@@ -20,21 +20,25 @@ interface NavItem {
   children?: NavItem[]
 }
 
-// Telas do Gantt Livre, Apontamento/EAP, Programação semanal, Mapa de Chuvas
-// e RDR ainda não são isoladas por empresa no banco (ver
-// RequireOrganizacaoPiloto) — por isso só aparecem no menu pra quem é da
-// empresa piloto. Isso é só cosmético: a proteção de verdade é o RLS.
-function buildNavSections(organizacaoPiloto: boolean): { title: string; items: NavItem[] }[] {
+// Telas do Gantt Livre, Apontamento/EAP, Programação semanal e Mapa de Chuvas
+// (módulo "engenharia") e RDR (módulo "seguranca") só aparecem pra empresas
+// que têm esse módulo contratado (ver RequireModulo + Empresas Clientes, onde
+// o Dono da Plataforma libera). Isso é só cosmético: a proteção de verdade é
+// o RLS (modulos-plataforma-migration.sql).
+function buildNavSections(modulos: string[]): { title: string; items: NavItem[] }[] {
+  const temEngenharia = modulos.includes('engenharia')
+  const temSeguranca = modulos.includes('seguranca')
+
   const planejamentoChildren: NavItem[] = [
     { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-    ...(organizacaoPiloto ? [{ icon: Calendar, label: 'Programação', path: '/dashboard/daily' }] : []),
-    ...(organizacaoPiloto ? [{ icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' }] : []),
+    ...(temEngenharia ? [{ icon: Calendar, label: 'Programação', path: '/dashboard/daily' }] : []),
+    ...(temEngenharia ? [{ icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' }] : []),
     { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
   ]
 
   const engenhariaItems: NavItem[] = [
     { icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning', children: planejamentoChildren },
-    ...(organizacaoPiloto ? [{
+    ...(temEngenharia ? [{
       icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
       children: [
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
@@ -47,13 +51,13 @@ function buildNavSections(organizacaoPiloto: boolean): { title: string; items: N
       ],
     }] : []),
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
-    ...(organizacaoPiloto ? [{ icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' }] : []),
+    ...(temEngenharia ? [{ icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' }] : []),
     { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
   ]
 
   return [
     { title: 'Engenharia', items: engenhariaItems },
-    ...(organizacaoPiloto
+    ...(temSeguranca
       ? [{ title: 'Segurança', items: [{ icon: Shield, label: 'RDR - Dashboard', path: '/dashboard/security/rdr' }] }]
       : []),
     { title: 'Qualidade', items: [] },
@@ -108,13 +112,13 @@ interface SidebarProps {
   mobileOpen: boolean
   onMobileClose: () => void
   papel?: PapelUsuario
-  organizacaoPiloto?: boolean
+  modulos?: string[]
   isSuperAdmin?: boolean
 }
 
 export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
-  organizacaoPiloto = false, isSuperAdmin = false,
+  modulos = [], isSuperAdmin = false,
 }: SidebarProps) {
   const isCampo = papel === 'campo'
   const podeGerenciarUsuarios = papel === 'admin' || papel === 'gestor'
@@ -126,8 +130,8 @@ export default function Sidebar({
   const navSections = isCampo
     ? navSectionsCampo
     : adminItems.length > 0
-      ? [...buildNavSections(organizacaoPiloto), { title: 'Administração', items: adminItems }]
-      : buildNavSections(organizacaoPiloto)
+      ? [...buildNavSections(modulos), { title: 'Administração', items: adminItems }]
+      : buildNavSections(modulos)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )

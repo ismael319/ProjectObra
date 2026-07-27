@@ -24,7 +24,7 @@ interface ConviteRow {
 }
 
 const PAPEL_LABELS: Record<PapelUsuario, string> = {
-  admin: 'Admin',
+  admin: 'Admin (Dono da Empresa)',
   gestor: 'Gestor',
   engenheiro: 'Engenheiro',
   campo: 'Campo (apontador)',
