@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock, Upload, RefreshCw, FileUp, Save, X } from 'lucide-react'
+import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock, Upload, RefreshCw, FileUp, Save, X, AlertTriangle } from 'lucide-react'
 import { useProjects, type CronogramaInfo } from '@/lib/project-store'
 import { parseMSProjectXML, decodeXmlBytes } from '@/lib/xml-parser'
 import CronogramaUploadModal from './CronogramaUploadModal'
@@ -71,6 +71,10 @@ export default function CronogramaManager() {
   const totalPeso = displayCronogramas
     .filter((c) => c.ativo)
     .reduce((sum, c) => sum + c.peso, 0)
+  // Soma dos pesos dos cronogramas ativos deveria fechar em 10 (referência
+  // contratual/orçamentária) — pequena tolerância pra arredondamento de ponto
+  // flutuante, não pra erro de digitação de verdade.
+  const pesoOk = Math.abs(totalPeso - 10) < 0.005
 
   const handleRecalculate = () => {
     recalculateAllDates(currentProject.id)
@@ -144,9 +148,24 @@ export default function CronogramaManager() {
           <Layers size={20} className="text-blue-500" />
           <div>
             <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Cronogramas</h3>
-            <p className="text-xs text-gray-500 dark:text-gray-400">
-              {activeCount} ativo{activeCount !== 1 ? 's' : ''} de {cronogramas.length}
-              {totalPeso > 0 && ` · Peso total: ${totalPeso.toFixed(2)}`}
+            <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+              <span>
+                {activeCount} ativo{activeCount !== 1 ? 's' : ''} de {cronogramas.length}
+                {totalPeso > 0 && (
+                  <span className={!pesoOk ? 'text-amber-600 dark:text-amber-400 font-medium' : ''}>
+                    {' · Peso total: '}{totalPeso.toFixed(2)}
+                  </span>
+                )}
+              </span>
+              {totalPeso > 0 && !pesoOk && (
+                <span
+                  className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium"
+                  title="A soma dos pesos dos cronogramas ativos deveria fechar em 10"
+                >
+                  <AlertTriangle size={12} />
+                  deveria ser 10
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -388,7 +407,20 @@ export default function CronogramaManager() {
       {cronogramas.length > 0 && (
         <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Soma dos pesos (cronogramas ativos)</span>
-          <span className="text-sm font-semibold text-gray-900 dark:text-white font-mono">{totalPeso.toFixed(2)}</span>
+          <div className="flex items-center gap-2">
+            {!pesoOk && (
+              <span
+                className="flex items-center gap-1 text-xs font-medium text-amber-600 dark:text-amber-400"
+                title="A soma dos pesos dos cronogramas ativos deveria fechar em 10"
+              >
+                <AlertTriangle size={14} />
+                Deveria somar 10
+              </span>
+            )}
+            <span className={`text-sm font-semibold font-mono ${pesoOk ? 'text-gray-900 dark:text-white' : 'text-amber-600 dark:text-amber-400'}`}>
+              {totalPeso.toFixed(2)}
+            </span>
+          </div>
         </div>
       )}
 
