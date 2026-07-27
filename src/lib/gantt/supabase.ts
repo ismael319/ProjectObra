@@ -50,6 +50,9 @@ export type Atividade = {
   // Pai na hierarquia (ex.: uma linha "resumo" importada do WBS do cronograma).
   // null = item de nível raiz. ordem é a posição entre irmãos (mesmo parent_id).
   parent_id: string | null;
+  // 0-100. Editável manualmente; ao importar do cronograma, vem pré-preenchido
+  // com o percentComplete do WBS.
+  percentual_concluido: number;
 };
 
 export type Parada = {

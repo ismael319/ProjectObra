@@ -5,6 +5,7 @@ import { useProjects } from '@/lib/project-store'
 import { useGanttStore } from '@/lib/gantt/store'
 import { toISODate } from '@/lib/gantt/dates'
 import type { WBSActivity } from '@/lib/xml-parser'
+import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState, type ColumnFieldDef } from '@/components/ColumnValueFilter'
 
 const DEFAULT_COR = '#2F6FE4'
 
@@ -15,6 +16,7 @@ interface Props {
 
 interface Row {
   id: string // `${cronogramaId}::${uid}` — único mesmo com WBS repetido entre cronogramas
+  uid: number
   cronogramaId: string
   cronogramaNome: string
   cronogramaCor: string
@@ -25,6 +27,7 @@ interface Row {
   start: Date
   finish: Date
   isSummary: boolean
+  percentComplete: number
 }
 
 interface CronogramaGroup {
@@ -34,6 +37,8 @@ interface CronogramaGroup {
   rows: Row[]
   roots: Row[]
   childrenByParent: Map<string | null, Row[]>
+  rawActivities: WBSActivity[]
+  customFieldDefs: ColumnFieldDef[]
 }
 
 // Constrói as linhas de um cronograma com o pai já resolvido por ID (via
@@ -49,6 +54,7 @@ function buildRows(cronogramaId: string, cronogramaNome: string, cronogramaCor: 
     const parentActivity = parentOutline ? byOutlineNumber.get(parentOutline) : null
     return {
       id: `${cronogramaId}::${a.uid}`,
+      uid: a.uid,
       cronogramaId,
       cronogramaNome,
       cronogramaCor,
@@ -59,6 +65,7 @@ function buildRows(cronogramaId: string, cronogramaNome: string, cronogramaCor: 
       start: a.start,
       finish: a.finish,
       isSummary: a.isSummary,
+      percentComplete: a.percentComplete,
     }
   })
 }
@@ -102,6 +109,7 @@ function RowNode({
         <span className={`truncate ${row.isSummary ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-slate-300'}`}>
           {row.nome}
         </span>
+        <span className="text-[10px] text-gray-400 dark:text-slate-500 shrink-0">{Math.round(row.percentComplete)}%</span>
         <span className="ml-auto text-[10px] text-gray-400 dark:text-slate-500 shrink-0 whitespace-nowrap">
           {toISODate(row.start)} → {toISODate(row.finish)}
         </span>
@@ -121,6 +129,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
   const { currentProject } = useProjects()
   const { addAtividadesBulk } = useGanttStore()
   const [search, setSearch] = useState('')
+  const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>([])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
 
@@ -134,7 +143,10 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
         arr.push(r)
         childrenByParent.set(r.parentId, arr)
       }
-      return { id: c.id, nome: c.nome, cor: c.cor, rows, roots: childrenByParent.get(null) ?? [], childrenByParent }
+      return {
+        id: c.id, nome: c.nome, cor: c.cor, rows, roots: childrenByParent.get(null) ?? [], childrenByParent,
+        rawActivities: c.dados!.activities, customFieldDefs: c.dados!.customFieldDefs,
+      }
     })
   }, [currentProject])
 
@@ -144,17 +156,26 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
     return map
   }, [groups])
 
-  // Busca filtra por nome/código, mas sempre mostrando a árvore inteira do
-  // cronograma que bate (não dá pra recortar só o item achado sem quebrar a
-  // hierarquia) — filtra ao nível de grupo/cronograma pra manter simples.
+  const excludedByGroup = useMemo(() => {
+    const map = new Map<string, Set<number>>()
+    for (const g of groups) map.set(g.id, computeColumnFilterExcludedUids(g.rawActivities, columnFilters, g.customFieldDefs))
+    return map
+  }, [groups, columnFilters])
+
+  // Busca (nome/código) + filtro de coluna decidem quais linhas "batem"; sempre
+  // inclui a cadeia de pais de cada uma pra árvore ficar legível (não dá pra
+  // recortar só o item achado sem quebrar a hierarquia visual).
   const filteredGroups = useMemo(() => {
-    if (!search.trim()) return groups
-    const term = search.toLowerCase()
+    const term = search.trim().toLowerCase()
     return groups
       .map((g) => {
-        const matches = g.rows.filter((r) => r.nome.toLowerCase().includes(term) || r.codigo.toLowerCase().includes(term))
+        const excluded = excludedByGroup.get(g.id)
+        const matches = g.rows.filter((r) => {
+          if (excluded?.has(r.uid)) return false
+          if (!term) return true
+          return r.nome.toLowerCase().includes(term) || r.codigo.toLowerCase().includes(term)
+        })
         if (matches.length === 0) return null
-        // Inclui a cadeia de pais de cada match, pra árvore ficar legível.
         const keep = new Set<string>()
         for (const m of matches) {
           let cur: Row | undefined = m
@@ -173,7 +194,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
         return { ...g, rows, roots: childrenByParent.get(null) ?? [], childrenByParent }
       })
       .filter((g): g is CronogramaGroup => g !== null)
-  }, [groups, search, rowById])
+  }, [groups, search, rowById, excludedByGroup])
 
   function toggleRow(row: Row) {
     setSelected((prev) => {
@@ -238,6 +259,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
         dataFim: toISODate(r.finish),
         equipesAlocadas: [] as string[],
         cor: DEFAULT_COR,
+        percentualConcluido: Math.round(r.percentComplete),
       }))
       await addAtividadesBulk(items)
       toast.success(`${items.length} atividade(s) importada(s) do cronograma`)
@@ -264,7 +286,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="px-5 pt-3">
+        <div className="px-5 pt-3 space-y-3">
           <div className="relative">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
             <input
@@ -273,6 +295,13 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-3">
+            <ColumnValueFilter
+              sources={groups.map((g) => ({ activities: g.rawActivities, customFieldDefs: g.customFieldDefs }))}
+              filters={columnFilters}
+              onChange={setColumnFilters}
             />
           </div>
         </div>

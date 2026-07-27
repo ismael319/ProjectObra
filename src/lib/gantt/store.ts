@@ -18,7 +18,7 @@ type State = {
   addEquipe: (data: { nome: string; cor: string; funcoes: FuncaoRow[]; equipamentos: EquipamentoRow[] }) => Promise<void>;
   updateEquipe: (id: string, patch: Partial<Equipe>) => Promise<void>;
   deleteEquipe: (id: string) => Promise<void>;
-  addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string, parentId?: string | null) => Promise<void>;
+  addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string, parentId?: string | null, percentualConcluido?: number) => Promise<void>;
   // Insere várias atividades de uma vez preservando hierarquia (ex.: import do
   // cronograma) — `items` já vem em ordem pai-antes-do-filho, referenciando o pai
   // pelo tempId de outro item da mesma leva (ou null = raiz).
@@ -30,6 +30,7 @@ type State = {
     dataFim: string;
     equipesAlocadas: string[];
     cor: string;
+    percentualConcluido?: number;
   }[]) => Promise<void>;
   updateAtividade: (id: string, patch: Partial<Atividade>) => Promise<void>;
   deleteAtividade: (id: string) => Promise<void>;
@@ -185,7 +186,7 @@ export const useGanttStore = create<State>((set, get) => ({
     }));
   },
 
-  addAtividade: async (nome, dataInicio, dataFim, equipesAlocadas, cor, parentId = null) => {
+  addAtividade: async (nome, dataInicio, dataFim, equipesAlocadas, cor, parentId = null, percentualConcluido = 0) => {
     const sid = get().activeScenarioId;
     if (!sid) return;
     const id = genId('atv');
@@ -202,12 +203,13 @@ export const useGanttStore = create<State>((set, get) => ({
       ordem,
       predecessoras,
       parent_id: parentId,
+      percentual_concluido: percentualConcluido,
     });
     if (reportError('criar atividade', error)) return;
     set((s) => ({
       atividades: [
         ...s.atividades,
-        { id, scenario_id: sid, nome, data_inicio: dataInicio, data_fim: dataFim, equipes_alocadas: equipesAlocadas, cor, ordem, predecessoras, parent_id: parentId },
+        { id, scenario_id: sid, nome, data_inicio: dataInicio, data_fim: dataFim, equipes_alocadas: equipesAlocadas, cor, ordem, predecessoras, parent_id: parentId, percentual_concluido: percentualConcluido },
       ],
     }));
   },
@@ -233,6 +235,7 @@ export const useGanttStore = create<State>((set, get) => ({
       const ordem = siblingCount.get(realParentId) ?? 0;
       siblingCount.set(realParentId, ordem + 1);
       const predecessoras: Dependencia[] = [];
+      const percentualConcluido = item.percentualConcluido ?? 0;
       const { error } = await supabase.from('atividades').insert({
         id,
         scenario_id: sid,
@@ -244,12 +247,14 @@ export const useGanttStore = create<State>((set, get) => ({
         ordem,
         predecessoras,
         parent_id: realParentId,
+        percentual_concluido: percentualConcluido,
       });
       if (reportError(`criar atividade "${item.nome}"`, error)) continue;
       tempToRealId.set(item.tempId, id);
       inserted.push({
         id, scenario_id: sid, nome: item.nome, data_inicio: item.dataInicio, data_fim: item.dataFim,
         equipes_alocadas: item.equipesAlocadas, cor: item.cor, ordem, predecessoras, parent_id: realParentId,
+        percentual_concluido: percentualConcluido,
       });
     }
 

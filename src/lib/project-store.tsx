@@ -261,7 +261,10 @@ async function syncCronogramasRemote(projetoId: string, cronogramas: CronogramaI
     const { error } = await supabase
       .from('projeto_cronogramas')
       .upsert(cronogramas.map((c) => cronogramaToRow(projetoId, c)))
-    if (error) console.error('Falha ao salvar cronogramas no Supabase.', error)
+    if (error) {
+      console.error('Falha ao salvar cronogramas no Supabase.', error)
+      toast.error('Não foi possível salvar o(s) cronograma(s) na nuvem — a tela mostra a versão local, mas ela pode se perder ao recarregar.')
+    }
   }
 
   const idsAtuais = cronogramas.map((c) => c.id)

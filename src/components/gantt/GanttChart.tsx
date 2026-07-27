@@ -37,7 +37,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const { atividades, equipes, activeScenarioId, addAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null as string | null });
+  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null as string | null, percentualConcluido: 0 });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
   const [selectingFor, setSelectingFor] = useState<{ mode: 'predecessora' | 'sucessora'; sourceId: string; targetId?: string; lag: number } | null>(null);
@@ -154,13 +154,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
     const end = addDays(start, (form.duracao || 1) - 1);
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
-    await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId);
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null });
+    await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId, Math.max(0, Math.min(100, form.percentualConcluido)));
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null, percentualConcluido: 0 });
     setAdding(false);
   };
 
   const handleStartAddSubitem = (parentId: string) => {
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId, percentualConcluido: 0 });
     setEditing(null);
     setAdding(true);
   };
@@ -187,6 +187,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       duracao,
       dataInicio: atv.data_inicio,
       parentId: atv.parent_id,
+      percentualConcluido: atv.percentual_concluido,
     });
     setEditing(atvId);
     setAdding(false);
@@ -206,8 +207,9 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       data_fim: toISODate(end),
       equipes_alocadas: form.equipes,
       cor: equipeCor,
+      percentual_concluido: Math.max(0, Math.min(100, form.percentualConcluido)),
     });
-    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null });
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', parentId: null, percentualConcluido: 0 });
     setEditing(null);
   };
 
@@ -323,6 +325,17 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               ))}
             </select>
           </div>
+          <div className="flex flex-col">
+            <label className="text-xs text-gray-500 dark:text-slate-500 mb-0.5">% concluído</label>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              value={form.percentualConcluido}
+              onChange={(e) => setForm({ ...form, percentualConcluido: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
+              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-20"
+            />
+          </div>
           <div className="flex items-end gap-2">
             <button
               onClick={editing ? handleSaveEdit : handleAddAtividade}
@@ -407,6 +420,18 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                   </p>
                   {equipesNomes && <p className="text-xs text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
                 </div>
+                <span
+                  className={`text-[10px] font-semibold tabular-nums shrink-0 px-1 rounded ${
+                    atv.percentual_concluido >= 100
+                      ? 'text-emerald-600 dark:text-emerald-400'
+                      : atv.percentual_concluido > 0
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-300 dark:text-slate-600'
+                  }`}
+                  title="% de trabalho concluído"
+                >
+                  {atv.percentual_concluido}%
+                </span>
                 <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => handleStartAddSubitem(atv.id)}
@@ -482,8 +507,14 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                         onMouseDown={(e) => onBarMouseDown(e, atv.id, 'resize-l')}
                       />
                       <span className="text-xs text-white font-medium truncate px-1">
-                        {atv.nome} ({duration}d)
+                        {atv.nome} ({duration}d) {atv.percentual_concluido > 0 ? `· ${atv.percentual_concluido}%` : ''}
                       </span>
+                      <div className="absolute left-1.5 right-1.5 bottom-1 h-1 bg-black/20 dark:bg-white/20 rounded-full pointer-events-none overflow-hidden">
+                        <div
+                          className="h-full bg-white/90 rounded-full"
+                          style={{ width: `${Math.min(100, Math.max(0, atv.percentual_concluido))}%` }}
+                        />
+                      </div>
                       <div
                         className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/20 hover:bg-white/40 rounded-r-md"
                         onMouseDown={(e) => onBarMouseDown(e, atv.id, 'resize-r')}

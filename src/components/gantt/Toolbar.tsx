@@ -1,4 +1,5 @@
-import { Calendar, Printer, FileSpreadsheet, Upload, CalendarDays } from 'lucide-react';
+import { useState } from 'react';
+import { Calendar, Printer, FileSpreadsheet, Upload, Download, CalendarDays } from 'lucide-react';
 import type { Granularidade } from '@/lib/gantt/histograma';
 
 type Props = {
@@ -10,6 +11,7 @@ type Props = {
 };
 
 export function Toolbar({ granularidade, onGranularidadeChange, onPrint, onExportExcel, onImport }: Props) {
+  const [excelMenuOpen, setExcelMenuOpen] = useState(false);
   const granOptions: { value: Granularidade; label: string; icon: typeof Calendar }[] = [
     { value: 'dia', label: 'Dia', icon: Calendar },
     { value: 'semana', label: 'Semana', icon: CalendarDays },
@@ -28,18 +30,33 @@ export function Toolbar({ granularidade, onGranularidadeChange, onPrint, onExpor
       >
         <Printer size={16} /> Imprimir
       </button>
-      <button
-        onClick={onExportExcel}
-        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
-      >
-        <FileSpreadsheet size={16} /> Excel
-      </button>
-      <button
-        onClick={onImport}
-        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
-      >
-        <Upload size={16} /> Importar
-      </button>
+      <div className="relative">
+        <button
+          onClick={() => setExcelMenuOpen((v) => !v)}
+          className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        >
+          <FileSpreadsheet size={16} /> Excel
+        </button>
+        {excelMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setExcelMenuOpen(false)} />
+            <div className="absolute left-0 top-full mt-1 z-20 w-48 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg py-1">
+              <button
+                onClick={() => { onImport(); setExcelMenuOpen(false); }}
+                className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+              >
+                <Upload size={14} /> Importar do cronograma
+              </button>
+              <button
+                onClick={() => { onExportExcel(); setExcelMenuOpen(false); }}
+                className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+              >
+                <Download size={14} /> Exportar Excel
+              </button>
+            </div>
+          </>
+        )}
+      </div>
       <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
       <div className="flex items-center gap-1">
         {granOptions.map((opt) => {
