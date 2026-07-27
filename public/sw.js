@@ -41,7 +41,21 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
         }
         return response
-      }).catch(() => cached)
+      }).catch(async () => {
+        // fetch falhou de vez (offline, erro de rede) — usa o cache dessa URL
+        // exata se tiver. Se não tiver (rota nova, nunca cacheada — ex.:
+        // "/admin" logo após o deploy), "cached" vem undefined; pra navegação
+        // de página cai pro index.html cacheado, deixando o React Router
+        // assumir a rota no cliente. Sem esse fallback, respondWith recebia
+        // "undefined" e o navegador acusava "Failed to convert value to
+        // 'Response'".
+        if (cached) return cached
+        if (event.request.mode === 'navigate') {
+          const fallback = await caches.match('/index.html')
+          if (fallback) return fallback
+        }
+        return new Response('Offline', { status: 503, statusText: 'Offline' })
+      })
 
       return fetched
     })
