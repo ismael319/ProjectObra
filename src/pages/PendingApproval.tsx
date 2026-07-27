@@ -10,7 +10,7 @@ export default function PendingApproval() {
 
   useEffect(() => {
     if (userProfile?.status_solicitacao === 'aprovado') {
-      navigate('/projects', { replace: true })
+      navigate('/', { replace: true })
     }
   }, [userProfile?.status_solicitacao, navigate])
 

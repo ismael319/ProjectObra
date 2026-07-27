@@ -35,7 +35,7 @@ export default function UpdatePassword() {
     if (error) {
       setError('Erro ao atualizar senha. Tente novamente.')
     } else {
-      navigate('/projects')
+      navigate('/')
     }
   }
 

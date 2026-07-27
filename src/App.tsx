@@ -12,6 +12,7 @@ import RequireModulo from '@/components/RequireModulo'
 
 const queryClient = new QueryClient()
 
+const Home = lazy(() => import('@/pages/Home'))
 const Login = lazy(() => import('@/pages/Login'))
 const Signup = lazy(() => import('@/pages/Signup'))
 const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'))
@@ -79,6 +80,15 @@ function App() {
                         <SessionOnlyRoute>
                           <PendingApproval />
                         </SessionOnlyRoute>
+                      }
+                    />
+
+                    <Route
+                      path="/"
+                      element={
+                        <ProtectedRoute>
+                          <Home />
+                        </ProtectedRoute>
                       }
                     />
 
