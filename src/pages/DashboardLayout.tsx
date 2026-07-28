@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
 import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2 } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
+import fgiLogo from '@/assets/fgi-logo.png'
 import ChatWidget from '@/components/ChatWidget'
 import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
@@ -115,11 +116,8 @@ export default function DashboardLayout() {
             >
               <Menu size={20} />
             </button>
-            <div
-              className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg text-sm font-extrabold text-white shrink-0"
-              style={{ backgroundColor: brandColor }}
-            >
-              PE
+            <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg bg-white p-1 shrink-0">
+              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
             </div>
             <div className="hidden sm:block h-6 w-px bg-white/10" />
             {!isCampo && (
