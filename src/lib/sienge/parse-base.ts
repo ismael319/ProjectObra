@@ -13,9 +13,34 @@ export function limparCelula(valor: unknown): string {
   return String(valor).replace(/\r?\n/g, ' ').split(/\s+/).filter(Boolean).join(' ')
 }
 
-/** "YYYY-MM-DD..." -> "DD/MM/YYYY". Devolve a string original se não bater o formato. */
+/** Serial de data do Excel (dias desde 1899-12-30) -> "DD/MM/YYYY". */
+function excelSerialParaData(serial: number): string {
+  const ms = Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400 * 1000
+  const d = new Date(ms)
+  const dia = String(d.getUTCDate()).padStart(2, '0')
+  const mes = String(d.getUTCMonth() + 1).padStart(2, '0')
+  return `${dia}/${mes}/${d.getUTCFullYear()}`
+}
+
+/**
+ * Normaliza datas vindas do XLSX pra "DD/MM/YYYY". Cobre dois formatos que a
+ * célula pode chegar depois do sheet_to_json:
+ *  - "YYYY-MM-DD..." (célula com formato de data reconhecido pelo SheetJS)
+ *  - um número puro tipo "46082" (célula sem formato de data reconhecido —
+ *    o SheetJS devolve o serial cru em vez de formatar). Sem essa conversão,
+ *    calcularDias() falha em parsear a "data" e o item nunca sai de "Em dia".
+ * Se não bater nenhum dos dois, devolve a string original (já deve estar em
+ * DD/MM/YYYY, como nas colunas de Solicitações/Pedidos).
+ */
 function normalizarData(dataStr: string): string {
   if (!dataStr) return ''
+  const trimmed = dataStr.trim()
+
+  if (/^\d{4,6}(\.\d+)?$/.test(trimmed)) {
+    const serial = parseFloat(trimmed)
+    if (serial > 20000 && serial < 80000) return excelSerialParaData(serial)
+  }
+
   let s = dataStr
   if (s.includes('T') || s.includes(' ')) {
     s = s.split('T')[0]!.split(' ')[0]!
@@ -75,17 +100,17 @@ function parseSolicitacoesXlsx(linhas: LinhaTabela[]): SiengeItem[] {
       chave: `${solicitacao}|${insumo}`,
       insumo,
       obra: c[11] ?? '',
-      data: c[12] ?? '',
+      data: normalizarData(c[12] ?? ''),
       solicitante: c[13] ?? '',
       solicitacao,
       autorizado: (c[14] ?? '').trim().toLowerCase() === 'sim',
-      dtAut: c[15] ?? '',
+      dtAut: normalizarData(c[15] ?? ''),
       qtPendente: c[17] ?? '',
       unidade: c[18] ?? '',
       qtAtendida: c[20] ?? '',
       sd: c[21] ?? '',
-      dtPrevisao: c[23] ?? '',
-      dtAtend: c[26] ?? '',
+      dtPrevisao: normalizarData(c[23] ?? ''),
+      dtAtend: normalizarData(c[26] ?? ''),
     })
   }
   return itens
@@ -146,7 +171,7 @@ function parsePedidosXlsx(linhas: LinhaTabela[]): SiengeItem[] {
       ...ITEM_VAZIO,
       chave: numeroPedido,
       obra: c[2] ?? '',
-      data: c[3] ?? '',
+      data: normalizarData(c[3] ?? ''),
       solicitante: c[4] ?? '',
       solicitacao: numeroPedido,
       autorizado: true,
