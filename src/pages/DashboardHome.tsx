@@ -9,7 +9,6 @@ import KPICards from '@/components/KPICards'
 import { StatusPieChart, MonthlyBarChart, ProgressAreaChart } from '@/components/Charts'
 import EngineeringHighlights from '@/components/EngineeringHighlights'
 import WorkforceSummary from '@/components/WorkforceSummary'
-import SafetySummary from '@/components/SafetySummary'
 import WbsTable from '@/components/WbsTable'
 import WidgetFilterMenu from '@/components/WidgetFilterMenu'
 import { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
@@ -30,7 +29,7 @@ const WIDGET_LABELS: Record<WidgetId, string> = {
   charts: 'Gráficos (status e mensal)',
   progress: 'Curva de progresso',
   engineering: 'Pontos de Engenharia',
-  'people-safety': 'Mão de Obra e Segurança',
+  'people-safety': 'Mão de Obra',
   'wbs-table': 'Estrutura WBS',
 }
 
@@ -41,7 +40,7 @@ const WIDGET_DESCRICOES: Record<WidgetId, string> = {
   charts: 'Gráficos de exemplo (Status dos Projetos e Projetos por Mês) — ainda ilustrativos, não conectados aos dados reais do cronograma.',
   progress: 'Curva S simplificada: compara o avanço físico previsto (linha tracejada) com o realizado (linha cheia), em % acumulado, a partir dos dados de HH do(s) cronograma(s) ativo(s).',
   engineering: 'Avanço por disciplina, próximos marcos (milestones) pendentes e as atividades mais atrasadas do cronograma.',
-  'people-safety': 'Resumo do efetivo (HH apontadas e recursos ativos por grupo, a partir dos apontamentos de mão de obra) e indicadores de segurança (ocorrências registradas no projeto).',
+  'people-safety': 'Resumo do efetivo (HH apontadas e recursos ativos por grupo, a partir dos apontamentos de mão de obra).',
   'wbs-table': 'Lista completa das atividades do cronograma, organizada pela Estrutura Analítica do Projeto (EAP/WBS), com datas, progresso e status de cada item.',
 }
 
@@ -177,12 +176,7 @@ export default function DashboardHome() {
       case 'engineering':
         return <EngineeringHighlights activities={activitiesParaFiltro(w.filtros)} />
       case 'people-safety':
-        return (
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-            <WorkforceSummary />
-            <SafetySummary />
-          </div>
-        )
+        return <WorkforceSummary />
       case 'wbs-table':
         return <WbsTable activities={activitiesParaFiltro(w.filtros)} />
     }
