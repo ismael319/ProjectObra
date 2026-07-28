@@ -17,11 +17,20 @@ interface WBSActivityLike {
   uid: number
   name: string
   wbs: string
+  outlineNumber: string
   outlineLevel: number
   start: string
   finish: string
   percentComplete: number
   isSummary: boolean
+}
+
+// Atividade-folha já com o "caminho" da EAP resolvido (ex.: "BIOMASSA >
+// COBERTURA DO ARMAZÉM > Montagem da estrutura metálica da cobertura") —
+// sem isso a busca só olhava o nome da folha, e um termo como "biomassa" (que
+// só existe no grupo pai na EAP, não no nome da atividade em si) não batia.
+interface AtividadeComCaminho extends WBSActivityLike {
+  caminho: string
 }
 
 interface CronogramaRow {
@@ -67,10 +76,29 @@ function diasAtraso(finish: string, percentComplete: number): number {
   return Math.round((hoje.getTime() - fim.getTime()) / 86400000)
 }
 
-function formatarAtividade(a: WBSActivityLike, cronogramaNome: string) {
+// Tira acento e caixa pra comparar — "metalica" precisa bater com "metálica".
+function normalizar(s: string): string {
+  return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase()
+}
+
+// "Bate" se TODAS as palavras do termo de busca aparecem em algum lugar do
+// texto (não precisa ser a frase inteira nem estar na mesma ordem) — cobre
+// tanto erro de digitação/acento quanto o usuário citar palavras do grupo
+// pai (ex.: "biomassa") junto com o nome da atividade em si.
+function correspondeTermo(texto: string, termo: string): boolean {
+  const textoNorm = normalizar(texto)
+  const tokens = normalizar(termo).split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return false
+  return tokens.every((t) => textoNorm.includes(t))
+}
+
+function formatarAtividade(a: AtividadeComCaminho, cronogramaNome: string) {
   const atraso = diasAtraso(a.finish, a.percentComplete)
   return {
     nome: a.name,
+    // Grupo/frente na EAP (sem o nome da própria atividade, só os pais) —
+    // ajuda o assistente a "relacionar" quando há nomes parecidos em frentes diferentes.
+    frente: a.caminho.split(' > ').slice(0, -1).join(' > ') || null,
     codigo_edt: a.wbs,
     cronograma: cronogramaNome,
     percentual_concluido: Math.round(a.percentComplete),
@@ -81,7 +109,7 @@ function formatarAtividade(a: WBSActivityLike, cronogramaNome: string) {
   }
 }
 
-async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: string): Promise<{ nome: string; activities: WBSActivityLike[] }[]> {
+async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: string): Promise<{ nome: string; activities: AtividadeComCaminho[] }[]> {
   const { data, error } = await supabaseUser
     .from('projeto_cronogramas')
     .select('nome, dados')
@@ -93,11 +121,29 @@ async function carregarAtividades(supabaseUser: SupabaseClient, projetoId: strin
   )
   return grupos
     .filter((c) => c.dados?.activities)
-    .map((c) => ({
-      nome: c.nome,
-      // Só folhas (não os itens "resumo" do WBS) — é o que representa trabalho de verdade.
-      activities: c.dados!.activities!.filter((a) => a.outlineLevel > 0 && !a.isSummary),
-    }))
+    .map((c) => {
+      const todas = c.dados!.activities!
+      const porOutline = new Map(todas.map((a) => [a.outlineNumber, a]))
+      const caminhoDe = (a: WBSActivityLike): string => {
+        const partes: string[] = []
+        let atual: WBSActivityLike | undefined = a
+        while (atual) {
+          partes.unshift(atual.name)
+          const segmentos: string[] = atual.outlineNumber ? atual.outlineNumber.split('.') : []
+          const outlinePai: string | null = segmentos.length > 1 ? segmentos.slice(0, -1).join('.') : null
+          atual = outlinePai ? porOutline.get(outlinePai) : undefined
+        }
+        return partes.join(' > ')
+      }
+      return {
+        nome: c.nome,
+        // Só folhas (não os itens "resumo" do WBS) — é o que representa
+        // trabalho de verdade — mas cada uma carrega o caminho até a raiz.
+        activities: todas
+          .filter((a) => a.outlineLevel > 0 && !a.isSummary)
+          .map((a) => ({ ...a, caminho: caminhoDe(a) })),
+      }
+    })
 }
 
 async function executarFerramenta(
@@ -108,12 +154,26 @@ async function executarFerramenta(
 ): Promise<unknown> {
   try {
     if (nome === 'buscar_atividade') {
-      const termo = (typeof args.nome === 'string' ? args.nome : '').toLowerCase()
+      const termo = typeof args.nome === 'string' ? args.nome : ''
       const grupos = await carregarAtividades(supabaseUser, projetoId)
-      const encontradas = grupos
-        .flatMap((g) => g.activities.filter((a) => a.name.toLowerCase().includes(termo)).map((a) => formatarAtividade(a, g.nome)))
-        .slice(0, 8)
-      return encontradas.length > 0 ? encontradas : { aviso: 'Nenhuma atividade encontrada com esse nome.' }
+      const todas = grupos.flatMap((g) => g.activities.map((a) => ({ a, g })))
+      // Compara contra o caminho completo na EAP (grupo > subgrupo > ...
+      // > atividade), não só o nome da folha — cobre o caso de o termo citar
+      // o grupo/frente (ex.: "biomassa") em vez do nome exato da atividade.
+      let encontradas = todas.filter(({ a }) => correspondeTermo(a.caminho, termo))
+      if (encontradas.length === 0) {
+        // Nenhuma bateu com TODAS as palavras — tenta nível de tolerância:
+        // exige só metade delas, pra não devolver "não encontrado" só por
+        // causa de uma palavra a mais, errada ou mal escrita.
+        const tokens = normalizar(termo).split(/\s+/).filter(Boolean)
+        const minimo = Math.max(1, Math.ceil(tokens.length / 2))
+        encontradas = todas.filter(({ a }) => {
+          const textoNorm = normalizar(a.caminho)
+          return tokens.filter((t) => textoNorm.includes(t)).length >= minimo
+        })
+      }
+      const resultado = encontradas.slice(0, 8).map(({ a, g }) => formatarAtividade(a, g.nome))
+      return resultado.length > 0 ? resultado : { aviso: 'Nenhuma atividade encontrada com esse nome.' }
     }
     if (nome === 'listar_atrasadas') {
       const grupos = await carregarAtividades(supabaseUser, projetoId)
@@ -236,7 +296,7 @@ export default async function handler(req: Request): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Projeto não encontrado ou sem permissão de acesso' }), { status: 403 })
   }
 
-  const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. Se a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`
+  const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. A busca de atividade aceita nome parcial, incluindo palavras do grupo/frente da EAP (campo "frente" no resultado) — se a primeira busca não achar nada ou achar mais de uma atividade parecida, tente de novo com um termo mais curto (só as palavras principais) antes de desistir, e use o campo "frente" pra confirmar qual atividade é a certa quando houver mais de uma com nome parecido. Se mesmo assim a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`
 
   try {
     const messages: GroqMessage[] = [
