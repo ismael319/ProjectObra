@@ -155,6 +155,11 @@ export default function LancamentoPage() {
       }
       return { queued: false };
     },
+    // Sem isso, o React Query nem chama mutationFn offline — a mutation fica
+    // "pausada" esperando o evento 'online', então o botão "Adicionar" ficava
+    // girando pra sempre e o if (!navigator.onLine) aqui dentro nunca rodava
+    // (mesmo padrão já usado nas queries de catalog.ts e no listPending acima).
+    networkMode: "always",
     onSuccess: (r) => {
       toast.success(r.queued ? "Salvo no dispositivo — será enviado quando houver conexão" : "Apontamento registrado");
       setForm((p) => emptyForm({ data: p.data, empresa_id: p.empresa_id, lideranca_id: p.lideranca_id }));
@@ -170,11 +175,18 @@ export default function LancamentoPage() {
       const { error } = await supabase.from("apontamentos_diarios").delete().eq("id", id);
       if (error) throw error;
     },
+    // Idem — sem isso, tentar remover um apontamento já sincronizado enquanto
+    // offline travava o botão em vez de falhar rápido com erro de rede.
+    networkMode: "always",
     onSuccess: () => { toast.success("Removido"); refetch(); qc.invalidateQueries({ queryKey: ["apontamentos"] }); },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   const removePendingMut = useMutation({
     mutationFn: (id: string) => removePending(id),
+    // removePending só mexe no IndexedDB local — nunca deveria depender de
+    // rede pra funcionar, mas sem "always" ficava pausada offline do mesmo jeito.
+    networkMode: "always",
     onSuccess: () => { toast.success("Removido do dispositivo"); refetchPendentes(); },
   });
 
