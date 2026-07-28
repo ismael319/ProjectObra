@@ -31,7 +31,7 @@ export default function PendingApproval() {
           <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl mb-4 shadow-lg shadow-blue-950/50 ring-1 ring-white/10">
             <span className="text-xl font-extrabold text-white tracking-tight">PE</span>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">ProjectEng</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">FGI Decision</h1>
           <p className="text-blue-200/60 text-sm mt-1">Plataforma Corporativa</p>
         </div>
 
@@ -82,7 +82,7 @@ export default function PendingApproval() {
         </div>
 
         <div className="mt-6 text-center">
-          <p className="text-blue-200/40 text-xs mb-3">© 2026 ProjectEng · Planejamento e Controle</p>
+          <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
           <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs">
             <span className="flex items-center gap-1">
               <Lock size={12} />

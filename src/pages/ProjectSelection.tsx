@@ -185,7 +185,7 @@ export default function ProjectSelection() {
               <span className="text-sm font-bold text-white">PE</span>
             </div>
             <div>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-white">ProjectEng</h1>
+              <h1 className="text-xl font-bold text-gray-900 dark:text-white">FGI Decision</h1>
               <p className="text-xs text-gray-500 dark:text-gray-400">Gerenciamento de Projetos</p>
             </div>
           </div>

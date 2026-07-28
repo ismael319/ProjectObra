@@ -1,6 +1,6 @@
 {
-  "name": "ObraControl - Gestão de Obras",
-  "short_name": "ObraControl",
+  "name": "FGI Decision - Gestão de Obras",
+  "short_name": "FGI Decision",
   "description": "Sistema de gerenciamento de obras e apontamento de mão de obra",
   "start_url": "/",
   "display": "standalone",
