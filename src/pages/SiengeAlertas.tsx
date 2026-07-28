@@ -7,7 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { REPORT_CONFIGS } from '@/lib/sienge/report-config'
 import { aplicarFiltrosColuna, type FiltroValor } from '@/lib/sienge/column-filters'
-import { itensAtuais, listarAnotacoes, salvarAnotacao } from '@/lib/sienge/db'
+import { itensAtuais, listarAnotacoes, listarImportacoes, salvarAnotacao, type Importacao } from '@/lib/sienge/db'
 import { classificarItem } from '@/lib/sienge/classify'
 import { ANOTACAO_PADRAO, type Anotacao, type ItemComClassificacao, type TipoRelatorio } from '@/lib/sienge/types'
 import SiengeStatsCards from '@/components/sienge/SiengeStatsCards'
@@ -24,6 +24,7 @@ export default function SiengeAlertas() {
 
   const [tipoAtivo, setTipoAtivo] = useState<TipoRelatorio>('solicitacoes')
   const [itensPorTipo, setItensPorTipo] = useState<Partial<Record<TipoRelatorio, ItemComClassificacao[]>>>({})
+  const [ultimaImportacaoPorTipo, setUltimaImportacaoPorTipo] = useState<Partial<Record<TipoRelatorio, Importacao | null>>>({})
   const [carregando, setCarregando] = useState(false)
   const [filtros, setFiltros] = useState<Record<string, FiltroValor>>({})
   const [uploadAberto, setUploadAberto] = useState(false)
@@ -38,13 +39,18 @@ export default function SiengeAlertas() {
       if (!projetoId) return
       setCarregando(true)
       try {
-        const [itens, anotacoes] = await Promise.all([itensAtuais(projetoId, tipo), listarAnotacoes(projetoId, tipo)])
+        const [itens, anotacoes, importacoes] = await Promise.all([
+          itensAtuais(projetoId, tipo),
+          listarAnotacoes(projetoId, tipo),
+          listarImportacoes(projetoId, tipo),
+        ])
         const comClassificacao: ItemComClassificacao[] = itens.map((item) => ({
           ...item,
           classificacao: classificarItem(item, tipo),
           anotacao: anotacoes.get(item.chave) ?? ANOTACAO_PADRAO,
         }))
         setItensPorTipo((prev) => ({ ...prev, [tipo]: comClassificacao }))
+        setUltimaImportacaoPorTipo((prev) => ({ ...prev, [tipo]: importacoes[0] ?? null }))
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Erro ao carregar dados do Sienge.')
       } finally {
@@ -61,6 +67,7 @@ export default function SiengeAlertas() {
 
   const config = REPORT_CONFIGS[tipoAtivo]
   const itensBrutos = itensPorTipo[tipoAtivo] ?? []
+  const ultimaImportacao = ultimaImportacaoPorTipo[tipoAtivo]
 
   // Cards de estatística seguem o mesmo critério do app original: todos os itens
   // do tipo, exceto os que o usuário já marcou manualmente como "resolvido" —
@@ -108,6 +115,12 @@ export default function SiengeAlertas() {
         <div>
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Alertas Sienge</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{currentProject.nome}</p>
+          {ultimaImportacao && (
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              Último arquivo importado: <span className="font-medium">{ultimaImportacao.arquivoNome}</span> em{' '}
+              {new Date(ultimaImportacao.importadoEm).toLocaleDateString('pt-BR')} ({ultimaImportacao.totalItens} itens)
+            </p>
+          )}
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setHistoricoAberto(true)}>
