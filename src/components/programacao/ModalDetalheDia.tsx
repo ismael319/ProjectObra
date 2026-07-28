@@ -3,6 +3,13 @@ import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, 
 import { computeDelayDays, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+
+const STATUS_HINTS: Record<string, string> = {
+  'Concluída': 'Marca a atividade como 100% executada neste dia — conta a favor do PPC da semana.',
+  'Parcial': 'Marca a atividade como parcialmente executada neste dia — soma parcial pro PPC ponderado.',
+  'Não concluída': 'Marca que a atividade estava prevista mas não foi executada neste dia — conta contra o PPC.',
+}
 
 interface Props {
   open: boolean
@@ -346,14 +353,20 @@ function StatusButton({
     red: active ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : '',
   }
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      title={label}
-      className={`p-1.5 rounded-md transition hover:bg-gray-200 dark:hover:bg-gray-600 ${tones[tone]}`}
-    >
-      {icon}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          className={`p-1.5 rounded-md transition hover:bg-gray-200 dark:hover:bg-gray-600 ${tones[tone]}`}
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-xs">
+        <span className="font-semibold">{label}</span> — {STATUS_HINTS[label] ?? ''}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 

@@ -1,8 +1,16 @@
 import { TrendingUp, TrendingDown, FolderKanban, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
+import type { WBSActivity } from '@/lib/xml-parser'
 
-export default function KPICards() {
-  const { activities, indices } = useProject()
+type Props = {
+  // Sobrescreve as atividades usadas nos cálculos (ex.: filtro por cronograma/
+  // disciplina na Visão Geral) — sem isso, sempre usa o projeto inteiro.
+  activities?: WBSActivity[]
+}
+
+export default function KPICards({ activities: activitiesProp }: Props = {}) {
+  const { activities: activitiesContexto, indices } = useProject()
+  const activities = activitiesProp ?? activitiesContexto
 
   const totalActivities = activities.filter((a) => !a.isSummary).length
   const activeActivities = activities.filter((a) => !a.isSummary && a.percentComplete > 0 && a.percentComplete < 100).length

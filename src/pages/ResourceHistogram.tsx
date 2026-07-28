@@ -14,6 +14,12 @@ import { useProject } from '@/lib/project-context'
 import { toDate } from '@/lib/utils'
 import { startOfWeek, addDays, formatShortDate } from '@/lib/iso-week'
 import PlanningSwitcher from '@/components/PlanningSwitcher'
+import {
+  Tooltip as InfoTooltip,
+  TooltipContent as InfoTooltipContent,
+  TooltipProvider as InfoTooltipProvider,
+  TooltipTrigger as InfoTooltipTrigger,
+} from '@/components/ui/tooltip'
 
 export default function ResourceHistogram() {
   const { project, resources, assignments, activities } = useProject()
@@ -91,6 +97,7 @@ export default function ResourceHistogram() {
   }
 
   return (
+    <InfoTooltipProvider delayDuration={300}>
     <div className="space-y-6">
       <PlanningSwitcher />
 
@@ -102,60 +109,78 @@ export default function ResourceHistogram() {
       </div>
 
       {/* Resource Summary */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {resources.slice(0, 8).map((res, i) => {
-          const totalWork = assignments
-            .filter((a) => a.resourceUid === res.uid)
-            .reduce((sum, a) => sum + a.work, 0)
-          const totalHours = Math.round((totalWork / 60) * 10) / 10
+      <InfoTooltip>
+        <InfoTooltipTrigger asChild>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {resources.slice(0, 8).map((res, i) => {
+              const totalWork = assignments
+                .filter((a) => a.resourceUid === res.uid)
+                .reduce((sum, a) => sum + a.work, 0)
+              const totalHours = Math.round((totalWork / 60) * 10) / 10
 
-          return (
-            <div key={res.uid} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-              <div className="flex items-center gap-2 mb-2">
-                <div
-                  className="w-3 h-3 rounded-full"
-                  style={{ backgroundColor: resourceColors[i % resourceColors.length] }}
-                />
-                <span className="text-sm font-medium text-gray-700 truncate">{res.name}</span>
-              </div>
-              <p className="text-lg font-bold text-gray-900">{totalHours}h</p>
-              <p className="text-xs text-gray-500">{res.group || 'Sem grupo'}</p>
-            </div>
-          )
-        })}
-      </div>
+              return (
+                <div key={res.uid} className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+                  <div className="flex items-center gap-2 mb-2">
+                    <div
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: resourceColors[i % resourceColors.length] }}
+                    />
+                    <span className="text-sm font-medium text-gray-700 truncate">{res.name}</span>
+                  </div>
+                  <p className="text-lg font-bold text-gray-900">{totalHours}h</p>
+                  <p className="text-xs text-gray-500">{res.group || 'Sem grupo'}</p>
+                </div>
+              )
+            })}
+          </div>
+        </InfoTooltipTrigger>
+        <InfoTooltipContent side="top" align="start" className="max-w-xs">
+          Total de HH (homem-hora) alocadas em todo o cronograma pra cada recurso, somando todas as
+          atividades em que ele está atribuído — mostra só os 8 primeiros recursos.
+        </InfoTooltipContent>
+      </InfoTooltip>
 
       {/* Histogram Chart */}
-      <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Distribuição Semanal de Horas</h3>
-        <div className="h-96">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={histogramData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-              <XAxis dataKey="week" tick={{ fontSize: 11 }} />
-              <YAxis tick={{ fontSize: 11 }} label={{ value: 'Horas', angle: -90, position: 'insideLeft' }} />
-              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <Tooltip
-                formatter={(value: any, name: any) => [`${value}h`, name]}
-              />
-              <Legend />
-              {resources.slice(0, 6).map((res, i) => (
-                <Bar
-                  key={res.uid}
-                  dataKey={res.name}
-                  stackId="resources"
-                  fill={resourceColors[i % resourceColors.length]}
-                  radius={i === resources.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-                  isAnimationActive={false}
-                />
-              ))}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
+      <InfoTooltip>
+        <InfoTooltipTrigger asChild>
+          <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Distribuição Semanal de Horas</h3>
+            <div className="h-96">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={histogramData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="week" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} label={{ value: 'Horas', angle: -90, position: 'insideLeft' }} />
+                  {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                  <Tooltip
+                    formatter={(value: any, name: any) => [`${value}h`, name]}
+                  />
+                  <Legend />
+                  {resources.slice(0, 6).map((res, i) => (
+                    <Bar
+                      key={res.uid}
+                      dataKey={res.name}
+                      stackId="resources"
+                      fill={resourceColors[i % resourceColors.length]}
+                      radius={i === resources.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </InfoTooltipTrigger>
+        <InfoTooltipContent side="top" align="start" className="max-w-xs">
+          HH alocadas por semana, empilhadas por recurso (mostra os 6 primeiros) — semanas alinhadas ao
+          calendário do cronograma (mesmo início de semana usado na Curva S e na Programação).
+        </InfoTooltipContent>
+      </InfoTooltip>
 
       {/* Resource Table */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <InfoTooltip>
+        <InfoTooltipTrigger asChild>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100">
           <h3 className="text-lg font-semibold text-gray-900">Detalhamento por Recurso</h3>
         </div>
@@ -203,7 +228,14 @@ export default function ResourceHistogram() {
             </tbody>
           </table>
         </div>
-      </div>
+        </div>
+        </InfoTooltipTrigger>
+        <InfoTooltipContent side="top" align="start" className="max-w-xs">
+          HH e custo total por recurso, somando todas as atividades do cronograma em que ele está
+          atribuído — custo/hora vem da taxa base cadastrada no MS Project.
+        </InfoTooltipContent>
+      </InfoTooltip>
     </div>
+    </InfoTooltipProvider>
   )
 }

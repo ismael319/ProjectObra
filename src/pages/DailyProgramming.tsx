@@ -26,6 +26,7 @@ import ModalDetalheDia from '@/components/programacao/ModalDetalheDia'
 import ModalImportarAtividades from '@/components/programacao/ModalImportarAtividades'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
+import { TooltipProvider } from '@/components/ui/tooltip'
 
 export default function DailyProgramming() {
   const { currentProject } = useProjects()
@@ -358,6 +359,7 @@ export default function DailyProgramming() {
   }
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="space-y-6">
       <WeekBar
         isoYear={weekData.week.iso_year}
@@ -434,5 +436,6 @@ export default function DailyProgramming() {
         onImported={() => fetchData(false)}
       />
     </div>
+    </TooltipProvider>
   )
 }

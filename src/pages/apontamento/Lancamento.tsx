@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
 } from "./lib/catalog";
+import { enqueue, listPending, remove as removePending, drain } from "./lib/offline-queue";
+import { useOnlineStatus, isNetworkError } from "@/lib/offline-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -12,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2 } from "lucide-react";
+import { Plus, Loader2, Trash2, Wifi, WifiOff, RefreshCw } from "lucide-react";
 
 type FormState = {
   data: string;
@@ -73,6 +75,43 @@ export default function LancamentoPage() {
     },
   });
 
+  const online = useOnlineStatus();
+  const [syncing, setSyncing] = useState(false);
+
+  const { data: pendentes = [], refetch: refetchPendentes } = useQuery({
+    queryKey: ["apontamentos-pendentes"],
+    queryFn: () => listPending(),
+    networkMode: "always",
+  });
+  const pendentesDoDia = useMemo(
+    () => pendentes.filter((p) => p.payload.data === form.data),
+    [pendentes, form.data],
+  );
+
+  const sync = useCallback(async () => {
+    setSyncing(true);
+    try {
+      const result = await drain();
+      if (result.synced.length > 0) {
+        toast.success(`${result.synced.length} apontamento(s) sincronizado(s)`);
+        refetch();
+        qc.invalidateQueries({ queryKey: ["apontamentos"] });
+      }
+      if (result.errored.length > 0) {
+        toast.error(`${result.errored.length} apontamento(s) com erro — revise na lista`);
+      }
+      refetchPendentes();
+    } finally {
+      setSyncing(false);
+    }
+  }, [refetch, refetchPendentes, qc]);
+
+  useEffect(() => {
+    sync();
+    window.addEventListener("online", sync);
+    return () => window.removeEventListener("online", sync);
+  }, [sync]);
+
   const insertMut = useMutation({
     mutationFn: async (f: FormState) => {
       const empresa = empresas.find((e) => e.id === f.empresa_id);
@@ -83,6 +122,7 @@ export default function LancamentoPage() {
       const atividade = atividades.find((a) => a.id === f.atividade_id);
       if (!empresa || !lider || !setor || !atividade) throw new Error("Selecione todos os campos obrigatórios");
       const payload = computeApontamento({
+        id: crypto.randomUUID(),
         data: f.data,
         empresa_id: empresa.id, empresa_nome: empresa.nome,
         lideranca_id: lider.id, lideranca_nome: lider.nome, lideranca_tipo: lider.tipo,
@@ -94,14 +134,33 @@ export default function LancamentoPage() {
         obs_planejamento: f.obs_planejamento || null,
         validado: false,
       });
-      const { error } = await supabase.from("apontamentos_diarios").insert(payload);
-      if (error) throw error;
+
+      // `id` gerado sempre (mesmo online) é a chave de idempotência: se o
+      // envio "aparentemente" falhar por rede mas na verdade já tiver
+      // chegado no servidor, o retry (imediato ou via fila) usa o mesmo id
+      // e o upsert com ignoreDuplicates absorve a duplicata sem violar RLS.
+      if (!navigator.onLine) {
+        await enqueue(payload);
+        return { queued: true };
+      }
+      const { error, status } = await supabase
+        .from("apontamentos_diarios")
+        .upsert(payload, { onConflict: "id", ignoreDuplicates: true });
+      if (error) {
+        if (isNetworkError(error, status)) {
+          await enqueue(payload);
+          return { queued: true };
+        }
+        throw error;
+      }
+      return { queued: false };
     },
-    onSuccess: () => {
-      toast.success("Apontamento registrado");
+    onSuccess: (r) => {
+      toast.success(r.queued ? "Salvo no dispositivo — será enviado quando houver conexão" : "Apontamento registrado");
       setForm((p) => emptyForm({ data: p.data, empresa_id: p.empresa_id, lideranca_id: p.lideranca_id }));
       refetch();
       qc.invalidateQueries({ queryKey: ["apontamentos"] });
+      refetchPendentes();
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -113,6 +172,23 @@ export default function LancamentoPage() {
     },
     onSuccess: () => { toast.success("Removido"); refetch(); qc.invalidateQueries({ queryKey: ["apontamentos"] }); },
   });
+
+  const removePendingMut = useMutation({
+    mutationFn: (id: string) => removePending(id),
+    onSuccess: () => { toast.success("Removido do dispositivo"); refetchPendentes(); },
+  });
+
+  const rows = useMemo(() => {
+    const pendingRows = pendentesDoDia.map((p) => ({
+      ...p.payload,
+      _pending: true as const,
+      _queueId: p.id,
+      _status: p.status,
+      _lastError: p.lastError,
+    }));
+    const serverRows = (doDia ?? []).map((r: any) => ({ ...r, _pending: false as const }));
+    return [...pendingRows, ...serverRows];
+  }, [pendentesDoDia, doDia]);
 
   const set = <K extends keyof FormState>(k: K, v: FormState[K]) =>
     setForm((p) => ({ ...p, [k]: v }));
@@ -132,6 +208,34 @@ export default function LancamentoPage() {
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">
+      <div className="lg:col-span-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-4 py-2 text-sm">
+        <div className="flex items-center gap-2">
+          {online ? (
+            <Wifi className="h-4 w-4 text-emerald-600" />
+          ) : (
+            <WifiOff className="h-4 w-4 text-amber-600" />
+          )}
+          <span className={online ? "text-muted-foreground" : "font-medium text-amber-600"}>
+            {online ? "Online" : "Offline — os lançamentos ficam salvos no aparelho"}
+          </span>
+          {pendentes.length > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+              {pendentes.length} pendente(s) de envio
+            </span>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={sync}
+          disabled={!online || syncing || pendentes.length === 0}
+        >
+          {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Sincronizar agora
+        </Button>
+      </div>
+
       <Card className="lg:col-span-2">
         <CardHeader>
           <CardTitle className="text-xl">Novo apontamento</CardTitle>
@@ -241,12 +345,12 @@ export default function LancamentoPage() {
         <CardHeader>
           <CardTitle className="text-base">Lançamentos de {formatBR(form.data)}</CardTitle>
           <p className="text-sm text-muted-foreground">
-            {doDia?.length ?? 0} frente(s) · Total {doDia?.reduce((s, r) => s + r.total, 0) ?? 0} pessoa(s)
+            {rows.length} frente(s) · Total {rows.reduce((s, r) => s + r.total, 0)} pessoa(s)
           </p>
         </CardHeader>
         <CardContent className="space-y-2 max-h-[600px] overflow-y-auto">
-          {(doDia ?? []).map((r) => (
-            <div key={r.id} className="rounded-lg border p-3 text-sm">
+          {rows.map((r) => (
+            <div key={r._pending ? `pending-${r._queueId}` : r.id} className="rounded-lg border p-3 text-sm">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <div className="font-medium">{r.empresa_nome} · {r.atividade_nome}</div>
@@ -256,11 +360,20 @@ export default function LancamentoPage() {
                     {r.subarea_nome ? ` / ${r.subarea_nome}` : ""}
                   </div>
                 </div>
-                <button onClick={() => delMut.mutate(r.id)} className="text-muted-foreground hover:text-destructive" aria-label="Remover">
+                <button
+                  onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
+                  className="text-muted-foreground hover:text-destructive"
+                  aria-label="Remover"
+                >
                   <Trash2 className="h-4 w-4" />
                 </button>
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
+                {r._pending && r._status === "error" ? (
+                  <Chip variant="error">Erro — revise: {r._lastError}</Chip>
+                ) : r._pending ? (
+                  <Chip variant="pending">Pendente de envio</Chip>
+                ) : null}
                 <Chip>Total {r.total}</Chip>
                 {r.pedreiro > 0 && <Chip>Pedreiro {r.pedreiro}</Chip>}
                 {r.servente > 0 && <Chip>Servente {r.servente}</Chip>}
@@ -269,7 +382,7 @@ export default function LancamentoPage() {
               </div>
             </div>
           ))}
-          {(doDia?.length ?? 0) === 0 && (
+          {rows.length === 0 && (
             <p className="text-sm text-muted-foreground py-8 text-center">Nenhum lançamento ainda.</p>
           )}
         </CardContent>
@@ -293,6 +406,12 @@ function NumField({ label, value, onChange }: { label: string; value: number; on
   );
 }
 
-function Chip({ children }: { children: React.ReactNode }) {
-  return <span className="rounded-full bg-secondary px-2 py-0.5 text-secondary-foreground">{children}</span>;
+function Chip({ children, variant }: { children: React.ReactNode; variant?: "pending" | "error" }) {
+  const cls =
+    variant === "error"
+      ? "bg-destructive/10 text-destructive"
+      : variant === "pending"
+        ? "bg-amber-100 text-amber-800"
+        : "bg-secondary text-secondary-foreground";
+  return <span className={`rounded-full px-2 py-0.5 ${cls}`}>{children}</span>;
 }

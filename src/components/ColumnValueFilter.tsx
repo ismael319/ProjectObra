@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ChevronLeft, Clock, Plus, Search, X } from 'lucide-react'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 export interface ColumnFilterState {
   /** 'discipline' | 'responsible' | 'area' | `cf:<nome do campo>` (Extended Attribute, casado por NOME — o FieldID não é estável entre arquivos/cronogramas) */
@@ -14,7 +15,7 @@ export interface ColumnFieldDef {
   name: string
 }
 
-const EMPTY_VALUE = '__vazio__'
+export const EMPTY_VALUE = '__vazio__'
 
 // Histórico de filtros (coluna+valores) aplicados, pra fixar os mais usados no topo
 // da lista de colunas — global (não por cronograma/projeto), guardado no navegador.
@@ -201,9 +202,21 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
   }
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">Filtrar por Coluna</span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 cursor-help underline decoration-dotted underline-offset-2">
+              Filtrar por Coluna
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="start" className="max-w-xs">
+            Exclui atividades que não batem com os valores escolhidos numa coluna (Disciplina, Responsável
+            ou um campo personalizado do MS Project). Cada coluna adicionada é combinada com "E" (AND);
+            os valores marcados dentro da mesma coluna são combinados com "OU" (OR).
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       {filters.length > 0 && (
@@ -336,5 +349,6 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
         </div>
       )}
     </div>
+    </TooltipProvider>
   )
 }

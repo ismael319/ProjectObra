@@ -103,10 +103,12 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
     const allAssignments: WBSAssignment[] = []
     const resourceUids = new Set<number>()
 
-    for (const p of projs) {
+    projs.forEach((p, cronogramaIdx) => {
       // Loop em vez de push(...array): cronogramas grandes podem ter milhares de
       // atividades/alocações e estourar a pilha de chamadas do JS com spread.
-      for (const a of p.activities) allActivities.push(a)
+      // sourceCronogramaIndex desambigua o código WBS entre cronogramas
+      // diferentes (cada um numera "1.1, 1.2, ..." do zero, então colidem).
+      for (const a of p.activities) allActivities.push({ ...a, sourceCronogramaIndex: cronogramaIdx })
       for (const r of p.resources) {
         if (!resourceUids.has(r.uid)) {
           allResources.push(r)
@@ -114,7 +116,7 @@ export function ProjectProvider({ children }: { children: ReactNode }) {
         }
       }
       for (const a of p.assignments) allAssignments.push(a)
-    }
+    })
 
     setProjectState(merged)
     setActivities(normalizeActivities(allActivities))

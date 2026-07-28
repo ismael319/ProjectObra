@@ -7,6 +7,7 @@ import { addActivitiesBulk } from '@/lib/programacao-db'
 import type { WeekActivity } from '@/lib/week-activities'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface ImportSource {
   id: string
@@ -181,6 +182,7 @@ export default function ModalImportarAtividades({
   }
 
   return (
+    <TooltipProvider delayDuration={300}>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-6xl max-h-[85vh] flex flex-col">
         <DialogHeader>
@@ -242,18 +244,26 @@ export default function ModalImportarAtividades({
                       <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                         {group.activities.length} {group.activities.length === 1 ? 'atividade' : 'atividades'}
                       </span>
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
-                        <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">LB:</label>
-                        <select
-                          value={currentBL}
-                          onChange={(e) => setSelectedBLFor(cronogramaId, parseInt(e.target.value))}
-                          className="text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        >
-                          {(sourceBLOptions.length > 0 ? sourceBLOptions : [0]).map((i) => (
-                            <option key={i} value={i}>BL{i}</option>
-                          ))}
-                        </select>
-                      </div>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <label className="text-[11px] font-medium text-gray-500 dark:text-gray-400">LB:</label>
+                            <select
+                              value={currentBL}
+                              onChange={(e) => setSelectedBLFor(cronogramaId, parseInt(e.target.value))}
+                              className="text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            >
+                              {(sourceBLOptions.length > 0 ? sourceBLOptions : [0]).map((i) => (
+                                <option key={i} value={i}>BL{i}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" className="max-w-xs">
+                          Linha de base usada pra calcular o "Atraso" mostrado na tabela abaixo — compara a
+                          data prevista nessa baseline com a data real/atual da atividade.
+                        </TooltipContent>
+                      </Tooltip>
                     </div>
 
                     {isExpanded && (
@@ -325,5 +335,6 @@ export default function ModalImportarAtividades({
         )}
       </DialogContent>
     </Dialog>
+    </TooltipProvider>
   )
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Calendar, Printer, FileSpreadsheet, Upload, Download, CalendarDays } from 'lucide-react';
 import type { Granularidade } from '@/lib/gantt/histograma';
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 
 type Props = {
   granularidade: Granularidade;
@@ -27,28 +28,46 @@ export function Toolbar({
   ];
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
-      <button
-        onClick={onImportCronograma}
-        className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
-        title="Importar atividades do cronograma do projeto"
-      >
-        <Calendar size={16} /> Cronograma
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onImportCronograma}
+            className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+          >
+            <Calendar size={16} /> Cronograma
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          Busca atividades no(s) cronograma(s) do projeto (importado via XML) pra trazer pro Gantt Livre
+          do cenário atual.
+        </TooltipContent>
+      </Tooltip>
       <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
-      <button
-        onClick={onPrint}
-        className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
-      >
-        <Printer size={16} /> Imprimir
-      </button>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={onPrint}
+            className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+          >
+            <Printer size={16} /> Imprimir
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">Imprime a visão atual do Gantt (barras, equipes e período visível).</TooltipContent>
+      </Tooltip>
       <div className="relative">
-        <button
-          onClick={() => setExcelMenuOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
-        >
-          <FileSpreadsheet size={16} /> Excel
-        </button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              onClick={() => setExcelMenuOpen((v) => !v)}
+              className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+            >
+              <FileSpreadsheet size={16} /> Excel
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">Importa ou exporta as atividades do cenário atual em planilha .xlsx.</TooltipContent>
+        </Tooltip>
         {excelMenuOpen && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setExcelMenuOpen(false)} />
@@ -70,25 +89,33 @@ export function Toolbar({
         )}
       </div>
       <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
-      <div className="flex items-center gap-1">
-        {granOptions.map((opt) => {
-          const Icon = opt.icon;
-          const active = granularidade === opt.value;
-          return (
-            <button
-              key={opt.value}
-              onClick={() => onGranularidadeChange(opt.value)}
-              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
-                active
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700'
-              }`}
-            >
-              <Icon size={16} /> {opt.label}
-            </button>
-          );
-        })}
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex items-center gap-1">
+            {granOptions.map((opt) => {
+              const Icon = opt.icon;
+              const active = granularidade === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  onClick={() => onGranularidadeChange(opt.value)}
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+                    active
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <Icon size={16} /> {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-xs">
+          Muda a resolução do eixo do tempo do Gantt e do histograma abaixo (dia, semana ou mês).
+        </TooltipContent>
+      </Tooltip>
     </div>
+    </TooltipProvider>
   );
 }

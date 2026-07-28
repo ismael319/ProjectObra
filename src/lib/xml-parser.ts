@@ -47,6 +47,12 @@ export interface WBSActivity {
   uid: number
   name: string
   wbs: string
+  // Índice do cronograma de origem quando vários são mesclados numa lista só
+  // (project-context.tsx › setMultipleProjects) — cada arquivo do MS Project
+  // numera o WBS a partir de "1", então "1.9" de um cronograma pode colidir
+  // com "1.9" de outro; isso desambigua. Ausente = cronograma único (sem
+  // mesclagem), então não colide com nada.
+  sourceCronogramaIndex?: number
   outlineLevel: number
   outlineNumber: string
   start: Date

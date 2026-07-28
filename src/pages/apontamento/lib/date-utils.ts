@@ -36,5 +36,8 @@ export function computeApontamento(payload: Record<string, any>): Record<string,
   p.ano_mes = toAnoMes(p.data);
   p.ano_semana = toAnoSemana(p.data);
   p.atualizado_em = new Date().toISOString();
+  // `id` é gerado pelo chamador (crypto.randomUUID()) e preservado como está:
+  // é a chave de idempotência usada pra sincronizar apontamentos capturados
+  // offline sem duplicar em caso de retry (ver offline-queue.ts).
   return p;
 }

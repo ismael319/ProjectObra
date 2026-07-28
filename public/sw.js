@@ -1,8 +1,7 @@
-const CACHE_NAME = 'obracontrol-v2'
+const CACHE_NAME = 'obracontrol-v3'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/lancamento.html',
   '/manifest.json',
   '/favicon.svg',
 ]

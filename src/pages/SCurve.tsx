@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useEffect } from 'react'
-import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, Check, FileCode, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
+import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, FileCode, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
 import { isHighImpact } from '@/lib/occurrence-types'
@@ -80,7 +81,9 @@ export default function SCurve() {
   const [synthSlotIds, setSynthSlotIds] = useState<string[]>(loadSaved(SYNTH_SLOTS_KEY, DEFAULT_SYNTH_SLOTS))
   const [collapsedSynthSlots, setCollapsedSynthSlots] = useState<Set<string>>(new Set(loadSaved(SYNTH_SLOTS_KEY, DEFAULT_SYNTH_SLOTS)))
   const [collapsedFilterCronogramas, setCollapsedFilterCronogramas] = useState<Set<string>>(new Set())
-  const [showTable, setShowTable] = useState<boolean>(loadSaved(SHOW_TABLE_KEY, true))
+  // false = "Modo geral" (padrão — só a curva, sem as tabelas de avanço
+  // semanal/7 dias); true = "Modo de planejamento" (entra só clicando).
+  const [showTable, setShowTable] = useState<boolean>(loadSaved(SHOW_TABLE_KEY, false))
   const [showDiagnostic, setShowDiagnostic] = useState(false)
   const [openPanel, setOpenPanel] = useState<OpenPanel>(null)
   const [tooltipState, setTooltipState] = useState<{
@@ -558,6 +561,7 @@ export default function SCurve() {
   }
 
   return (
+    <TooltipProvider delayDuration={300}>
     <div className="space-y-6">
       <SCurveHeader
         projectName={project.nome}
@@ -565,6 +569,40 @@ export default function SCurve() {
         overallPace={overallPace}
         scheduleInfo={scheduleInfo}
       />
+
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Modo de exibição</span>
+        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleShowTableChange(false)}
+                className={`px-3 py-1.5 text-xs font-medium transition ${!showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                Modo geral
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Modo padrão: mostra só a Curva S e os cards de resumo. As tabelas de avanço semanal e a
+              tabela de EAP com avanço de 7 dias ficam ocultas, pra uma visão mais limpa do progresso geral.
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => handleShowTableChange(true)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-l border-gray-200 dark:border-gray-700 ${showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+              >
+                <Table2 size={13} /> Modo de planejamento
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Modo detalhado (entra só clicando aqui): além da curva, mostra as tabelas de avanço semanal
+              por cronograma e a tabela de EAP com o avanço dos últimos/próximos 7 dias por atividade.
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
 
       {advances && (
         <SCurveAdvanceCard
@@ -586,39 +624,55 @@ export default function SCurve() {
           </h3>
           <div className="flex flex-wrap items-center gap-3">
             {/* Granularidade */}
-            <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
-              {GRANULARITY_OPTIONS.map((g) => (
-                <button
-                  key={g.value}
-                  onClick={() => handleGranularityChange(g.value)}
-                  title={g.title}
-                  className={`px-4 py-2.5 text-base font-semibold transition ${
-                    granularity === g.value
-                      ? 'bg-blue-600 text-white'
-                      : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-                  }`}
-                >
-                  {g.short}
-                </button>
-              ))}
-            </div>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                  {GRANULARITY_OPTIONS.map((g) => (
+                    <button
+                      key={g.value}
+                      onClick={() => handleGranularityChange(g.value)}
+                      title={g.title}
+                      className={`px-4 py-2.5 text-base font-semibold transition ${
+                        granularity === g.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {g.short}
+                    </button>
+                  ))}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                Granularidade dos períodos da curva e das tabelas: Diário, Semanal ou Mensal — agrupa os
+                pontos de avanço planejado/real nesse intervalo.
+              </TooltipContent>
+            </Tooltip>
         {/* Filtros */}
         <div className="relative">
-          <button
-            onClick={() => togglePanel('filtros')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
-              openPanel === 'filtros'
-                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Filter size={16} /> Filtros
-            {(activeCronogramas.length > 1 || hasActivityFilter) && (
-              <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                {selectedCronogramas.length + (hasActivityFilter ? 1 : 0)}
-              </span>
-            )}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => togglePanel('filtros')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                  openPanel === 'filtros'
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Filter size={16} /> Filtros
+                {(activeCronogramas.length > 1 || hasActivityFilter) && (
+                  <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
+                    {selectedCronogramas.length + (hasActivityFilter ? 1 : 0)}
+                  </span>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Escolhe quais cronogramas ativos entram no cálculo da curva e permite excluir atividades
+              específicas (por EAP) de cada um, sem alterar os dados originais.
+            </TooltipContent>
+          </Tooltip>
           {openPanel === 'filtros' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
@@ -716,16 +770,24 @@ export default function SCurve() {
 
         {/* Opções */}
         <div className="relative">
-          <button
-            onClick={() => togglePanel('opcoes')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
-              openPanel === 'opcoes'
-                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <SlidersHorizontal size={16} /> Opções
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => togglePanel('opcoes')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                  openPanel === 'opcoes'
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <SlidersHorizontal size={16} /> Opções
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Escolhe a linha de base (LB) de referência, quais LBs aparecem no gráfico e como combinar
+              LBs de cronogramas diferentes em LBs sintéticas.
+            </TooltipContent>
+          </Tooltip>
           {openPanel === 'opcoes' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
@@ -848,30 +910,28 @@ export default function SCurve() {
 
         {/* Ferramentas */}
         <div className="relative">
-          <button
-            onClick={() => togglePanel('ferramentas')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
-              openPanel === 'ferramentas'
-                ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
-                : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
-            }`}
-          >
-            <Wrench size={16} /> Ferramentas
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={() => togglePanel('ferramentas')}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                  openPanel === 'ferramentas'
+                    ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                    : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                }`}
+              >
+                <Wrench size={16} /> Ferramentas
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              Exporta a Curva S, as atividades ou o relatório em Excel/PDF, e abre o diagnóstico de leitura
+              do XML importado.
+            </TooltipContent>
+          </Tooltip>
           {openPanel === 'ferramentas' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
               <div className="absolute top-full left-0 mt-1 w-60 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-2 space-y-1">
-                <button
-                  onClick={() => handleShowTableChange(!showTable)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-                >
-                  <span className={`flex items-center justify-center w-4 h-4 rounded border ${showTable ? 'bg-blue-600 border-blue-600 text-white' : 'border-gray-300 dark:border-gray-600'}`}>
-                    {showTable && <Check size={12} />}
-                  </span>
-                  <Table2 size={16} className="text-gray-500" /> Tabela
-                </button>
-                <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button
                    onClick={() => { exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances ? { statusDate: advances.statusDate, statusDateFormatted: advances.statusDateFormatted, real: advances.real, baselines: advanceBaselines } : undefined, periodColLabel); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
@@ -1021,6 +1081,7 @@ export default function SCurve() {
       )}
       {showDiagnostic && <SCurveDiagnostic onClose={() => setShowDiagnostic(false)} />}
     </div>
+    </TooltipProvider>
   )
 }
 

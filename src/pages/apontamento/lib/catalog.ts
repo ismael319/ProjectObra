@@ -1,5 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { fetchWithOfflineCache } from "@/lib/offline-query";
+
+// Cadastros de apoio usados nos combos do Lançamento em campo: cacheados em
+// IndexedDB a cada busca bem-sucedida e servidos desse cache quando a rede
+// falhar (ver fetchWithOfflineCache). networkMode "always" é necessário
+// porque o React Query, por padrão, nem chama o queryFn offline — a query
+// fica "pausada" e o fallback pro cache nunca roda. retry desligado nas duas
+// camadas (aqui e no builder do supabase-js) evita empilhar backoff antes de
+// cair pro cache.
+const OFFLINE_CATALOG_OPTS = {
+  networkMode: "always" as const,
+  retry: false,
+  staleTime: 5 * 60_000,
+};
 
 export type Empresa = { id: string; nome: string; ativo: boolean };
 export type Lideranca = { id: string; nome: string; tipo: string; ativo: boolean };
@@ -11,80 +25,80 @@ export type Atividade = { id: string; nome: string; ativo: boolean; subarea_id?:
 export function useEmpresas(onlyActive = true) {
   return useQuery({
     queryKey: ["empresas", onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("empresas").select("id,nome,ativo");
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Empresa[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:empresas:${onlyActive}`, async () => {
+        let q = supabase.from("empresas").select("id,nome,ativo").retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Empresa[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useLiderancas(onlyActive = true) {
   return useQuery({
     queryKey: ["liderancas", onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("liderancas").select("id,nome,tipo,ativo");
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Lideranca[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:liderancas:${onlyActive}`, async () => {
+        let q = supabase.from("liderancas").select("id,nome,tipo,ativo").retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Lideranca[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useSetores(onlyActive = true) {
   return useQuery({
     queryKey: ["setores", onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("setores").select("id,nome,ativo");
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Setor[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:setores:${onlyActive}`, async () => {
+        let q = supabase.from("setores").select("id,nome,ativo").retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Setor[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useAreas(setorId?: string | null, onlyActive = true) {
   return useQuery({
     queryKey: ["areas", setorId ?? null, onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("areas").select("id,setor_id,nome,ativo");
-      if (setorId) q = q.eq("setor_id", setorId);
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Area[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:areas:${setorId ?? "all"}:${onlyActive}`, async () => {
+        let q = supabase.from("areas").select("id,setor_id,nome,ativo").retry(false);
+        if (setorId) q = q.eq("setor_id", setorId);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Area[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useSubareas(areaId?: string | null, onlyActive = true) {
   return useQuery({
     queryKey: ["subareas", areaId ?? null, onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("subareas").select("id,area_id,nome,ativo");
-      if (areaId) q = q.eq("area_id", areaId);
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Subarea[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:subareas:${areaId ?? "all"}:${onlyActive}`, async () => {
+        let q = supabase.from("subareas").select("id,area_id,nome,ativo").retry(false);
+        if (areaId) q = q.eq("area_id", areaId);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Subarea[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useAtividades(onlyActive = true) {
   return useQuery({
     queryKey: ["atividades", onlyActive],
-    queryFn: async () => {
-      let q = supabase.from("atividades").select("id,nome,ativo");
-      if (onlyActive) q = q.eq("ativo", true);
-      const { data, error } = await q;
-      if (error) throw error;
-      return (data as Atividade[]).sort((a, b) => a.nome.localeCompare(b.nome));
-    },
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:atividades:${onlyActive}`, async () => {
+        let q = supabase.from("atividades").select("id,nome,ativo").retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as Atividade[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    ...OFFLINE_CATALOG_OPTS,
   });
 }
 

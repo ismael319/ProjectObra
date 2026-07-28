@@ -2,11 +2,19 @@ import { useMemo } from 'react'
 import { Flag, AlertOctagon, Layers } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import { toDate } from '@/lib/utils'
+import type { WBSActivity } from '@/lib/xml-parser'
 
 const DISCIPLINE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d']
 
-export default function EngineeringHighlights() {
-  const { activities } = useProject()
+type Props = {
+  // Sobrescreve as atividades usadas nos cálculos (ex.: filtro por cronograma/
+  // disciplina na Visão Geral) — sem isso, sempre usa o projeto inteiro.
+  activities?: WBSActivity[]
+}
+
+export default function EngineeringHighlights({ activities: activitiesProp }: Props = {}) {
+  const { activities: activitiesContexto } = useProject()
+  const activities = activitiesProp ?? activitiesContexto
 
   const leafActivities = useMemo(() => activities.filter((a) => !a.isSummary), [activities])
 

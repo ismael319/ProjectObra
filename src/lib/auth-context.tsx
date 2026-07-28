@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import { idbGet, idbSet } from '@/lib/idb-kv'
 
 export type PapelUsuario = 'admin' | 'gestor' | 'engenheiro' | 'campo'
 export type StatusSolicitacao = 'pendente' | 'aprovado' | 'rejeitado'
@@ -52,6 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  const profileCacheKey = (userId: string) => `auth:profile:${userId}`
+
   const fetchProfile = async (userId: string) => {
     setIsLoadingProfile(true)
     const { data } = await supabase
@@ -73,16 +76,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           .eq('ativo', true)
         modulos = (modulosRows ?? []).map((r) => r.modulo_key as string)
       }
-      setUserProfile({
+      const profile: UserProfile = {
         papel: data.papel,
         status_solicitacao: data.status_solicitacao,
         organizacao_id: data.organizacao_id,
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
-      })
+      }
+      setUserProfile(profile)
+      idbSet(profileCacheKey(userId), profile).catch(() => {})
     } else {
-      setUserProfile(null)
+      // Sem rede (apontador em campo), a busca acima não retorna `data` nem
+      // lança — antes de derrubar o acesso, tenta o último perfil conhecido
+      // salvo localmente na sessão anterior.
+      const cached = await idbGet<UserProfile>(profileCacheKey(userId)).catch(() => undefined)
+      setUserProfile(cached ?? null)
     }
     setIsLoadingProfile(false)
   }
