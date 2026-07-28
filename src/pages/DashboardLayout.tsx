@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom'
 import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import ChatWidget from '@/components/ChatWidget'
+import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
@@ -10,6 +11,7 @@ import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 
 export default function DashboardLayout() {
+  const { presentationMode } = usePresentationMode()
   const { isDark, toggle, brandColor } = useTheme()
   const { currentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
@@ -198,18 +200,21 @@ export default function DashboardLayout() {
         </div>
       </header>
 
-      {/* Sidebar abaixo do header */}
-      <Sidebar
-        collapsed={sidebarCollapsed}
-        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-        mobileOpen={mobileMenuOpen}
-        onMobileClose={() => setMobileMenuOpen(false)}
-        papel={userProfile?.papel ?? undefined}
-        modulos={userProfile?.modulos}
-      />
+      {/* Sidebar abaixo do header — escondida em modo apresentação (ex.: Gantt
+          Livre) pra sobrar tela inteira pro conteúdo durante uma reunião. */}
+      {!presentationMode && (
+        <Sidebar
+          collapsed={sidebarCollapsed}
+          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+          mobileOpen={mobileMenuOpen}
+          onMobileClose={() => setMobileMenuOpen(false)}
+          papel={userProfile?.papel ?? undefined}
+          modulos={userProfile?.modulos}
+        />
+      )}
 
       {/* Conteúdo principal */}
-      <main className={`pt-16 transition-all duration-300 ${sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
+      <main className={`pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
         <div className="p-6">
           <Outlet />
         </div>

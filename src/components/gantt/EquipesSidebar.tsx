@@ -33,11 +33,11 @@ export function EquipesSidebar({ onCollapse }: Props) {
   return (
     <div className="w-52 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
-        <h2 className="text-sm font-semibold text-gray-900 dark:text-white tracking-wide uppercase">Equipes</h2>
+        <h2 className="text-xs font-semibold text-gray-900 dark:text-white tracking-wide uppercase">Equipes</h2>
         <div className="flex items-center gap-1">
           <button
             onClick={openNew}
-            className="flex items-center gap-1 text-xs bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-md transition-colors"
+            className="flex items-center gap-1 text-[11px] bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-md transition-colors"
           >
             <Plus size={14} /> Nova
           </button>
@@ -53,7 +53,7 @@ export function EquipesSidebar({ onCollapse }: Props) {
 
       <div className="flex-1 overflow-y-auto">
         {scenarioEquipes.length === 0 && (
-          <p className="text-gray-400 dark:text-slate-500 text-sm text-center mt-8 px-4">
+          <p className="text-gray-400 dark:text-slate-500 text-xs text-center mt-8 px-4">
             Nenhuma equipe cadastrada. Clique em "+ Nova" para começar.
           </p>
         )}
@@ -69,13 +69,13 @@ export function EquipesSidebar({ onCollapse }: Props) {
                 <div className="flex items-start gap-2.5 flex-1 min-w-0">
                   <div className="w-2.5 h-2.5 rounded-full mt-1.5 shrink-0" style={{ backgroundColor: eq.cor }} />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{eq.nome}</p>
+                    <p className="text-xs font-medium text-gray-900 dark:text-white truncate">{eq.nome}</p>
                     {eq.funcoes.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {eq.funcoes.map((f, i) => (
                           <span
                             key={i}
-                            className="text-xs px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
+                            className="text-[11px] px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800"
                           >
                             {f.quantidade}x {f.tipo}
                             {f.subtipo ? ` (${f.subtipo})` : ''}
@@ -83,7 +83,7 @@ export function EquipesSidebar({ onCollapse }: Props) {
                         ))}
                       </div>
                     )}
-                    <div className="flex items-center gap-3 mt-1.5 text-xs text-gray-400 dark:text-slate-400">
+                    <div className="flex items-center gap-3 mt-1.5 text-[11px] text-gray-400 dark:text-slate-400">
                       <span className="flex items-center gap-1">
                         <Users size={11} /> {totalPessoas} pessoas
                       </span>

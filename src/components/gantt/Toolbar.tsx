@@ -30,7 +30,7 @@ export function Toolbar({
     <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
       <button
         onClick={onImportCronograma}
-        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
         title="Importar atividades do cronograma do projeto"
       >
         <Calendar size={16} /> Cronograma
@@ -38,14 +38,14 @@ export function Toolbar({
       <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
       <button
         onClick={onPrint}
-        className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+        className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
       >
         <Printer size={16} /> Imprimir
       </button>
       <div className="relative">
         <button
           onClick={() => setExcelMenuOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+          className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
         >
           <FileSpreadsheet size={16} /> Excel
         </button>
@@ -55,13 +55,13 @@ export function Toolbar({
             <div className="absolute left-0 top-full mt-1 z-20 w-52 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg py-1">
               <button
                 onClick={() => { onImportExcel(); setExcelMenuOpen(false); }}
-                className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+                className="w-full flex items-center gap-2 text-xs text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
               >
                 <Upload size={14} /> Importar Excel
               </button>
               <button
                 onClick={() => { onExportExcel(); setExcelMenuOpen(false); }}
-                className="w-full flex items-center gap-2 text-sm text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
+                className="w-full flex items-center gap-2 text-xs text-gray-700 dark:text-slate-200 hover:bg-gray-100 dark:hover:bg-slate-700 px-3 py-2 text-left"
               >
                 <Download size={14} /> Exportar Excel
               </button>
@@ -78,7 +78,7 @@ export function Toolbar({
             <button
               key={opt.value}
               onClick={() => onGranularidadeChange(opt.value)}
-              className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-md transition-colors ${
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
                 active
                   ? 'bg-blue-600 text-white'
                   : 'text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700'

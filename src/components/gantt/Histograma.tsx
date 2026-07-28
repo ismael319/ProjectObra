@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useState } from 'react';
-import { Ban, Users, Wrench, Download } from 'lucide-react';
+import { Ban, Users, Wrench, Download, ChevronDown, ChevronRight } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
@@ -39,6 +39,9 @@ const DATE_ROW_HEIGHT = 22;
 export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onScrollSync, labelWidth }: Props) {
   const { atividades, equipes, activeScenarioId, paradas } = useGanttStore();
   const [modo, setModo] = useState<ModoHistograma>('pessoas');
+  // TOTAL GERAL/TOTAL POR DIA continuam sempre visíveis mesmo recolhido — só
+  // as linhas de detalhe por função/equipamento (que ocupam mais espaço) somem.
+  const [detalhesVisiveis, setDetalhesVisiveis] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const colWidth = columnWidthFor(granularidade);
 
@@ -147,6 +150,14 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
 
   const unidade = modo === 'pessoas' ? 'pessoas' : 'unidades';
 
+  // Altura do painel acompanha o conteúdo — recolhido (só total) ele fica bem
+  // baixinho em vez de manter o espaço vazio de quando os detalhes cabiam.
+  // Cap no valor que já era o padrão (280 - cabeçalho) pra não crescer sem
+  // limite com muitas funções/equipamentos — aí entra o scroll interno.
+  const contentHeight = (detalhesVisiveis ? labels.length * ROW_HEIGHT : 0) + ROW_HEIGHT + BAR_MAX_HEIGHT + DATE_ROW_HEIGHT;
+  const MAX_CONTENT_HEIGHT = 239;
+  const panelContentHeight = Math.min(contentHeight, MAX_CONTENT_HEIGHT);
+
   const handleExportExcel = () => {
     const header = [modo === 'pessoas' ? 'Função' : 'Equipamento', ...colData.map((c) => colLabel(c.date, granularidade))];
     const rows = labels.map((f) => [f, ...colValues.map((cv) => cv.values[f] || 0)]);
@@ -159,13 +170,20 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
   };
 
   return (
-    <div className="flex flex-col bg-white dark:bg-slate-900 border-t-2 border-gray-200 dark:border-slate-600" style={{ height: 280 }}>
+    <div className="flex flex-col bg-white dark:bg-slate-900 border-t-2 border-gray-200 dark:border-slate-600">
       <div className="px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex items-center gap-2">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Histograma</h3>
+        <button
+          onClick={() => setDetalhesVisiveis((v) => !v)}
+          title={detalhesVisiveis ? 'Ocultar detalhes (mantém o total)' : 'Mostrar detalhes'}
+          className="flex items-center gap-1 text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wide hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+        >
+          {detalhesVisiveis ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+          Histograma
+        </button>
         <div className="flex items-center bg-white dark:bg-slate-900 rounded-lg border border-gray-300 dark:border-slate-600 ml-2">
           <button
             onClick={() => setModo('pessoas')}
-            className={`flex items-center gap-1 px-3 py-1 text-xs rounded-l-lg transition-colors ${
+            className={`flex items-center gap-1 px-3 py-1 text-[11px] rounded-l-lg transition-colors ${
               modo === 'pessoas' ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
@@ -173,30 +191,30 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
           </button>
           <button
             onClick={() => setModo('equipamentos')}
-            className={`flex items-center gap-1 px-3 py-1 text-xs rounded-r-lg transition-colors ${
+            className={`flex items-center gap-1 px-3 py-1 text-[11px] rounded-r-lg transition-colors ${
               modo === 'equipamentos' ? 'bg-blue-600 text-white' : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
             }`}
           >
             <Wrench size={12} /> Equipamentos
           </button>
         </div>
-        <span className="flex items-center gap-1 text-xs text-gray-400 dark:text-slate-400 ml-2">
+        <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-slate-400 ml-2">
           <Ban size={12} className="text-red-500 dark:text-red-400" /> Dias com parada destacados em vermelho
         </span>
         <button
           onClick={handleExportExcel}
-          className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors ml-auto"
+          className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors ml-auto"
         >
           <Download size={14} /> Exportar Excel
         </button>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex overflow-hidden" style={{ height: panelContentHeight }}>
         <div className="shrink-0 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700" style={{ width: labelWidth }}>
-          {labels.map((f) => (
+          {detalhesVisiveis && labels.map((f) => (
             <div
               key={f}
-              className="flex items-center px-3 border-b border-gray-100 dark:border-slate-800 text-sm text-gray-600 dark:text-slate-200 truncate"
+              className="flex items-center px-3 border-b border-gray-100 dark:border-slate-800 text-xs text-gray-600 dark:text-slate-200 truncate"
               style={{ height: ROW_HEIGHT }}
               title={f}
             >
@@ -204,19 +222,19 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
             </div>
           ))}
           <div
-            className="flex items-center px-3 border-b-2 border-gray-200 dark:border-slate-600 text-sm font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-slate-800"
+            className="flex items-center px-3 border-b-2 border-gray-200 dark:border-slate-600 text-xs font-bold text-gray-900 dark:text-white bg-gray-50 dark:bg-slate-800"
             style={{ height: ROW_HEIGHT }}
           >
             TOTAL GERAL
           </div>
           <div
-            className="flex items-center px-3 text-sm font-bold text-blue-600 dark:text-blue-300 bg-gray-50/70 dark:bg-slate-800/50"
+            className="flex items-center px-3 text-xs font-bold text-blue-600 dark:text-blue-300 bg-gray-50/70 dark:bg-slate-800/50"
             style={{ height: BAR_MAX_HEIGHT }}
           >
             TOTAL / DIA
           </div>
           <div
-            className="flex items-center px-3 text-xs font-medium text-gray-400 dark:text-slate-500 border-t border-gray-200 dark:border-slate-700"
+            className="flex items-center px-3 text-[11px] font-medium text-gray-400 dark:text-slate-500 border-t border-gray-200 dark:border-slate-700"
             style={{ height: DATE_ROW_HEIGHT }}
           >
             Data
@@ -225,7 +243,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
 
         <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-x-auto overflow-y-hidden">
           <div style={{ width: colCount * colWidth, position: 'relative' }}>
-            {labels.map((f) => (
+            {detalhesVisiveis && labels.map((f) => (
               <div key={f} className="flex" style={{ height: ROW_HEIGHT }}>
                 {colValues.map((cv, i) => {
                   const val = cv.values[f] || 0;
@@ -236,7 +254,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
                   return (
                     <div
                       key={i}
-                      className={`text-center text-xs flex items-center justify-center border-r border-gray-100 dark:border-slate-800 ${
+                      className={`text-center text-[11px] flex items-center justify-center border-r border-gray-100 dark:border-slate-800 ${
                         overCap
                           ? 'bg-red-100 dark:bg-red-900/60 text-red-700 dark:text-red-300 font-bold'
                           : isParada
@@ -259,7 +277,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
                 return (
                   <div
                     key={i}
-                    className={`text-center text-sm font-bold flex items-center justify-center border-r border-gray-200 dark:border-slate-700 ${
+                    className={`text-center text-xs font-bold flex items-center justify-center border-r border-gray-200 dark:border-slate-700 ${
                       isParada ? 'bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white'
                     }`}
                     style={{ width: colWidth, height: ROW_HEIGHT }}
@@ -303,7 +321,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
                 return (
                   <div
                     key={i}
-                    className={`text-center text-[10px] flex items-center justify-center border-r border-gray-100 dark:border-slate-800 whitespace-nowrap overflow-hidden ${
+                    className={`text-center text-[9px] flex items-center justify-center border-r border-gray-100 dark:border-slate-800 whitespace-nowrap overflow-hidden ${
                       isParada ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-gray-400 dark:text-slate-500'
                     }`}
                     style={{ width: colWidth, height: DATE_ROW_HEIGHT }}

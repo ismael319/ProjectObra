@@ -96,7 +96,7 @@ export function ScenarioTabs() {
                       setEditingId(null);
                     }
                   }}
-                  className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2 py-0.5 rounded outline-none w-40"
+                  className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2 py-0.5 rounded outline-none w-40"
                 />
                 <button
                   onClick={(e) => {
@@ -110,7 +110,7 @@ export function ScenarioTabs() {
               </div>
             ) : (
               <>
-                <span className="text-sm font-medium">{sc.name}</span>
+                <span className="text-xs font-medium">{sc.name}</span>
                 <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={(e) => {
@@ -154,13 +154,13 @@ export function ScenarioTabs() {
               }
             }}
             placeholder="Nome do cenário"
-            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-sm px-2 py-1 rounded outline-none border border-gray-300 dark:border-slate-600 w-40"
+            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2 py-1 rounded outline-none border border-gray-300 dark:border-slate-600 w-40"
           />
           <select
             value={copiarDe}
             onChange={(e) => setCopiarDe(e.target.value)}
             title="Copiar equipes e atividades de outro cenário"
-            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2 py-1 rounded outline-none border border-gray-300 dark:border-slate-600 max-w-[160px]"
+            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-[11px] px-2 py-1 rounded outline-none border border-gray-300 dark:border-slate-600 max-w-[160px]"
           >
             <option value={COPIAR_NENHUM}>Vazio</option>
             {scenarios.map((sc) => (
@@ -182,7 +182,7 @@ export function ScenarioTabs() {
         <>
           <button
             onClick={() => setAdding(true)}
-            className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
+            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
           >
             <Plus size={14} /> Novo
           </button>
@@ -190,14 +190,14 @@ export function ScenarioTabs() {
             onClick={handleExport}
             disabled={!activeScenarioId}
             title="Exportar cenário atual (equipes + atividades) como arquivo"
-            className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <Download size={14} /> Exportar cenário
           </button>
           <button
             onClick={() => importFileRef.current?.click()}
             title="Importar cenário de um arquivo exportado"
-            className="flex items-center gap-1 px-3 py-2 text-sm text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
+            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
           >
             <Upload size={14} /> Importar cenário
           </button>

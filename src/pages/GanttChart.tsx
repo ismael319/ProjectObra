@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
-import { Loader2, PanelLeftOpen } from 'lucide-react';
+import { Loader2, PanelLeftOpen, Presentation, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
+import { usePresentationMode } from '@/lib/presentation-mode';
 import { ScenarioTabs } from '@/components/gantt/ScenarioTabs';
 import { Toolbar } from '@/components/gantt/Toolbar';
 import { EquipesSidebar } from '@/components/gantt/EquipesSidebar';
@@ -54,8 +55,43 @@ export default function GanttChartPage() {
   const [showImportModal, setShowImportModal] = useState(false);
   const [equipesOpen, setEquipesOpen] = useState(true);
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
+  const { presentationMode, setPresentationMode } = usePresentationMode();
   const ganttScrollRef = useRef<HTMLDivElement>(null);
   const excelFileRef = useRef<HTMLInputElement>(null);
+
+  // Modo apresentação = tela cheia de verdade (igual F11/F10), não só
+  // esconder a barra lateral — precisa vir de um clique direto do usuário
+  // (a Fullscreen API recusa chamar fora de um gesto do usuário).
+  const handleTogglePresentation = () => {
+    if (!presentationMode) {
+      setPresentationMode(true);
+      document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+      setPresentationMode(false);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    }
+  };
+
+  // Se o usuário sair da tela cheia pelo ESC (não pelo nosso botão), sincroniza
+  // o estado de volta — senão a barra lateral continuaria escondida mesmo com
+  // o navegador já fora do modo tela cheia.
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      if (!document.fullscreenElement) setPresentationMode(false);
+    };
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange);
+  }, [setPresentationMode]);
+
+  // Sai do modo apresentação automaticamente ao deixar a página — sem isso a
+  // barra lateral do app ficaria escondida (e a tela cheia ativa) em
+  // qualquer outra tela depois.
+  useEffect(() => {
+    return () => {
+      setPresentationMode(false);
+      if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
+    };
+  }, [setPresentationMode]);
 
   const scenarioAtividades = useMemo(
     () => atividades.filter((a) => a.scenario_id === activeScenarioId),
@@ -192,10 +228,27 @@ export default function GanttChartPage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="bg-white dark:bg-slate-900 rounded-xl overflow-hidden" style={{ height: 'calc(100vh - 100px)' }}>
+    // -m-6 cancela o padding do <main> do DashboardLayout (p-6) — o Gantt
+    // Livre é uma tela densa de planejamento, então usa a viewport inteira
+    // (menos o header fixo de 64px) em vez de sobrar moldura vazia ao redor.
+    <div className="-m-6" style={{ height: 'calc(100vh - 4rem)' }}>
+      <div className="bg-white dark:bg-slate-900 h-full overflow-hidden">
         <div className="h-full flex flex-col">
-          <ScenarioTabs />
+          <div className="relative">
+            <ScenarioTabs />
+            <button
+              onClick={handleTogglePresentation}
+              title={presentationMode ? 'Sair do modo apresentação' : 'Modo apresentação (esconde a barra lateral do app)'}
+              className={`absolute right-2 top-2 z-10 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+                presentationMode
+                  ? 'bg-blue-600 text-white hover:bg-blue-500'
+                  : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200/60 dark:hover:bg-slate-700/50'
+              }`}
+            >
+              {presentationMode ? <X size={14} /> : <Presentation size={14} />}
+              {presentationMode ? 'Sair da apresentação' : 'Apresentação'}
+            </button>
+          </div>
           <input
             ref={excelFileRef}
             type="file"
