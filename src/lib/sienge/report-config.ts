@@ -1,5 +1,5 @@
 import type { Classificacao, ItemComClassificacao, SiengeItem, TipoRelatorio } from './types'
-import { DIAS_LIMITE_ATRASO } from './classify'
+import { DIAS_LIMITE_ATRASO, RESOLVIDOS_CONTRATO } from './classify'
 import { formatarMoeda, parseMoeda } from './money'
 
 export type FiltroColuna =
@@ -38,6 +38,9 @@ const criticos = (itens: ItemComClassificacao[]) =>
   itens.filter((i) => i.classificacao.dias >= 30 && i.classificacao.classe !== 'good')
 const somaMoeda = (itens: ItemComClassificacao[], campo: 'total' | 'saldo') =>
   formatarMoeda(itens.reduce((soma, i) => soma + parseMoeda(i[campo]), 0))
+
+const contratosEmAberto = (itens: ItemComClassificacao[]) =>
+  itens.filter((i) => !RESOLVIDOS_CONTRATO.has(i.sd))
 
 export const REPORT_CONFIGS: Record<TipoRelatorio, ReportConfig> = {
   solicitacoes: {
@@ -139,9 +142,9 @@ export const REPORT_CONFIGS: Record<TipoRelatorio, ReportConfig> = {
     ],
     colunasDetalhe: [],
     stats: [
-      { label: 'Contratos em aberto', classe: 'warning', valor: (itens) => String(emAberto(itens).length) },
+      { label: 'Contratos em aberto', classe: 'warning', valor: (itens) => String(contratosEmAberto(itens).length) },
       { label: 'Críticos (30+ dias)', classe: 'critical', valor: (itens) => String(criticos(itens).length) },
-      { label: 'Valor em aberto', classe: 'critical', valor: (itens) => somaMoeda(emAberto(itens), 'total') },
+      { label: 'Valor em aberto', classe: 'critical', valor: (itens) => somaMoeda(contratosEmAberto(itens), 'saldo') },
       { label: 'Valor total', classe: 'good', valor: (itens) => somaMoeda(itens, 'total') },
     ],
   },

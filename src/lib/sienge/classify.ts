@@ -61,7 +61,7 @@ export function classificarGenerico(dias: number): { classe: Classificacao; labe
 
 const RESOLVIDOS_SOLICITACAO = new Set(['Não', 'N'])
 const RESOLVIDOS_PEDIDO = new Set(['Totalmente entregue', 'Cancelado'])
-const RESOLVIDOS_CONTRATO = new Set(['Concluído', 'Totalmente medido', 'Rescindido'])
+export const RESOLVIDOS_CONTRATO = new Set(['Concluído', 'Totalmente medido', 'Rescindido'])
 
 export function classificarItem(item: SiengeItem, tipo: TipoRelatorio, hoje?: Date): ClassificacaoResultado {
   const dias = calcularDias(item.data, hoje)
