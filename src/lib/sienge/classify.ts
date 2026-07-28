@@ -59,7 +59,7 @@ export function classificarGenerico(dias: number): { classe: Classificacao; labe
   return { classe: 'good', label: 'Em dia' }
 }
 
-const RESOLVIDOS_SOLICITACAO = new Set(['Não', 'N'])
+export const RESOLVIDOS_SOLICITACAO = new Set(['Não', 'N'])
 const RESOLVIDOS_PEDIDO = new Set(['Totalmente entregue', 'Cancelado'])
 const RESOLVIDOS_CONTRATO = new Set(['Concluído', 'Totalmente medido', 'Rescindido'])
 
