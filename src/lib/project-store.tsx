@@ -544,7 +544,6 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     if (!user) {
       setProjects([])
       setCurrentProjectState(null)
-      setIsLoadingProjects(false)
       return
     }
 

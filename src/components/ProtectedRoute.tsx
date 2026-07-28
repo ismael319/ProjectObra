@@ -14,6 +14,7 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const location = useLocation()
 
   if (isLoading || (session && isLoadingProfile)) {
+    sessionStorage.setItem('redirect_after_login', location.pathname + location.search)
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <Loader2 className="animate-spin text-blue-600" size={40} />

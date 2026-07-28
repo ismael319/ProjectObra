@@ -10,7 +10,9 @@ export default function PendingApproval() {
 
   useEffect(() => {
     if (userProfile?.status_solicitacao === 'aprovado') {
-      navigate('/', { replace: true })
+      const destino = sessionStorage.getItem('redirect_after_login') || '/projects'
+      sessionStorage.removeItem('redirect_after_login')
+      navigate(destino, { replace: true })
     }
   }, [userProfile?.status_solicitacao, navigate])
 
