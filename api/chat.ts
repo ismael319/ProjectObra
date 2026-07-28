@@ -1,5 +1,5 @@
 // Serverless function (Vercel) — assistente de IA do dashboard. Fica no
-// servidor de propósito: a chave da Gemini nunca pode viver no navegador.
+// servidor de propósito: a chave da Groq nunca pode viver no navegador.
 //
 // Segurança: em vez de usar uma service-role key (que ignora RLS e exigiria
 // reimplementar manualmente toda checagem de organização/projeto aqui), o
@@ -7,11 +7,10 @@
 // está perguntando — a mesma RLS que já protege "projetos"/"projeto_cronogramas"
 // no resto do app se aplica aqui também, de graça.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { GoogleGenerativeAI, SchemaType, type Part, type Tool } from '@google/generative-ai'
 
 // Edge Function: usa a API padrão Request/Response (não precisa de
-// @vercel/node) — tanto o SDK da Gemini quanto o do Supabase são baseados
-// em fetch, compatíveis com o runtime Edge.
+// @vercel/node) — tanto a chamada à Groq (fetch puro) quanto o SDK do
+// Supabase são baseados em fetch, compatíveis com o runtime Edge.
 export const config = { runtime: 'edge' }
 
 interface WBSActivityLike {
@@ -130,28 +129,66 @@ async function executarFerramenta(
   }
 }
 
-const TOOLS: Tool[] = [
+// Groq expõe uma API compatível com o formato de "tools" da OpenAI — sem
+// SDK, só fetch puro (mais leve, sem dependência nova pra manter Edge-safe).
+const TOOLS = [
   {
-    functionDeclarations: [
-      {
-        name: 'buscar_atividade',
-        description: 'Busca atividades do cronograma do projeto atual pelo nome (busca parcial, case-insensitive). Retorna datas, % concluído e atraso.',
-        parameters: {
-          type: SchemaType.OBJECT,
-          properties: {
-            nome: { type: SchemaType.STRING, description: 'Trecho do nome da atividade a buscar, ex.: "fundação"' },
-          },
-          required: ['nome'],
+    type: 'function',
+    function: {
+      name: 'buscar_atividade',
+      description: 'Busca atividades do cronograma do projeto atual pelo nome (busca parcial, case-insensitive). Retorna datas, % concluído e atraso.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nome: { type: 'string', description: 'Trecho do nome da atividade a buscar, ex.: "fundação"' },
         },
+        required: ['nome'],
       },
-      {
-        name: 'listar_atrasadas',
-        description: 'Lista as atividades do cronograma do projeto atual que estão atrasadas (data de término já passou e não estão 100% concluídas).',
-        parameters: { type: SchemaType.OBJECT, properties: {} },
-      },
-    ],
+    },
   },
-]
+  {
+    type: 'function',
+    function: {
+      name: 'listar_atrasadas',
+      description: 'Lista as atividades do cronograma do projeto atual que estão atrasadas (data de término já passou e não estão 100% concluídas).',
+      parameters: { type: 'object', properties: {} },
+    },
+  },
+] as const
+
+interface GroqToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+}
+
+type GroqMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string | null; tool_calls?: GroqToolCall[] }
+  | { role: 'tool'; tool_call_id: string; content: string }
+
+interface GroqResponse {
+  choices: { message: { content: string | null; tool_calls?: GroqToolCall[] } }[]
+}
+
+async function chamarGroq(apiKey: string, messages: GroqMessage[]): Promise<GroqResponse> {
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'llama-3.3-70b-versatile',
+      messages,
+      tools: TOOLS,
+      tool_choice: 'auto',
+    }),
+  })
+  if (!res.ok) {
+    const corpo = await res.text().catch(() => '')
+    throw new Error(`Groq API (${res.status}): ${corpo.slice(0, 500)}`)
+  }
+  return res.json()
+}
 
 export default async function handler(req: Request): Promise<Response> {
   if (req.method !== 'POST') {
@@ -176,8 +213,8 @@ export default async function handler(req: Request): Promise<Response> {
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
-  const geminiKey = process.env.GEMINI_API_KEY
-  if (!supabaseUrl || !supabaseAnonKey || !geminiKey) {
+  const groqKey = process.env.GROQ_API_KEY
+  if (!supabaseUrl || !supabaseAnonKey || !groqKey) {
     return new Response(JSON.stringify({ error: 'Configuração do servidor incompleta' }), { status: 500 })
   }
 
@@ -202,39 +239,34 @@ export default async function handler(req: Request): Promise<Response> {
   const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. Se a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`
 
   try {
-    const genAI = new GoogleGenerativeAI(geminiKey)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash',
-      systemInstruction: systemPrompt,
-      tools: TOOLS,
-    })
+    const messages: GroqMessage[] = [
+      { role: 'system', content: systemPrompt },
+      ...historico.map((h): GroqMessage => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
+      { role: 'user', content: mensagem },
+    ]
 
-    const chat = model.startChat({
-      history: historico.map((h) => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.content }],
-      })),
-    })
-
-    let result = await chat.sendMessage(mensagem)
+    let data = await chamarGroq(groqKey, messages)
 
     // Loop de function-calling: enquanto o modelo pedir pra chamar uma
     // ferramenta, executa e devolve o resultado, até ele responder com texto.
     let voltas = 0
     while (voltas < 4) {
-      const chamadas = result.response.functionCalls()
+      const msg = data.choices[0]?.message
+      const chamadas = msg?.tool_calls
       if (!chamadas || chamadas.length === 0) break
       voltas++
 
-      const respostas: Part[] = []
+      messages.push({ role: 'assistant', content: msg.content ?? null, tool_calls: chamadas })
       for (const chamada of chamadas) {
-        const resultado = await executarFerramenta(chamada.name, chamada.args as Record<string, unknown>, supabaseUser, projetoId)
-        respostas.push({ functionResponse: { name: chamada.name, response: { resultado } } })
+        let args: Record<string, unknown> = {}
+        try { args = JSON.parse(chamada.function.arguments || '{}') } catch { /* args malformados — segue com objeto vazio */ }
+        const resultado = await executarFerramenta(chamada.function.name, args, supabaseUser, projetoId)
+        messages.push({ role: 'tool', tool_call_id: chamada.id, content: JSON.stringify(resultado) })
       }
-      result = await chat.sendMessage(respostas)
+      data = await chamarGroq(groqKey, messages)
     }
 
-    const texto = result.response.text() || 'Não consegui formular uma resposta.'
+    const texto = data.choices[0]?.message?.content || 'Não consegui formular uma resposta.'
 
     return new Response(JSON.stringify({ resposta: texto }), {
       status: 200,
