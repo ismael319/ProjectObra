@@ -57,25 +57,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchProfile = async (userId: string) => {
     setIsLoadingProfile(true)
+    // Um round-trip só: organizacao_modulos vem embutido via o relacionamento
+    // organizacoes -> organizacao_modulos (mesma FK que já trazia is_piloto),
+    // em vez de uma segunda consulta em série depois de saber o organizacao_id.
     const { data } = await supabase
       .from('user_profiles')
-      .select('papel, status_solicitacao, organizacao_id, is_super_admin, organizacoes(is_piloto)')
+      .select('papel, status_solicitacao, organizacao_id, is_super_admin, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))')
       .eq('id', userId)
       .single()
 
     if (data) {
       const organizacaoEmbutida = Array.isArray(data.organizacoes) ? data.organizacoes[0] : data.organizacoes
-      // Módulos contratados pela empresa — busca à parte porque é uma tabela
-      // separada (organizacao_modulos), não um join direto em user_profiles.
-      let modulos: string[] = []
-      if (data.organizacao_id) {
-        const { data: modulosRows } = await supabase
-          .from('organizacao_modulos')
-          .select('modulo_key')
-          .eq('organizacao_id', data.organizacao_id)
-          .eq('ativo', true)
-        modulos = (modulosRows ?? []).map((r) => r.modulo_key as string)
-      }
+      const modulosEmbutidos = organizacaoEmbutida?.organizacao_modulos ?? []
+      const modulos = modulosEmbutidos.filter((m) => m.ativo).map((m) => m.modulo_key as string)
       const profile: UserProfile = {
         papel: data.papel,
         status_solicitacao: data.status_solicitacao,

@@ -1,10 +1,20 @@
-const CACHE_NAME = 'obracontrol-v3'
+const CACHE_NAME = 'obracontrol-v4'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/favicon.svg',
 ]
+
+// Arquivo com hash no nome (Vite gera "algo-<hash>.js") — o conteúdo nunca
+// muda sem o nome do arquivo mudar junto, então é seguro (e bem mais rápido)
+// responder direto do cache sem nem esperar a rede. Pra tudo o mais (HTML de
+// navegação, chamadas de API) mantém rede-primeiro: servir um index.html
+// desatualizado depois de um deploy apontaria pra chunks antigos já
+// apagados do servidor.
+function isHashedAsset(url) {
+  return url.pathname.startsWith('/assets/')
+}
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -29,6 +39,22 @@ self.addEventListener('fetch', (event) => {
 
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
     event.respondWith(fetch(event.request))
+    return
+  }
+
+  if (isHashedAsset(url)) {
+    event.respondWith(
+      caches.match(event.request).then((cached) => {
+        if (cached) return cached
+        return fetch(event.request).then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone()
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone))
+          }
+          return response
+        })
+      })
+    )
     return
   }
 

@@ -61,30 +61,38 @@ export function useSetores(onlyActive = true) {
   });
 }
 
+// setorId/areaId filtram em memória (`select`) sobre a lista JÁ cacheada, em
+// vez de entrar na queryKey/cacheKey — antes, cada setor selecionado gerava
+// uma chave de cache OFFLINE diferente (`catalog:areas:<setorId>:...`), então
+// só o setor que o usuário já tinha aberto enquanto online funcionava sem
+// rede; os outros vinham com a lista de Área vazia. Buscando tudo de uma vez
+// (mesmo padrão de empresas/lideranças/setores) e filtrando depois, qualquer
+// setor funciona offline assim que a tela é aberta uma vez online — e trocar
+// de setor deixa de disparar uma nova busca de rede.
 export function useAreas(setorId?: string | null, onlyActive = true) {
   return useQuery({
-    queryKey: ["areas", setorId ?? null, onlyActive],
+    queryKey: ["areas", onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:areas:${setorId ?? "all"}:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:areas:${onlyActive}`, async () => {
         let q = supabase.from("areas").select("id,setor_id,nome,ativo").retry(false);
-        if (setorId) q = q.eq("setor_id", setorId);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Area[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    select: (data) => (setorId ? data.filter((a) => a.setor_id === setorId) : data),
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useSubareas(areaId?: string | null, onlyActive = true) {
   return useQuery({
-    queryKey: ["subareas", areaId ?? null, onlyActive],
+    queryKey: ["subareas", onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:subareas:${areaId ?? "all"}:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:subareas:${onlyActive}`, async () => {
         let q = supabase.from("subareas").select("id,area_id,nome,ativo").retry(false);
-        if (areaId) q = q.eq("area_id", areaId);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Subarea[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    select: (data) => (areaId ? data.filter((s) => s.area_id === areaId) : data),
     ...OFFLINE_CATALOG_OPTS,
   });
 }

@@ -1,8 +1,42 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { ParsedProject } from '@/lib/xml-parser'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+
+// "dados" (o ParsedProject inteiro — atividades, recursos, timephased) é o
+// campo pesado de um cronograma; um cronograma real facilmente passa de
+// vários MB depois de descomprimido. Carregar isso de TODOS os cronogramas
+// de TODOS os projetos assim que o usuário loga (antes até de escolher um
+// projeto) era o maior peso na lentidão de carregamento inicial. Esse objeto
+// serve de placeholder pras entradas da lista de projetos (usada só pra
+// mostrar nome/cor/versão do cronograma na tela de seleção) — os dados de
+// verdade só são buscados quando o projeto é de fato aberto (ver
+// hydrateProjectDados/setCurrentProject).
+const EMPTY_PARSED_PROJECT: ParsedProject = {
+  name: '',
+  startDate: new Date(0),
+  finishDate: new Date(0),
+  author: '',
+  company: '',
+  description: '',
+  activities: [],
+  resources: [],
+  assignments: [],
+  baselines: [],
+  timephased: {
+    granularity: 'week',
+    rawPoints: [],
+    weeks: [],
+    totals: { plannedHours: 0, actualHours: 0, baselineHours: {} },
+    dateRange: { start: new Date(0), end: new Date(0) },
+    available: false,
+    baselineIndices: new Set(),
+  },
+  weekStartDay: 5,
+  minutesPerDay: 540,
+  customFieldDefs: [],
+}
 
 export interface CronogramaInfo {
   id: string
@@ -48,11 +82,16 @@ interface ProjectContextType {
   projects: Project[]
   currentProject: Project | null
   isLoadingProjects: boolean
-  setCurrentProject: (project: Project | null) => void
+  // true enquanto os dados completos (atividades, recursos, timephased) do
+  // projeto que está virando "atual" ainda estão sendo buscados/descomprimidos
+  // — currentProject só é atualizado depois que isso termina, então nenhuma
+  // tela chega a ver cronogramas com dados pela metade.
+  isHydratingCurrentProject: boolean
+  setCurrentProject: (project: Project | null) => Promise<void>
   createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>) => Project
   updateProject: (id: string, data: Partial<Project>) => void
   deleteProject: (id: string) => void
-  duplicateProject: (id: string) => Project
+  duplicateProject: (id: string) => Promise<Project>
   archiveProject: (id: string) => void
   addCronograma: (projectId: string, cronograma: CronogramaInfo) => Promise<void>
   removeCronograma: (projectId: string, cronogramaId: string) => void
@@ -101,7 +140,11 @@ interface CronogramaRow {
   dados: ParsedProject
 }
 
-interface ProjetoRow {
+// Mesmas colunas de CronogramaRow, sem "dados" — usada na lista de projetos
+// (tela de seleção), que só mostra nome/cor/versão do cronograma.
+type CronogramaMetaRow = Omit<CronogramaRow, 'dados'>
+
+interface ProjetoRow<C = CronogramaRow> {
   id: string
   nome: string
   codigo: string | null
@@ -123,7 +166,7 @@ interface ProjetoRow {
   cronograma_padrao_id: string | null
   criado_em: string
   atualizado_em: string
-  projeto_cronogramas: CronogramaRow[] | null
+  projeto_cronogramas: C[] | null
 }
 
 // JSON não tem tipo "Date" — depois que `dados` (o ParsedProject inteiro, com
@@ -214,7 +257,24 @@ async function mapCronogramaRow(row: CronogramaRow): Promise<CronogramaInfo> {
   }
 }
 
-async function mapProjetoRow(row: ProjetoRow): Promise<Project> {
+// Igual a mapCronogramaRow, mas sem "dados" (não veio da consulta) — usa o
+// placeholder, hidratado depois sob demanda.
+async function mapCronogramaMetaRow(row: CronogramaMetaRow): Promise<CronogramaInfo> {
+  return {
+    id: row.id,
+    nome: row.nome,
+    descricao: row.descricao ?? '',
+    tipo: row.tipo as CronogramaInfo['tipo'],
+    versao: row.versao,
+    ativo: row.ativo,
+    peso: Number(row.peso ?? 0),
+    cor: row.cor ?? CRON_COLORS[0],
+    dataUpload: row.data_upload,
+    dados: EMPTY_PARSED_PROJECT,
+  }
+}
+
+async function mapProjetoRow<C>(row: ProjetoRow<C>, mapCronograma: (c: C) => Promise<CronogramaInfo>): Promise<Project> {
   return {
     id: row.id,
     nome: row.nome,
@@ -234,7 +294,7 @@ async function mapProjetoRow(row: ProjetoRow): Promise<Project> {
     observacoes: row.observacoes ?? '',
     criadoEm: row.criado_em,
     atualizadoEm: row.atualizado_em,
-    cronogramas: await Promise.all((row.projeto_cronogramas ?? []).map(mapCronogramaRow)),
+    cronogramas: await Promise.all((row.projeto_cronogramas ?? []).map(mapCronograma)),
     percentualAvanco: Number(row.percentual_avanco ?? 0),
     imagemCapa: row.imagem_capa ?? undefined,
     cronogramaPadraoId: row.cronograma_padrao_id ?? undefined,
@@ -298,10 +358,16 @@ function mensagemDeErro(error: unknown): string {
   return String(error)
 }
 
+// Lista "leve" — sem a coluna "dados" de cada cronograma (o blob comprimido
+// pesado). É o que alimenta a tela de seleção de projetos, que só mostra
+// nome/cor/versão do cronograma, nunca as atividades. Buscar tudo de uma vez
+// (dados incluídos) pra todos os projetos era o maior peso no carregamento
+// inicial — agora os dados completos só são buscados quando um projeto
+// específico é aberto (ver loadCronogramasDadosRemote/hydrateProjectDados).
 async function loadProjectsRemote(): Promise<Project[]> {
   const { data, error } = await supabase
     .from('projetos')
-    .select('*, projeto_cronogramas(*)')
+    .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload)')
     .order('criado_em', { ascending: true })
 
   if (error) {
@@ -309,7 +375,25 @@ async function loadProjectsRemote(): Promise<Project[]> {
     toast.error('Não foi possível carregar seus projetos.', { description: mensagemDeErro(error), duration: 20000 })
     return []
   }
-  return Promise.all((data as ProjetoRow[]).map(mapProjetoRow))
+  return Promise.all((data as ProjetoRow<CronogramaMetaRow>[]).map((row) => mapProjetoRow(row, mapCronogramaMetaRow)))
+}
+
+// Busca os "dados" completos (descomprimidos) de cada cronograma de UM
+// projeto — chamada só quando o projeto é de fato aberto (setCurrentProject).
+async function loadCronogramasDadosRemote(projetoId: string): Promise<Map<string, ParsedProject>> {
+  const { data, error } = await supabase
+    .from('projeto_cronogramas')
+    .select('id, dados')
+    .eq('projeto_id', projetoId)
+
+  if (error) {
+    console.error('Falha ao carregar os dados dos cronogramas do Supabase.', error)
+    toast.error('Não foi possível carregar os dados do cronograma.', { description: mensagemDeErro(error), duration: 20000 })
+    return new Map()
+  }
+  const rows = data as { id: string; dados: unknown }[]
+  const entries = await Promise.all(rows.map(async (row) => [row.id, await decompressDados(row.dados)] as const))
+  return new Map(entries)
 }
 
 async function insertProjectRemote(project: Project, organizacaoId: string, userId?: string) {
@@ -429,6 +513,32 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProjectState] = useState<Project | null>(null)
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
+  const [isHydratingCurrentProject, setIsHydratingCurrentProject] = useState(false)
+  // IDs de projeto cujos cronogramas já têm os "dados" completos carregados
+  // (não é state — não precisa re-render, só evita rebuscar o mesmo projeto
+  // duas vezes na mesma sessão).
+  const hydratedProjectIds = useRef<Set<string>>(new Set())
+
+  // Busca os dados completos dos cronogramas de um projeto (se ainda não
+  // buscados nesta sessão) e devolve o projeto já "hidratado" — usado tanto
+  // ao abrir um projeto quanto antes de duplicá-lo (pra não copiar
+  // cronogramas com dados vazios).
+  const hydrateProject = async (project: Project): Promise<Project> => {
+    if (hydratedProjectIds.current.has(project.id) || project.cronogramas.length === 0) {
+      hydratedProjectIds.current.add(project.id)
+      return project
+    }
+    const dadosPorCronograma = await loadCronogramasDadosRemote(project.id)
+    const hydrated: Project = {
+      ...project,
+      cronogramas: project.cronogramas.map((c) =>
+        dadosPorCronograma.has(c.id) ? { ...c, dados: dadosPorCronograma.get(c.id)! } : c
+      ),
+    }
+    hydratedProjectIds.current.add(project.id)
+    setProjects((prev) => prev.map((p) => (p.id === hydrated.id ? hydrated : p)))
+    return hydrated
+  }
 
   useEffect(() => {
     if (!user) {
@@ -440,19 +550,42 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
 
     let cancelled = false
     setIsLoadingProjects(true)
-    loadProjectsRemote().then((loaded) => {
+    loadProjectsRemote().then(async (loaded) => {
       if (cancelled) return
       setProjects(loaded)
-      const savedId = loadCurrentProjectId()
-      setCurrentProjectState(savedId ? loaded.find((p) => p.id === savedId) ?? null : null)
       setIsLoadingProjects(false)
+      const savedId = loadCurrentProjectId()
+      const saved = savedId ? loaded.find((p) => p.id === savedId) ?? null : null
+      if (!saved) {
+        setCurrentProjectState(null)
+        return
+      }
+      setIsHydratingCurrentProject(true)
+      const hydrated = await hydrateProject(saved)
+      if (cancelled) return
+      setCurrentProjectState(hydrated)
+      setIsHydratingCurrentProject(false)
     })
     return () => { cancelled = true }
   }, [user?.id])
 
-  const setCurrentProject = (project: Project | null) => {
-    setCurrentProjectState(project)
+  const setCurrentProject = async (project: Project | null) => {
     saveCurrentProjectId(project?.id ?? null)
+    if (!project) {
+      setCurrentProjectState(null)
+      return
+    }
+    if (hydratedProjectIds.current.has(project.id)) {
+      setCurrentProjectState(project)
+      return
+    }
+    setIsHydratingCurrentProject(true)
+    try {
+      const hydrated = await hydrateProject(project)
+      setCurrentProjectState(hydrated)
+    } finally {
+      setIsHydratingCurrentProject(false)
+    }
   }
 
   const createProject = (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>): Project => {
@@ -496,23 +629,28 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     deleteProjectRemote(id)
   }
 
-  const duplicateProject = (id: string): Project => {
+  const duplicateProject = async (id: string): Promise<Project> => {
     const original = projects.find((p) => p.id === id)
     if (!original) throw new Error('Projeto não encontrado')
+    // A entrada em `projects` pode só ter os metadados dos cronogramas (lista
+    // carrega tudo "leve" — ver loadProjectsRemote) — hidrata antes de copiar,
+    // senão a duplicata sai com os cronogramas sem atividades/recursos.
+    const hydratedOriginal = await hydrateProject(original)
     const duplicate: Project = {
-      ...original,
+      ...hydratedOriginal,
       id: crypto.randomUUID(),
-      nome: `${original.nome} (Cópia)`,
-      codigo: `${original.codigo}-COPIA`,
+      nome: `${hydratedOriginal.nome} (Cópia)`,
+      codigo: `${hydratedOriginal.codigo}-COPIA`,
       status: 'inativo',
       criadoEm: new Date().toISOString(),
       atualizadoEm: new Date().toISOString(),
-      cronogramas: original.cronogramas.map((c) => ({
+      cronogramas: hydratedOriginal.cronogramas.map((c) => ({
         ...c,
         id: crypto.randomUUID(),
         nome: `${c.nome} (Cópia)`,
       })),
     }
+    hydratedProjectIds.current.add(duplicate.id)
     setProjects((prev) => [...prev, duplicate])
     if (organizacaoId) {
       insertProjectRemote(duplicate, organizacaoId, user?.id).then(() => syncCronogramasRemote(duplicate.id, duplicate.cronogramas))
@@ -647,6 +785,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         projects,
         currentProject,
         isLoadingProjects,
+        isHydratingCurrentProject,
         setCurrentProject,
         createProject,
         updateProject,

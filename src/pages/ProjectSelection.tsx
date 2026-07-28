@@ -6,7 +6,7 @@ import { z } from 'zod'
 import {
   Plus, Search, FolderOpen, Calendar, User, Building2,
   MoreVertical, Edit3, Copy, Archive, Trash2, Layers,
-  Camera, X, ArrowLeft,
+  Camera, X, ArrowLeft, Loader2,
 } from 'lucide-react'
 import { useProjects, type Project, type CronogramaInfo } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
@@ -530,7 +530,13 @@ export default function ProjectSelection() {
                 </button>
               </div>
               <div className="p-6">
-                <CronogramaManager />
+                {currentProject?.id === managingProject.id ? (
+                  <CronogramaManager />
+                ) : (
+                  <div className="flex items-center justify-center py-10">
+                    <Loader2 className="animate-spin text-blue-600" size={28} />
+                  </div>
+                )}
                 {managingProject.cronogramas && managingProject.cronogramas.length > 0 && (
                   <div className="mt-4 p-4 bg-gray-50 dark:bg-gray-700/30 rounded-lg border border-gray-200 dark:border-gray-600">
                     <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide block mb-1.5">

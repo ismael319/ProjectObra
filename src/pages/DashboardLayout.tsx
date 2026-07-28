@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu } from 'lucide-react'
+import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2 } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import ChatWidget from '@/components/ChatWidget'
 import { usePresentationMode } from '@/lib/presentation-mode'
@@ -13,7 +13,7 @@ import { supabase } from '@/lib/supabase'
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
   const { isDark, toggle, brandColor } = useTheme()
-  const { currentProject } = useProjects()
+  const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
   const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
@@ -44,6 +44,13 @@ export default function DashboardLayout() {
     // vão direto para a tela de lançamento, que não depende disso.
     if (isCampo) return
 
+    // Ao recarregar a página, currentProject começa null até a lista de
+    // projetos ser buscada de novo (isLoadingProjects) e o projeto salvo ser
+    // restaurado (isHydratingCurrentProject) — sem esperar os dois, esse
+    // efeito mandava pra /projects logo no primeiro render, ainda antes da
+    // busca terminar, e o usuário "perdia o lugar" onde estava a cada F5.
+    if (isLoadingProjects || isHydratingCurrentProject) return
+
     if (!currentProject) {
       navigate('/projects')
       return
@@ -68,7 +75,7 @@ export default function DashboardLayout() {
     } else {
       setMultipleProjects(dadosAtivos)
     }
-  }, [currentProject, isCampo])
+  }, [currentProject, isCampo, isLoadingProjects, isHydratingCurrentProject])
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -81,6 +88,14 @@ export default function DashboardLayout() {
       return () => document.removeEventListener('mousedown', handleClickOutside)
     }
   }, [userMenuOpen])
+
+  if (!isCampo && (isLoadingProjects || isHydratingCurrentProject)) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+        <Loader2 className="animate-spin text-blue-600" size={40} />
+      </div>
+    )
+  }
 
   if (!isCampo && !currentProject) return null
 
