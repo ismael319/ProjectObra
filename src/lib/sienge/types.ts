@@ -65,6 +65,12 @@ export interface ItemComClassificacao extends SiengeItem {
   anotacao: Anotacao
 }
 
+export const STATUS_LABEL: Record<string, string> = {
+  pendente: 'Pendente',
+  em_andamento: 'Em andamento',
+  resolvido: 'Resolvido',
+}
+
 export const TITULOS_TIPO: Record<TipoRelatorio, string> = {
   solicitacoes: 'Relação de Solicitações',
   pedidos: 'Pedido de Compra',

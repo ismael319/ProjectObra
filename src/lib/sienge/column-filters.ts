@@ -10,7 +10,7 @@ export interface FiltroValor {
   faixa?: '7' | '15' | '30'
 }
 
-function valorColuna(item: ItemComClassificacao, key: ColunaConfig['key']): string {
+export function valorColuna(item: ItemComClassificacao, key: ColunaConfig['key']): string {
   if (key === 'dias') return String(item.classificacao.dias)
   const bruto = item[key as Exclude<ColunaConfig['key'], 'dias'>]
   if (typeof bruto === 'boolean') return bruto ? 'Sim' : 'Não'

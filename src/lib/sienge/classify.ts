@@ -36,6 +36,22 @@ export const CLASSIFICACAO_ACCENT: Record<Classificacao, string> = {
   critical: '#dc2626',
 }
 
+/** Destaque de linha por severidade — deixa o item crítico saltar aos olhos sem precisar ler texto. */
+export const CLASSIFICACAO_ROW: Record<Classificacao, string> = {
+  good: 'border-l-4 border-transparent',
+  warning: 'border-l-4 border-amber-400 bg-amber-50/40 dark:bg-amber-950/10',
+  serious: 'border-l-4 border-orange-500 bg-orange-50/50 dark:bg-orange-950/20',
+  critical: 'border-l-4 border-red-500 bg-red-50/60 dark:bg-red-950/20',
+}
+
+/** Peso/cor do número de dias — mais forte quanto mais urgente. */
+export const CLASSIFICACAO_TEXTO: Record<Classificacao, string> = {
+  good: 'text-gray-700 dark:text-gray-300',
+  warning: 'text-amber-700 dark:text-amber-400 font-medium',
+  serious: 'text-orange-700 dark:text-orange-400 font-semibold',
+  critical: 'text-red-700 dark:text-red-400 font-bold',
+}
+
 export function classificarGenerico(dias: number): { classe: Classificacao; label: string } {
   if (dias >= 30) return { classe: 'critical', label: 'Crítico' }
   if (dias >= 15) return { classe: 'serious', label: 'Sério' }

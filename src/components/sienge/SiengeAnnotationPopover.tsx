@@ -1,17 +1,16 @@
 import { useState } from 'react'
-import { Flag, StickyNote } from 'lucide-react'
+import { Bell, Flag, StickyNote } from 'lucide-react'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
-import type { Anotacao } from '@/lib/sienge/types'
+import { STATUS_LABEL, type Anotacao } from '@/lib/sienge/types'
 
-const STATUS_OPCOES = [
-  { valor: 'pendente', rotulo: 'Pendente' },
-  { valor: 'em_andamento', rotulo: 'Em andamento' },
-  { valor: 'resolvido', rotulo: 'Resolvido' },
-] as const
+const STATUS_OPCOES = (Object.keys(STATUS_LABEL) as Array<keyof typeof STATUS_LABEL>).map((valor) => ({
+  valor,
+  rotulo: STATUS_LABEL[valor],
+}))
 
 interface Props {
   anotacao: Anotacao
@@ -46,6 +45,8 @@ export default function SiengeAnnotationPopover({ anotacao, onSave }: Props) {
     }
   }
 
+  const hojeISO = new Date().toISOString().slice(0, 10)
+  const lembreteVencido = Boolean(anotacao.lembreteData && anotacao.lembreteData <= hojeISO)
   const temAlgo = anotacao.sinalizado || Boolean(anotacao.nota) || anotacao.status !== 'pendente' || Boolean(anotacao.lembreteData)
 
   return (
@@ -58,7 +59,9 @@ export default function SiengeAnnotationPopover({ anotacao, onSave }: Props) {
           }`}
           title="Status, nota e lembrete"
         >
-          {anotacao.sinalizado ? <Flag size={16} /> : <StickyNote size={16} />}
+          {anotacao.sinalizado && <Flag size={15} className="text-red-500 dark:text-red-400" />}
+          {lembreteVencido && <Bell size={15} className="text-amber-500 dark:text-amber-400" />}
+          {!anotacao.sinalizado && !lembreteVencido && <StickyNote size={16} />}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-80 space-y-3" align="end">
