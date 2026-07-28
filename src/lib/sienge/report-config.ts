@@ -1,5 +1,5 @@
 import type { Classificacao, ItemComClassificacao, SiengeItem, TipoRelatorio } from './types'
-import { DIAS_LIMITE_ATRASO, RESOLVIDOS_SOLICITACAO } from './classify'
+import { DIAS_LIMITE_ATRASO } from './classify'
 import { formatarMoeda, parseMoeda } from './money'
 
 export type FiltroColuna =
@@ -63,7 +63,7 @@ export const REPORT_CONFIGS: Record<TipoRelatorio, ReportConfig> = {
       { key: 'dtAtend', label: 'Data de Atendimento' },
     ],
     stats: [
-      { label: 'Solicitações pendentes', classe: 'good', valor: (itens) => String(itens.filter((i) => !RESOLVIDOS_SOLICITACAO.has(i.sd)).length) },
+      { label: 'Solicitações pendentes', classe: 'good', valor: (itens) => String(itens.filter((i) => i.qtPendente !== '0' && i.qtPendente !== '').length) },
       {
         label: `Atrasadas (mais de ${DIAS_LIMITE_ATRASO} dias)`,
         classe: 'warning',
