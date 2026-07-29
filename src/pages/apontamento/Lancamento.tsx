@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
@@ -48,6 +49,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
 
 export default function LancamentoPage() {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [form, setForm] = useState<FormState>(emptyForm());
   const total = form.pedreiro + form.servente + form.carpinteiro + form.qntdd_funcao;
 
@@ -133,6 +135,8 @@ export default function LancamentoPage() {
         pedreiro: f.pedreiro, servente: f.servente, carpinteiro: f.carpinteiro, qntdd_funcao: f.qntdd_funcao,
         obs_planejamento: f.obs_planejamento || null,
         validado: false,
+        criado_por: user?.id ?? null,
+        criado_por_nome: user?.email ?? null,
       });
 
       // `id` gerado sempre (mesmo online) é a chave de idempotência: se o

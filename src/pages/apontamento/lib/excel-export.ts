@@ -19,13 +19,18 @@ export type Apontamento = {
   qntdd_funcao: number;
   total: number;
   obs_planejamento: string | null;
+  // Quem lançou o registro — nome é uma cópia do email no momento do
+  // lançamento (mesmo padrão de empresa_nome/lideranca_nome), pra exibir
+  // sem depender de join. Ausente em registros lançados antes dessa coluna existir.
+  criado_por?: string | null;
+  criado_por_nome?: string | null;
   criado_em?: string;
 };
 
 const HEADERS = [
   "DATA","ANO-MÊS","ANO-SEMANA","EMPRESA","LIDERANÇA","TIPO",
   "SETOR","ÁREA","SUBÁREA","ATIVIDADE",
-  "PEDREIRO","SERVENTE","CARPINTEIRO","QNT FUNÇÃO","TOTAL","OBS",
+  "PEDREIRO","SERVENTE","CARPINTEIRO","QNT FUNÇÃO","TOTAL","OBS","APONTADO POR",
 ];
 
 function rowFromApontamento(a: Apontamento): (string | number)[] {
@@ -46,6 +51,7 @@ function rowFromApontamento(a: Apontamento): (string | number)[] {
     a.qntdd_funcao,
     a.total,
     a.obs_planejamento ?? "",
+    a.criado_por_nome ?? "",
   ];
 }
 
@@ -109,6 +115,7 @@ export function buildWorkbook(apontamentos: Apontamento[]): XLSX.WorkBook {
     sumKey(apontamentos, "carpinteiro"),
     sumKey(apontamentos, "qntdd_funcao"),
     sumKey(apontamentos, "total"),
+    "",
     "",
   ]);
   const ws1 = XLSX.utils.aoa_to_sheet(dataRows);

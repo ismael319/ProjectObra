@@ -205,15 +205,16 @@ export default function Consulta() {
                   <TableHead className="text-right">Carp</TableHead>
                   <TableHead className="text-right">Outros</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead>Apontado por</TableHead>
                   <TableHead></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {isLoading && (
-                  <TableRow><TableCell colSpan={15} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={16} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
                 )}
                 {!isLoading && (data?.rows ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={15} className="text-center py-8 text-muted-foreground">Nenhum registro encontrado</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={16} className="text-center py-8 text-muted-foreground">Nenhum registro encontrado</TableCell></TableRow>
                 )}
                 {(data?.rows ?? []).map((r) => (
                   <TableRow key={r.id}>
@@ -231,6 +232,7 @@ export default function Consulta() {
                     <TableCell className="text-right">{r.carpinteiro || ""}</TableCell>
                     <TableCell className="text-right">{r.qntdd_funcao || ""}</TableCell>
                     <TableCell className="text-right font-medium">{r.total}</TableCell>
+                    <TableCell className="whitespace-nowrap text-muted-foreground">{r.criado_por_nome ?? "—"}</TableCell>
                     <TableCell>
                       <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setConfirmDel(r.id)}>
                         <Trash2 className="h-3.5 w-3.5" />
