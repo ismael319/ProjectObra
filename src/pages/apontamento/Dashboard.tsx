@@ -9,14 +9,59 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { toast } from "sonner";
 import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloadPdf } from "./lib/pdf-export";
-import type { Apontamento } from "./lib/excel-export";
+import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+
+function ResumoTable({ titulo, coluna, rows }: { titulo: string; coluna: string; rows: Aggregate[] }) {
+  const totalGeral = rows.reduce((s, r) => s + r.total, 0);
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">{titulo}</CardTitle></CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>{coluna}</TableHead>
+              <TableHead className="text-right">Total</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={2} className="text-center py-8 text-muted-foreground">
+                  Nenhum registro no período.
+                </TableCell>
+              </TableRow>
+            ) : (
+              rows.map((r) => (
+                <TableRow key={r.key}>
+                  <TableCell className="font-medium">{r.key}</TableCell>
+                  <TableCell className="text-right font-semibold">{r.total}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+          {rows.length > 0 && (
+            <TableFooter>
+              <TableRow>
+                <TableCell>Total</TableCell>
+                <TableCell className="text-right">{totalGeral}</TableCell>
+              </TableRow>
+            </TableFooter>
+          )}
+        </Table>
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function DashboardPage() {
   const [dataInicio, setDataInicio] = useState(() => {
@@ -77,6 +122,16 @@ export default function DashboardPage() {
     for (const a of apontamentos) map.set(a.empresa_nome, (map.get(a.empresa_nome) ?? 0) + a.total);
     return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [apontamentos]);
+
+  const porEncarregado = useMemo(
+    () => groupSum(apontamentos, (a) => a.lideranca_nome).sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
+    [apontamentos]
+  );
+
+  const porArea = useMemo(
+    () => groupSum(apontamentos, (a) => a.area_nome ?? "Sem área").sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
+    [apontamentos]
+  );
 
   const porFuncao = useMemo(() => {
     const items: { name: string; value: number }[] = [];
@@ -185,6 +240,11 @@ export default function DashboardPage() {
             </ResponsiveContainer>
           </CardContent>
         </Card>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-2">
+        <ResumoTable titulo="Funcionários por Encarregado" coluna="Encarregado" rows={porEncarregado} />
+        <ResumoTable titulo="Funcionários por Área" coluna="Área" rows={porArea} />
       </div>
     </div>
   );

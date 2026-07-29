@@ -66,14 +66,14 @@ function sumKey<T>(arr: T[], key: keyof T): number {
   return arr.reduce((s, r) => s + ((r[key] as unknown as number) || 0), 0);
 }
 
-type Aggregate = {
+export type Aggregate = {
   key: string;
   pedreiro: number; servente: number; carpinteiro: number; qntdd_funcao: number; total: number;
   dias: number;
 };
 type AggregateExt = Aggregate & { extra: string[] };
 
-function groupSum(arr: Apontamento[], keyFn: (a: Apontamento) => string): Aggregate[] {
+export function groupSum(arr: Apontamento[], keyFn: (a: Apontamento) => string): Aggregate[] {
   const map = new Map<string, Aggregate & { _dates: Set<string> }>();
   for (const a of arr) {
     const k = keyFn(a);
