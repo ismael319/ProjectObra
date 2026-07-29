@@ -13,6 +13,7 @@ import { useAuth } from '@/lib/auth-context'
 import { parseMSProjectXML } from '@/lib/xml-parser'
 import CronogramaManager from '@/components/CronogramaManager'
 import CronogramaUploadModal from '@/components/CronogramaUploadModal'
+import fgiLogo from '@/assets/fgi-logo.png'
 
 const projectSchema = z.object({
   nome: z.string().min(1, 'Nome é obrigatório'),
@@ -181,8 +182,8 @@ export default function ProjectSelection() {
       <header className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
-              <span className="text-sm font-bold text-white">PE</span>
+            <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1.5 border border-gray-200 dark:border-transparent">
+              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900 dark:text-white">FGI Decision</h1>

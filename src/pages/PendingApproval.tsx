@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Clock, XCircle, LogOut, RefreshCw, Lock, FileCheck, Shield } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import fgiLogo from '@/assets/fgi-logo.png'
 
 export default function PendingApproval() {
   const { userProfile, isLoadingProfile, user, signOut, refetchProfile } = useAuth()
@@ -30,8 +31,8 @@ export default function PendingApproval() {
 
       <div className="relative w-full max-w-md">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-700 rounded-2xl mb-4 shadow-lg shadow-blue-950/50 ring-1 ring-white/10">
-            <span className="text-xl font-extrabold text-white tracking-tight">PE</span>
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl mb-4 p-2.5 shadow-lg shadow-blue-950/50 ring-1 ring-white/10">
+            <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
           </div>
           <h1 className="text-2xl font-bold text-white tracking-tight">FGI Decision</h1>
           <p className="text-blue-200/60 text-sm mt-1">Plataforma Corporativa</p>
