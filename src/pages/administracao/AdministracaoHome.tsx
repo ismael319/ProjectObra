@@ -1,19 +1,23 @@
 import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import DashboardGeral from "./tabs/DashboardGeral";
 import FuncionariosAtivos from "./tabs/FuncionariosAtivos";
 import Documentacao from "./tabs/Documentacao";
 import EfetivoDoDia from "./tabs/EfetivoDoDia";
 import Demissoes from "./tabs/Demissoes";
+import CadastroCargos from "./tabs/CadastroCargos";
 
 const ABAS = [
+  { value: "dashboard", label: "Dashboard" },
   { value: "ativos", label: "Funcionários Ativos" },
   { value: "documentacao", label: "Documentação e Treinamentos" },
   { value: "efetivo", label: "Efetivo do Dia" },
   { value: "demissoes", label: "Demissões" },
+  { value: "cargos", label: "Cadastro de Cargos" },
 ] as const;
 
 export default function AdministracaoHome() {
-  const [aba, setAba] = useState<string>("ativos");
+  const [aba, setAba] = useState<string>("dashboard");
 
   return (
     <div className="space-y-6">
@@ -29,6 +33,9 @@ export default function AdministracaoHome() {
           ))}
         </TabsList>
 
+        <TabsContent value="dashboard" className="space-y-4">
+          {aba === "dashboard" && <DashboardGeral />}
+        </TabsContent>
         <TabsContent value="ativos" className="space-y-4">
           {aba === "ativos" && <FuncionariosAtivos />}
         </TabsContent>
@@ -40,6 +47,9 @@ export default function AdministracaoHome() {
         </TabsContent>
         <TabsContent value="demissoes" className="space-y-4">
           {aba === "demissoes" && <Demissoes />}
+        </TabsContent>
+        <TabsContent value="cargos" className="space-y-4">
+          {aba === "cargos" && <CadastroCargos />}
         </TabsContent>
       </Tabs>
     </div>

@@ -94,8 +94,13 @@ function inferirTipoDocDoTexto(texto: string): string | null {
 const REGEX_A_VENCER = /^(.+?)\s+a\s+vencer$/i;
 
 function acharLinhaCabecalho(linhas: LinhaTabela[]): number {
-  for (let i = 0; i < Math.min(linhas.length, 5); i++) {
-    if (encontrarColuna(linhas[i]!, CANDIDATOS.mat) !== -1 && encontrarColuna(linhas[i]!, CANDIDATOS.nome) !== -1) {
+  // Só exige achar MAT (não Nome também) — numa exportação real vista, a
+  // coluna de Nome não tem rótulo nenhum (célula de cabeçalho em branco),
+  // então exigir os dois nunca encontrava a linha de cabeçalho. Janela
+  // generosa: a planilha real costuma ter logo/título/data antes da linha
+  // de cabeçalho de verdade (5 linhas não bastavam num caso real).
+  for (let i = 0; i < Math.min(linhas.length, 30); i++) {
+    if (encontrarColuna(linhas[i]!, CANDIDATOS.mat) !== -1) {
       return i;
     }
   }
@@ -126,7 +131,14 @@ export function parseEfetivo(linhas: LinhaTabela[]): ResultadoParseEfetivo {
   };
 
   const colMat = idx(CANDIDATOS.mat);
-  const colNome = idx(CANDIDATOS.nome);
+  let colNome = idx(CANDIDATOS.nome);
+  if (colNome === -1 && colMat !== -1 && colMat + 1 < header.length) {
+    // Retaguarda: planilha real vista tinha a coluna de Nome sem rótulo
+    // nenhum (célula de cabeçalho vazia) — mas é sempre a coluna logo
+    // depois de MAT, então assume essa posição quando não acha por rótulo.
+    colNome = colMat + 1;
+    usadas.add(colNome);
+  }
   const colCargo = idx(CANDIDATOS.cargo);
   const colSetor = idx(CANDIDATOS.setor);
   const colAdmissao = idx(CANDIDATOS.admissao);
@@ -210,29 +222,28 @@ export function parseEfetivo(linhas: LinhaTabela[]): ResultadoParseEfetivo {
       problemas.push({ linha: numeroLinha, campo: "local", descricao: `Valor de Local não reconhecido: "${localRaw}".` });
     }
 
+    // Status BDR/FS não travam mais a linha — só matrícula, nome e admissão
+    // são exigidos na importação (decisão do usuário: o resto se completa
+    // depois direto na plataforma). Quando a planilha não traz um valor
+    // reconhecido, importarEfetivo (db.ts) aplica um padrão seguro
+    // (Aguardando documentação / Bloqueado) em vez de travar o funcionário
+    // fora do sistema.
     const statusBdrRaw = colStatusBdr !== -1 ? (linha[colStatusBdr] ?? "").trim() : "";
     let statusBdr = statusBdrRaw ? normalizarValor(statusBdrRaw, STATUS_BDR_MAP) : null;
     if (!statusBdr && normalizarTexto(statusBdrRaw).startsWith("AGUARDANDO")) statusBdr = "aguardando_documentacao";
     if (statusBdrRaw && !statusBdr) {
-      problemas.push({ linha: numeroLinha, campo: "status_bdr", descricao: `Status BDR não reconhecido: "${statusBdrRaw}" — linha não pode ser importada sem esse campo.` });
-    }
-    if (!statusBdrRaw) {
-      problemas.push({ linha: numeroLinha, campo: "status_bdr", descricao: "Status BDR em branco — linha não pode ser importada sem esse campo." });
+      problemas.push({ linha: numeroLinha, campo: "status_bdr", descricao: `Status BDR não reconhecido: "${statusBdrRaw}" — vai entrar como "Aguardando documentação", ajuste na plataforma se precisar.` });
     }
 
     const statusFsRaw = colStatusFs !== -1 ? (linha[colStatusFs] ?? "").trim() : "";
     const statusFs = statusFsRaw ? normalizarValor(statusFsRaw, STATUS_FS_MAP) : null;
     if (statusFsRaw && !statusFs) {
-      problemas.push({ linha: numeroLinha, campo: "status_fs", descricao: `Status FS não reconhecido: "${statusFsRaw}" — linha não pode ser importada sem esse campo.` });
-    }
-    if (!statusFsRaw) {
-      problemas.push({ linha: numeroLinha, campo: "status_fs", descricao: "Status FS em branco — linha não pode ser importada sem esse campo." });
+      problemas.push({ linha: numeroLinha, campo: "status_fs", descricao: `Status FS não reconhecido: "${statusFsRaw}" — vai entrar como "Bloqueado", ajuste na plataforma se precisar.` });
     }
 
-    // admissao/status_bdr/status_fs são NOT NULL no banco — sem um valor
-    // reconhecido, a linha não pode virar INSERT/UPSERT (os problemas acima
-    // já explicam o motivo pro relatório de pré-validação).
-    if (!admissao || !statusBdr || !statusFs) return;
+    // Só matrícula/nome (já garantidos antes) e admissão são exigidos —
+    // admissao é NOT NULL no banco, sem data não dá pra gravar a linha.
+    if (!admissao) return;
 
     const documentos: FuncionarioParseado["documentos"] = [];
     for (const [col, tipoKey] of colunasDoc) {
@@ -281,4 +292,21 @@ export function parseEfetivo(linhas: LinhaTabela[]): ResultadoParseEfetivo {
   const linhasFinais = [...porMatricula.values()].sort((a, b) => a - b).map((i) => resultado[i]!);
 
   return { linhas: linhasFinais, problemas };
+}
+
+// A planilha de Controle de Efetivo pode ter mais de uma aba (ex.: "Ativos"
+// + "Demissões"), em qualquer ordem. Tenta cada uma e usa a primeira que tem
+// cabeçalho reconhecido; se nenhuma tiver, devolve o erro da última tentativa
+// (mensagem genérica o bastante pra qualquer uma servir).
+export function parseEfetivoMelhorAba(
+  abas: { nome: string; linhas: LinhaTabela[] }[]
+): ResultadoParseEfetivo & { abaUsada: string | null } {
+  let ultimoResultado: ResultadoParseEfetivo = { linhas: [], problemas: [] };
+  for (const aba of abas) {
+    const r = parseEfetivo(aba.linhas);
+    const cabecalhoNaoEncontrado = r.linhas.length === 0 && r.problemas.length === 1 && r.problemas[0]!.linha === 0;
+    if (!cabecalhoNaoEncontrado) return { ...r, abaUsada: aba.nome };
+    ultimoResultado = r;
+  }
+  return { ...ultimoResultado, abaUsada: null };
 }

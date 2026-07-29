@@ -59,23 +59,35 @@ export async function importarEfetivo(params: {
     return { totalLinhas: 0, novos: 0, atualizados: 0, documentosGravados: 0, catalogosCriados: [], documentosSemTipoConhecido: [] };
   }
 
-  const [cacheSetores, cacheCargos, cacheEncarregados, cacheGrupos, tiposDocumentoResp, funcionariosExistentesResp] = await Promise.all([
-    carregarCatalogo("rh_setores", organizacaoId),
-    carregarCatalogo("rh_cargos", organizacaoId),
-    carregarCatalogo("rh_encarregados", organizacaoId),
-    carregarCatalogo("rh_grupos", organizacaoId),
-    supabase.from("tipos_documento").select("id,key,validade_dias").eq("organizacao_id", organizacaoId),
-    supabase.from("funcionarios").select("matricula").eq("organizacao_id", organizacaoId),
-  ]);
+  const [cacheSetores, cacheCargos, cacheEncarregados, cacheGrupos, tiposDocumentoResp, funcionariosExistentesResp, cargosCompletosResp] =
+    await Promise.all([
+      carregarCatalogo("rh_setores", organizacaoId),
+      carregarCatalogo("rh_cargos", organizacaoId),
+      carregarCatalogo("rh_encarregados", organizacaoId),
+      carregarCatalogo("rh_grupos", organizacaoId),
+      supabase.from("tipos_documento").select("id,key,validade_dias").eq("organizacao_id", organizacaoId),
+      supabase.from("funcionarios").select("matricula").eq("organizacao_id", organizacaoId),
+      supabase.from("rh_cargos").select("id,setor_padrao_id,grupo_id,categoria").eq("organizacao_id", organizacaoId),
+    ]);
 
   if (tiposDocumentoResp.error) throw new Error(tiposDocumentoResp.error.message);
   if (funcionariosExistentesResp.error) throw new Error(funcionariosExistentesResp.error.message);
+  if (cargosCompletosResp.error) throw new Error(cargosCompletosResp.error.message);
 
   const tipoDocPorKey = new Map(
     (tiposDocumentoResp.data as { id: string; key: string; validade_dias: number }[]).map((t) => [t.key, t])
   );
   const matriculasJaExistiam = new Set(
     (funcionariosExistentesResp.data as { matricula: string }[]).map((f) => f.matricula)
+  );
+  // Retaguarda pra Setor/Grupo/Categoria: quando a planilha não traz esses
+  // campos pra uma linha (ex.: sem coluna SETOR), usa o padrão já cadastrado
+  // pro Cargo (Cadastro de Cargos) em vez de deixar em branco — mesma lógica
+  // de autopreenchimento já usada no formulário manual de Funcionário.
+  const padraoDoCargoPorId = new Map(
+    (cargosCompletosResp.data as { id: string; setor_padrao_id: string | null; grupo_id: string | null; categoria: Categoria | null }[]).map(
+      (c) => [c.id, c]
+    )
   );
 
   const catalogosCriados: { tabela: string; nome: string }[] = [];
@@ -97,12 +109,17 @@ export async function importarEfetivo(params: {
   >();
 
   for (const f of linhas) {
-    const [cargoId, setorId, encarregadoId, grupoId] = await Promise.all([
+    const [cargoId, setorIdDaPlanilha, encarregadoId, grupoIdDaPlanilha] = await Promise.all([
       resolver("rh_cargos", f.cargoNome, cacheCargos),
       resolver("rh_setores", f.setorNome, cacheSetores),
       resolver("rh_encarregados", f.encarregadoNome, cacheEncarregados),
       resolver("rh_grupos", f.grupoNome, cacheGrupos),
     ]);
+
+    const padraoCargo = cargoId ? padraoDoCargoPorId.get(cargoId) : undefined;
+    const setorId = setorIdDaPlanilha ?? padraoCargo?.setor_padrao_id ?? null;
+    const grupoId = grupoIdDaPlanilha ?? padraoCargo?.grupo_id ?? null;
+    const categoria = f.categoria ?? padraoCargo?.categoria ?? null;
 
     linhasParaGravar.push({
       organizacao_id: organizacaoId,
@@ -116,10 +133,13 @@ export async function importarEfetivo(params: {
       data_admissao: f.admissao,
       obra_codigo: f.obraCodigo,
       local: f.local,
-      status_bdr: f.statusBdr,
-      status_fs: f.statusFs,
+      // NOT NULL no banco — quando a planilha não traz um status
+      // reconhecido, entra com um padrão conservador (a definir depois
+      // direto na plataforma), em vez de travar a linha fora do sistema.
+      status_bdr: f.statusBdr ?? "aguardando_documentacao",
+      status_fs: f.statusFs ?? "bloqueado",
       grupo_id: grupoId,
-      categoria: f.categoria,
+      categoria,
       criado_por: userId ?? null,
     });
 
@@ -625,4 +645,46 @@ export async function efetivoDoDia(organizacaoId: string, data: string): Promise
       campo: houveCampo ? campoPorSetorNome.get(normalizarTexto(s.nome)) ?? 0 : null,
     }))
     .sort((a, b) => a.setorNome.localeCompare(b.setorNome, "pt-BR"));
+}
+
+// ============================================================
+// Cadastro de Cargos (tabela de referência Função x Setor x Categoria)
+// ============================================================
+
+export type CargoInput = {
+  id?: string;
+  nome: string;
+  setorPadraoId: string | null;
+  grupoId: string | null;
+  categoria: Categoria | null;
+};
+
+export async function salvarCargo(params: { organizacaoId: string; input: CargoInput }): Promise<void> {
+  const { organizacaoId, input } = params;
+  const campos = {
+    nome: input.nome,
+    setor_padrao_id: input.setorPadraoId,
+    grupo_id: input.grupoId,
+    categoria: input.categoria,
+  };
+  if (input.id) {
+    const { error } = await supabase.from("rh_cargos").update(campos).eq("id", input.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("rh_cargos").insert({ ...campos, organizacao_id: organizacaoId });
+    if (error) throw new Error(error.message);
+  }
+}
+
+export async function alternarAtivoCargo(id: string, ativo: boolean): Promise<void> {
+  const { error } = await supabase.from("rh_cargos").update({ ativo }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// Popula os cargos de referência (Função x Setor x Categoria) que hoje
+// existem na planilha da empresa — idempotente, seguro rodar mais de uma
+// vez (não duplica nem sobrescreve cargo já existente/editado).
+export async function seedCargosReferenciaPadrao(organizacaoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_cargos_referencia_padrao", { p_organizacao_id: organizacaoId });
+  if (error) throw new Error(error.message);
 }

@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  Settings, PackageSearch, UserCog, Upload,
+  Settings, PackageSearch, UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -68,9 +68,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
     ...(temAdministracao
       ? [{
           title: 'Administração', items: [
-            { icon: UserCog, label: 'Início', path: '/dashboard/administracao' },
-            { icon: Upload, label: 'Importar Efetivo', path: '/dashboard/administracao/importar-efetivo' },
-            { icon: Upload, label: 'Importar Ponto', path: '/dashboard/administracao/importar-ponto' },
+            { icon: UserCog, label: 'Controle de Funcionários', path: '/dashboard/administracao' },
           ],
         }]
       : []),

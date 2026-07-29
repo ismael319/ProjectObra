@@ -5,8 +5,8 @@ import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { lerArquivoComoLinhas } from "@/lib/administracao/parse-shared";
-import { parseEfetivo, type ResultadoParseEfetivo } from "@/lib/administracao/parse-efetivo";
+import { lerAbasComoLinhas } from "@/lib/administracao/parse-shared";
+import { parseEfetivoMelhorAba, type ResultadoParseEfetivo } from "@/lib/administracao/parse-efetivo";
 import { importarEfetivo, type ResumoImportacaoEfetivo } from "@/lib/administracao/db";
 
 type Estagio = "idle" | "processando" | "pronto" | "importando" | "concluido";
@@ -19,6 +19,7 @@ export default function ImportarEfetivoPage() {
   const [fileName, setFileName] = useState("");
   const [erro, setErro] = useState("");
   const [resultado, setResultado] = useState<ResultadoParseEfetivo | null>(null);
+  const [abaUsada, setAbaUsada] = useState<string | null>(null);
   const [resumo, setResumo] = useState<ResumoImportacaoEfetivo | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -28,13 +29,15 @@ export default function ImportarEfetivoPage() {
     setFileName(file.name);
     setErro("");
     setResultado(null);
+    setAbaUsada(null);
     setResumo(null);
     setEstagio("processando");
 
     try {
-      const linhas = await lerArquivoComoLinhas(file);
-      const r = parseEfetivo(linhas);
+      const abas = await lerAbasComoLinhas(file);
+      const { abaUsada: aba, ...r } = parseEfetivoMelhorAba(abas);
       setResultado(r);
+      setAbaUsada(aba);
       setEstagio("pronto");
     } catch (err) {
       setErro(err instanceof Error ? err.message : String(err));
@@ -63,6 +66,7 @@ export default function ImportarEfetivoPage() {
     setFileName("");
     setErro("");
     setResultado(null);
+    setAbaUsada(null);
     setResumo(null);
   }
 
@@ -113,6 +117,7 @@ export default function ImportarEfetivoPage() {
                 {resultado.linhas.length} funcionário(s) prontos pra importar
                 {resultado.problemas.length > 0 && ` · ${resultado.problemas.length} aviso(s)`}
               </p>
+              {abaUsada && <p className="text-xs text-muted-foreground">Lendo a aba "{abaUsada}" do arquivo.</p>}
               {resultado.problemas.length > 0 && (
                 <div className="max-h-64 overflow-y-auto space-y-1.5">
                   {resultado.problemas.map((p, i) => (
