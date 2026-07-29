@@ -68,8 +68,8 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
   ]
 }
 
-// Apontadores (papel "campo") só enxergam o lançamento de efetivo.
-const navSectionsCampo: { title: string; items: NavItem[] }[] = [
+// Apontadores (papel "insercao_pontual") só enxergam o lançamento de efetivo.
+const navSectionsInsercaoPontual: { title: string; items: NavItem[] }[] = [
   {
     title: 'Distribuição Efetivo',
     items: [
@@ -123,14 +123,14 @@ export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
   modulos = [],
 }: SidebarProps) {
-  const isCampo = papel === 'campo'
-  const podeGerenciarUsuarios = papel === 'admin' || papel === 'gestor'
+  const isInsercaoPontual = papel === 'insercao_pontual'
+  const podeGerenciarUsuarios = papel === 'edicao'
 
   const adminItems: NavItem[] = []
   if (podeGerenciarUsuarios) adminItems.push({ icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' })
 
-  const navSections = isCampo
-    ? navSectionsCampo
+  const navSections = isInsercaoPontual
+    ? navSectionsInsercaoPontual
     : adminItems.length > 0
       ? [...buildNavSections(modulos), { title: 'Administração', items: adminItems }]
       : buildNavSections(modulos)
@@ -188,7 +188,7 @@ export default function Sidebar({
         style={{ backgroundColor: sidebarBg }}
       >
         <nav className={`${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
-          {!isCampo && (
+          {!isInsercaoPontual && (
             <>
               <Link
                 to="/dashboard"

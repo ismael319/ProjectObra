@@ -1,12 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { Building2, Send, ShieldCheck, Search } from 'lucide-react'
+import { Building2, Send, ShieldCheck, Search, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
-import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import OrganizacaoCard from './OrganizacaoCard'
+import OrganizacaoDetailModal from './OrganizacaoDetailModal'
 
 interface OrganizacaoRow {
   id: string
@@ -41,6 +41,10 @@ export default function OrganizacoesManagement() {
   const [modulosNovaEmpresa, setModulosNovaEmpresa] = useState<Set<string>>(new Set())
   const [isCreating, setIsCreating] = useState(false)
   const [togglingModulo, setTogglingModulo] = useState<string | null>(null)
+  const [managingOrgId, setManagingOrgId] = useState<string | null>(null)
+  // organizacao_id -> contagem, pro selo de pendência no card
+  const [pendentesPorOrg, setPendentesPorOrg] = useState<Record<string, number>>({})
+  const [convitesPorOrg, setConvitesPorOrg] = useState<Record<string, number>>({})
 
   // Promover Dono da Plataforma
   const [buscaEmailDono, setBuscaEmailDono] = useState('')
@@ -49,14 +53,20 @@ export default function OrganizacoesManagement() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
-    const [orgsRes, modulosRes, orgModulosRes] = await Promise.all([
+    const [orgsRes, modulosRes, orgModulosRes, pendentesRes, convitesRes] = await Promise.all([
       supabase.from('organizacoes').select('id, nome, is_piloto, ativo, criado_em').order('criado_em', { ascending: false }),
       supabase.from('modulos').select('key, nome').order('nome'),
       supabase.from('organizacao_modulos').select('organizacao_id, modulo_key').eq('ativo', true),
+      supabase.from('user_profiles').select('organizacao_id').eq('status_solicitacao', 'pendente'),
+      supabase.from('convites').select('organizacao_id').is('usado_em', null),
     ])
 
+    let orgsCarregadas: OrganizacaoRow[] = []
     if (orgsRes.error) toast.error('Erro ao carregar empresas')
-    else setOrganizacoes((orgsRes.data as OrganizacaoRow[]) ?? [])
+    else {
+      orgsCarregadas = (orgsRes.data as OrganizacaoRow[]) ?? []
+      setOrganizacoes(orgsCarregadas)
+    }
 
     if (modulosRes.error) toast.error('Erro ao carregar catálogo de módulos')
     else setModulosCatalogo((modulosRes.data as ModuloRow[]) ?? [])
@@ -68,6 +78,26 @@ export default function OrganizacoesManagement() {
         map[row.organizacao_id].add(row.modulo_key)
       }
       setModulosPorOrg(map)
+    }
+
+    if (!pendentesRes.error) {
+      // Solicitações órfãs (sem empresa ainda, de antes do sistema de
+      // convites) contam pra empresa piloto, que é quem as vê/decide.
+      const pilotoId = orgsCarregadas.find((o) => o.is_piloto)?.id
+      const contagem: Record<string, number> = {}
+      for (const row of (pendentesRes.data ?? []) as { organizacao_id: string | null }[]) {
+        const orgId = row.organizacao_id ?? pilotoId
+        if (orgId) contagem[orgId] = (contagem[orgId] ?? 0) + 1
+      }
+      setPendentesPorOrg(contagem)
+    }
+
+    if (!convitesRes.error) {
+      const contagem: Record<string, number> = {}
+      for (const row of (convitesRes.data ?? []) as { organizacao_id: string }[]) {
+        contagem[row.organizacao_id] = (contagem[row.organizacao_id] ?? 0) + 1
+      }
+      setConvitesPorOrg(contagem)
     }
 
     setIsLoading(false)
@@ -93,12 +123,12 @@ export default function OrganizacoesManagement() {
       return
     }
 
-    // O primeiro convidado já entra como "admin" — é o Dono da Empresa, quem
-    // vai gerenciar os próprios usuários e projetos dali pra frente.
+    // O primeiro convidado já entra como "edicao" — é quem vai gerenciar os
+    // próprios usuários e projetos dali pra frente.
     const { error: erroConvite } = await supabase.from('convites').insert({
       organizacao_id: organizacao.id,
       email: emailDono.trim(),
-      papel_convidado: 'admin',
+      papel_convidado: 'edicao',
       criado_por: user?.id,
     })
 
@@ -116,7 +146,7 @@ export default function OrganizacoesManagement() {
     }
 
     toast.success(
-      `Empresa "${nomeEmpresa.trim()}" criada! Avise ${emailDono.trim()} para criar conta em /signup com esse email — ele já entra como dono (admin) dela.`
+      `Empresa "${nomeEmpresa.trim()}" criada! Avise ${emailDono.trim()} para criar conta em /signup com esse email — ele já entra com acesso de Edição nela.`
     )
     setNomeEmpresa('')
     setEmailDono('')
@@ -135,7 +165,7 @@ export default function OrganizacoesManagement() {
   }
 
   const toggleModuloEmpresa = async (organizacaoId: string, moduloKey: string, ativoAtualmente: boolean) => {
-    setTogglingModulo(`${organizacaoId}::${moduloKey}`)
+    setTogglingModulo(moduloKey)
     if (ativoAtualmente) {
       const { error } = await supabase
         .from('organizacao_modulos')
@@ -201,7 +231,7 @@ export default function OrganizacoesManagement() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center gap-3">
         <Building2 className="text-gray-500 dark:text-gray-400" size={24} />
         <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gestão de Empresas Clientes</h1>
@@ -251,63 +281,42 @@ export default function OrganizacoesManagement() {
         )}
       </div>
 
-      <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Empresa</TableHead>
-              <TableHead>Tipo</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Módulos</TableHead>
-              <TableHead>Criada em</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {isLoading && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-400 py-6">Carregando...</TableCell>
-              </TableRow>
-            )}
-            {!isLoading && organizacoes.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-400 py-6">Nenhuma empresa cadastrada.</TableCell>
-              </TableRow>
-            )}
-            {organizacoes.map((org) => (
-              <TableRow key={org.id}>
-                <TableCell className="font-medium">{org.nome}</TableCell>
-                <TableCell>
-                  {org.is_piloto ? <Badge variant="secondary">Piloto</Badge> : <Badge variant="outline">Cliente</Badge>}
-                </TableCell>
-                <TableCell>
-                  {org.ativo ? <Badge variant="secondary">Ativa</Badge> : <Badge variant="destructive">Inativa</Badge>}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-2">
-                    {modulosCatalogo.map((m) => {
-                      const ativo = modulosPorOrg[org.id]?.has(m.key) ?? false
-                      const toggling = togglingModulo === `${org.id}::${m.key}`
-                      return (
-                        <label key={m.key} className="flex items-center gap-1 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={ativo}
-                            disabled={toggling}
-                            onChange={() => toggleModuloEmpresa(org.id, m.key, ativo)}
-                            className="w-3 h-3"
-                          />
-                          {m.nome}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </TableCell>
-                <TableCell>{new Date(org.criado_em).toLocaleString('pt-BR')}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="animate-spin text-blue-600" size={28} />
+        </div>
+      ) : organizacoes.length === 0 ? (
+        <div className="text-center py-16 text-gray-400 dark:text-gray-500">Nenhuma empresa cadastrada.</div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {organizacoes.map((org) => (
+            <OrganizacaoCard
+              key={org.id}
+              organizacao={org}
+              modulosCatalogo={modulosCatalogo}
+              modulosAtivos={modulosPorOrg[org.id] ?? new Set()}
+              pendentes={pendentesPorOrg[org.id] ?? 0}
+              convitesPendentes={convitesPorOrg[org.id] ?? 0}
+              onGerenciar={() => setManagingOrgId(org.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {managingOrgId && (() => {
+        const managingOrg = organizacoes.find((o) => o.id === managingOrgId)
+        if (!managingOrg) return null
+        return (
+          <OrganizacaoDetailModal
+            organizacao={managingOrg}
+            modulosCatalogo={modulosCatalogo}
+            modulosAtivos={modulosPorOrg[managingOrg.id] ?? new Set()}
+            togglingModulo={togglingModulo}
+            onToggleModulo={(moduloKey, ativoAtualmente) => toggleModuloEmpresa(managingOrg.id, moduloKey, ativoAtualmente)}
+            onClose={() => { setManagingOrgId(null); load() }}
+          />
+        )
+      })()}
 
       <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-4">
         <div className="flex items-center gap-2">

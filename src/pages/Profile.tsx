@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, User, Mail, Save, Palette } from 'lucide-react'
+import { toast } from 'sonner'
+import { ArrowLeft, User, Mail, Briefcase, Save, Palette } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
 
@@ -16,17 +18,31 @@ const PRESET_COLORS = [
 ]
 
 export default function Profile() {
-  const { user } = useAuth()
+  const { user, userProfile, refetchProfile } = useAuth()
   const navigate = useNavigate()
   const { brandColor, setBrandColor } = useTheme()
   const [nome, setNome] = useState(user?.email?.split('@')[0] || '')
+  const [funcao, setFuncao] = useState(userProfile?.funcao ?? '')
   const [saved, setSaved] = useState(false)
+  const [savingFuncao, setSavingFuncao] = useState(false)
   const [customColor, setCustomColor] = useState(brandColor)
 
   const handleSave = () => {
     setBrandColor(customColor)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+  }
+
+  const handleSalvarFuncao = async () => {
+    setSavingFuncao(true)
+    const { error } = await supabase.rpc('atualizar_minha_funcao', { nova_funcao: funcao })
+    if (error) {
+      toast.error(`Não foi possível salvar a função: ${error.message}`)
+    } else {
+      toast.success('Função atualizada')
+      await refetchProfile()
+    }
+    setSavingFuncao(false)
   }
 
   const handlePreset = (color: string) => {
@@ -76,6 +92,33 @@ export default function Profile() {
             <div className="flex items-center bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5">
               <Mail size={18} className="text-gray-400" />
               <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">{user?.email}</span>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Função</label>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mb-1.5">
+              Descrição do seu cargo/perfil (ex.: Engenheiro Civil, Mestre de Obras) — só informativo, aparece
+              pra quem gerencia sua empresa. Não muda o que você pode acessar no sistema.
+            </p>
+            <div className="flex gap-2">
+              <div className="flex-1 flex items-center bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5">
+                <Briefcase size={18} className="text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Ex.: Engenheiro Civil"
+                  value={funcao}
+                  onChange={(e) => setFuncao(e.target.value)}
+                  className="bg-transparent border-none outline-none ml-2 text-sm text-gray-900 dark:text-white w-full"
+                />
+              </div>
+              <button
+                onClick={handleSalvarFuncao}
+                disabled={savingFuncao || funcao === (userProfile?.funcao ?? '')}
+                className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl transition font-medium text-sm shrink-0"
+              >
+                {savingFuncao ? 'Salvando...' : 'Salvar'}
+              </button>
             </div>
           </div>
         </div>

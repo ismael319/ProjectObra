@@ -1,9 +1,9 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { idbGet, idbSet } from '@/lib/idb-kv'
 
-export type PapelUsuario = 'admin' | 'gestor' | 'engenheiro' | 'campo'
+export type PapelUsuario = 'edicao' | 'visualizacao' | 'insercao_pontual'
 export type StatusSolicitacao = 'pendente' | 'aprovado' | 'rejeitado'
 
 interface UserProfile {
@@ -16,6 +16,10 @@ interface UserProfile {
   // ex.: ['engenharia', 'seguranca']. Quem decide isso é o Dono da Plataforma,
   // em Empresas Clientes.
   modulos: string[]
+  // Descrição livre do cargo/perfil (ex.: "Engenheiro Civil") — só
+  // informativo, sem nenhum efeito de permissão. O próprio usuário edita a
+  // sua em /profile (via RPC atualizar_minha_funcao).
+  funcao: string | null
 }
 
 interface AuthContextType {
@@ -53,23 +57,64 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const profileCacheKey = (userId: string) => `auth:profile:${userId}`
+  // v2: bump depois da migração de papel pra edicao/visualizacao/insercao_pontual
+  // — um usuário offline com cache antigo (papel: 'admin' etc.) força um
+  // fetch novo em vez de reusar um valor que não existe mais.
+  const profileCacheKey = (userId: string) => `auth:profile:v2:${userId}`
+
+  // O Supabase costuma disparar onAuthStateChange mais de uma vez logo no
+  // boot (INITIAL_SESSION, depois outro evento) mesmo pro MESMO usuário —
+  // cada disparo criava uma chamada de fetchProfile concorrente. Se a mais
+  // antiga demorasse mais e terminasse DEPOIS de uma mais nova já ter
+  // preenchido o perfil certinho, ela sobrescrevia userProfile com null (ou
+  // um cache antigo do IndexedDB) por cima do valor correto — o que fazia o
+  // ProtectedRoute achar que o perfil sumiu, mandar pra
+  // /aguardando-aprovacao, e de lá o efeito da PendingApproval mandava de
+  // volta pra "/" assim que o perfil se corrigisse sozinho no próximo
+  // disparo. Esse contador garante que só a resposta da chamada MAIS RECENTE
+  // é aplicada.
+  const profileRequestId = useRef(0)
 
   const fetchProfile = async (userId: string) => {
+    const requestId = ++profileRequestId.current
     setIsLoadingProfile(true)
     // Um round-trip só: organizacao_modulos vem embutido via o relacionamento
     // organizacoes -> organizacao_modulos (mesma FK que já trazia is_piloto),
     // em vez de uma segunda consulta em série depois de saber o organizacao_id.
-    const { data } = await supabase
+    // user_modulos_visiveis é a restrição adicional por usuário (além do
+    // contrato da empresa) — ausência de linhas = sem restrição.
+    let { data, error } = await supabase
       .from('user_profiles')
-      .select('papel, status_solicitacao, organizacao_id, is_super_admin, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))')
+      .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)')
       .eq('id', userId)
       .single()
+
+    // PGRST205 = PostgREST não achou a tabela — acontece se o frontend novo
+    // subiu antes de rodar modulos-visiveis-migration.sql no Supabase. Sem
+    // esse retry, TODO login quebrava (a consulta inteira falhava por causa
+    // de uma tabela que só afeta uma restrição opcional). Repete sem o
+    // embed, tratando como "sem restrição de módulo" até a migração rodar.
+    if (error?.code === 'PGRST205') {
+      console.warn('user_modulos_visiveis ainda não existe no banco (rode modulos-visiveis-migration.sql) — perfil carregado sem restrição de módulo por usuário.')
+      ;({ data, error } = await supabase
+        .from('user_profiles')
+        .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))')
+        .eq('id', userId)
+        .single())
+    }
+
+    if (requestId !== profileRequestId.current) return // uma chamada mais nova já respondeu — descarta esta
+
+    if (error) console.error('Falha ao buscar o perfil do usuário.', error)
 
     if (data) {
       const organizacaoEmbutida = Array.isArray(data.organizacoes) ? data.organizacoes[0] : data.organizacoes
       const modulosEmbutidos = organizacaoEmbutida?.organizacao_modulos ?? []
-      const modulos = modulosEmbutidos.filter((m) => m.ativo).map((m) => m.modulo_key as string)
+      const modulosContratados = modulosEmbutidos.filter((m) => m.ativo).map((m) => m.modulo_key as string)
+      const restricoesUsuario = (data.user_modulos_visiveis ?? []) as { modulo_key: string }[]
+      const modulos = restricoesUsuario.length > 0
+        ? modulosContratados.filter((m) => restricoesUsuario.some((r) => r.modulo_key === m))
+        : modulosContratados
       const profile: UserProfile = {
         papel: data.papel,
         status_solicitacao: data.status_solicitacao,
@@ -77,6 +122,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
+        funcao: data.funcao,
       }
       setUserProfile(profile)
       idbSet(profileCacheKey(userId), profile).catch(() => {})
@@ -85,6 +131,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // lança — antes de derrubar o acesso, tenta o último perfil conhecido
       // salvo localmente na sessão anterior.
       const cached = await idbGet<UserProfile>(profileCacheKey(userId)).catch(() => undefined)
+      if (requestId !== profileRequestId.current) return
       setUserProfile(cached ?? null)
     }
     setIsLoadingProfile(false)
@@ -101,7 +148,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserProfile(null)
       setIsLoadingProfile(false)
     })
-  }, [session?.user])
+    // session?.user (não só o id): onAuthStateChange dispara com uma NOVA
+    // instância de `session`/`user` a cada evento mesmo pro mesmo usuário —
+    // usar só o id evita rebuscar o perfil à toa (e reabrir a janela da race
+    // acima) toda vez que isso acontece.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session?.user?.id])
 
   const refetchProfile = async () => {
     if (session?.user) {

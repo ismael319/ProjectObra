@@ -6,8 +6,8 @@ interface ProtectedRouteProps {
   children: React.ReactNode
 }
 
-// Usuários com papel "campo" (apontadores) só têm acesso à tela de lançamento.
-const CAMPO_HOME = '/dashboard/people/lancamento'
+// Usuários com papel "insercao_pontual" (apontadores) só têm acesso à tela de lançamento.
+const LANCAMENTO_HOME = '/dashboard/people/lancamento'
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { session, isLoading, userProfile, isLoadingProfile } = useAuth()
@@ -32,11 +32,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/aguardando-aprovacao" replace />
   }
 
-  // O papel "campo" só existe na tela de lançamento, que ainda não é
-  // isolada por empresa (ver RequireModulo) — então essa regra só vale pra
+  // O papel "insercao_pontual" só existe na tela de lançamento, que ainda não
+  // é isolada por empresa (ver RequireModulo) — então essa regra só vale pra
   // empresa piloto, senão vira loop de redirecionamento.
-  if (userProfile.papel === 'campo' && userProfile.organizacao_piloto && location.pathname !== CAMPO_HOME) {
-    return <Navigate to={CAMPO_HOME} replace />
+  if (userProfile.papel === 'insercao_pontual' && userProfile.organizacao_piloto && location.pathname !== LANCAMENTO_HOME) {
+    return <Navigate to={LANCAMENTO_HOME} replace />
   }
 
   return <>{children}</>

@@ -12,6 +12,7 @@ interface SolicitacaoRow {
   id: string
   email: string | null
   papel: PapelUsuario | null
+  funcao: string | null
   status_solicitacao: 'pendente' | 'aprovado' | 'rejeitado'
   criado_em: string
 }
@@ -24,10 +25,9 @@ interface ConviteRow {
 }
 
 const PAPEL_LABELS: Record<PapelUsuario, string> = {
-  admin: 'Admin (Dono da Empresa)',
-  gestor: 'Gestor',
-  engenheiro: 'Engenheiro',
-  campo: 'Campo (apontador)',
+  edicao: 'Edição',
+  visualizacao: 'Visualização',
+  insercao_pontual: 'Inserção Pontual',
 }
 
 function statusBadge(status: SolicitacaoRow['status_solicitacao']) {
@@ -36,14 +36,32 @@ function statusBadge(status: SolicitacaoRow['status_solicitacao']) {
   return <Badge variant="outline">Pendente</Badge>
 }
 
-export default function UserApprovalManagement() {
+interface Props {
+  // Ausente = modo autônomo (rota /dashboard/admin/users): opera na própria
+  // empresa do usuário logado, com a checagem normal de papel === 'edicao'.
+  // Presente = embutido no "Gerenciar" de uma empresa (Dono da Plataforma
+  // gerindo QUALQUER empresa, não só a própria) — a permissão já foi
+  // conferida lá fora (isSuperAdmin em OrganizacoesManagement).
+  organizacaoId?: string
+  organizacaoPiloto?: boolean
+  embedded?: boolean
+  // Chamado depois de aprovar/rejeitar/editar uma solicitação — deixa quem
+  // embute este componente (ex.: o modal de empresa) atualizar sua própria
+  // lista de membros sem precisar fechar/reabrir.
+  onAlterado?: () => void
+}
+
+export default function UserApprovalManagement({ organizacaoId, organizacaoPiloto, embedded = false, onAlterado }: Props = {}) {
   const { user, userProfile } = useAuth()
-  const isAdmin = userProfile?.papel === 'admin'
-  const isGestor = userProfile?.papel === 'gestor'
-  // "campo" só faz sentido na empresa piloto por enquanto — a tela de
-  // lançamento (única que esse papel acessa) ainda não é isolada por empresa.
-  const papeisBase: PapelUsuario[] = isAdmin ? ['admin', 'gestor', 'engenheiro', 'campo'] : ['gestor', 'engenheiro', 'campo']
-  const papeisDisponiveis = userProfile?.organizacao_piloto ? papeisBase : papeisBase.filter((p) => p !== 'campo')
+  const orgAlvo = organizacaoId ?? userProfile?.organizacao_id ?? null
+  // "insercao_pontual" só faz sentido na empresa piloto por enquanto — a tela
+  // de lançamento (única que esse papel acessa) ainda não é isolada por
+  // empresa. E solicitações "órfãs" (sem organizacao_id, de antes do convite
+  // por email existir) só aparecem pra quem administra a empresa piloto.
+  const orgPiloto = organizacaoId !== undefined ? (organizacaoPiloto ?? false) : (userProfile?.organizacao_piloto ?? false)
+  const podeGerenciar = organizacaoId !== undefined ? true : userProfile?.papel === 'edicao'
+  const papeisBase: PapelUsuario[] = ['edicao', 'visualizacao', 'insercao_pontual']
+  const papeisDisponiveis = orgPiloto ? papeisBase : papeisBase.filter((p) => p !== 'insercao_pontual')
 
   const [tab, setTab] = useState<'pendentes' | 'historico' | 'convidar'>('pendentes')
   const [rows, setRows] = useState<SolicitacaoRow[]>([])
@@ -51,7 +69,7 @@ export default function UserApprovalManagement() {
   const [selectedPapel, setSelectedPapel] = useState<Record<string, PapelUsuario>>({})
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editPapel, setEditPapel] = useState<PapelUsuario>('gestor')
+  const [editPapel, setEditPapel] = useState<PapelUsuario>('edicao')
   const [editStatus, setEditStatus] = useState<'aprovado' | 'rejeitado'>('aprovado')
 
   const [convites, setConvites] = useState<ConviteRow[]>([])
@@ -61,11 +79,14 @@ export default function UserApprovalManagement() {
   const [isSendingConvite, setIsSendingConvite] = useState(false)
 
   const load = useCallback(async () => {
+    if (!orgAlvo) return
+
     if (tab === 'convidar') {
       setIsLoadingConvites(true)
       const { data, error } = await supabase
         .from('convites')
         .select('id, email, papel_convidado, criado_em')
+        .eq('organizacao_id', orgAlvo)
         .is('usado_em', null)
         .order('criado_em', { ascending: false })
 
@@ -79,14 +100,21 @@ export default function UserApprovalManagement() {
     }
 
     setIsLoading(true)
-    const query = supabase
+    let query = supabase
       .from('user_profiles')
-      .select('id, email, papel, status_solicitacao, criado_em')
+      .select('id, email, papel, funcao, status_solicitacao, criado_em')
       .order('criado_em', { ascending: false })
 
-    const { data, error } = tab === 'pendentes'
-      ? await query.eq('status_solicitacao', 'pendente')
-      : await query.neq('status_solicitacao', 'pendente')
+    if (tab === 'pendentes') {
+      query = query.eq('status_solicitacao', 'pendente')
+      // Solicitações órfãs (organizacao_id nulo, de antes do sistema de
+      // convites) só aparecem pra quem cuida da empresa piloto.
+      query = orgPiloto ? query.or(`organizacao_id.eq.${orgAlvo},organizacao_id.is.null`) : query.eq('organizacao_id', orgAlvo)
+    } else {
+      query = query.neq('status_solicitacao', 'pendente').eq('organizacao_id', orgAlvo)
+    }
+
+    const { data, error } = await query
 
     if (error) {
       toast.error('Erro ao carregar solicitações')
@@ -94,18 +122,19 @@ export default function UserApprovalManagement() {
       setRows((data as SolicitacaoRow[]) ?? [])
     }
     setIsLoading(false)
-  }, [tab])
+  }, [tab, orgAlvo, orgPiloto])
 
   useEffect(() => {
     load()
   }, [load])
 
   const handleAprovar = async (row: SolicitacaoRow) => {
+    if (!orgAlvo) return
     const papel = selectedPapel[row.id] ?? papeisDisponiveis[0]
     setProcessingId(row.id)
     const { data, error } = await supabase
       .from('user_profiles')
-      .update({ papel, status_solicitacao: 'aprovado', organizacao_id: userProfile?.organizacao_id })
+      .update({ papel, status_solicitacao: 'aprovado', organizacao_id: orgAlvo })
       .eq('id', row.id)
       .select('id')
 
@@ -116,17 +145,18 @@ export default function UserApprovalManagement() {
     } else {
       toast.success(`${row.email ?? 'Usuário'} aprovado como ${PAPEL_LABELS[papel]}`)
       setRows((prev) => prev.filter((r) => r.id !== row.id))
+      onAlterado?.()
     }
     setProcessingId(null)
   }
 
   const handleConvidar = async () => {
-    if (!conviteEmail.trim() || !userProfile?.organizacao_id) return
+    if (!conviteEmail.trim() || !orgAlvo) return
     setIsSendingConvite(true)
     const { error } = await supabase.from('convites').insert({
       email: conviteEmail.trim(),
       papel_convidado: convitePapel,
-      organizacao_id: userProfile.organizacao_id,
+      organizacao_id: orgAlvo,
       criado_por: user?.id,
     })
 
@@ -165,6 +195,7 @@ export default function UserApprovalManagement() {
     } else {
       toast.success(`Solicitação de ${row.email ?? 'usuário'} rejeitada`)
       setRows((prev) => prev.filter((r) => r.id !== row.id))
+      onAlterado?.()
     }
     setProcessingId(null)
   }
@@ -198,11 +229,12 @@ export default function UserApprovalManagement() {
       toast.success(`${row.email ?? 'Usuário'} atualizado`)
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)))
       setEditingId(null)
+      onAlterado?.()
     }
     setProcessingId(null)
   }
 
-  if (!isAdmin && !isGestor) {
+  if (!podeGerenciar) {
     return (
       <div className="max-w-md mx-auto text-center py-16 text-gray-500 dark:text-gray-400">
         Você não tem permissão para acessar esta página.
@@ -211,11 +243,13 @@ export default function UserApprovalManagement() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      <div className="flex items-center gap-3">
-        <UserCog className="text-gray-500 dark:text-gray-400" size={24} />
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gestão de Usuários</h1>
-      </div>
+    <div className={embedded ? 'space-y-4' : 'max-w-4xl mx-auto space-y-6'}>
+      {!embedded && (
+        <div className="flex items-center gap-3">
+          <UserCog className="text-gray-500 dark:text-gray-400" size={24} />
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Gestão de Usuários</h1>
+        </div>
+      )}
 
       <div className="flex bg-gray-100 dark:bg-gray-800 rounded-lg p-1 w-fit">
         <button
@@ -346,7 +380,10 @@ export default function UserApprovalManagement() {
               const isSelf = row.id === user?.id
               return (
                 <TableRow key={row.id}>
-                  <TableCell className="font-medium">{row.email ?? '—'}</TableCell>
+                  <TableCell className="font-medium">
+                    {row.email ?? '—'}
+                    {row.funcao && <span className="block text-xs font-normal text-gray-400 dark:text-gray-500">{row.funcao}</span>}
+                  </TableCell>
                   <TableCell>{new Date(row.criado_em).toLocaleString('pt-BR')}</TableCell>
                   <TableCell>
                     {isEditing ? (
