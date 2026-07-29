@@ -32,6 +32,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/aguardando-aprovacao" replace />
   }
 
+  // Usuário precisa aceitar os termos de uso e política de privacidade
+  if (!userProfile.termos_aceitos_em && location.pathname !== '/aceitar-termos') {
+    return <Navigate to="/aceitar-termos" replace />
+  }
+
   // O papel "insercao_pontual" só existe na tela de lançamento, que ainda não
   // é isolada por empresa (ver RequireModulo) — então essa regra só vale pra
   // empresa piloto, senão vira loop de redirecionamento.

@@ -12,14 +12,10 @@ interface UserProfile {
   organizacao_id: string | null
   is_super_admin: boolean
   organizacao_piloto: boolean
-  // Chaves dos módulos (pacote) que a empresa do usuário tem contratado —
-  // ex.: ['engenharia', 'seguranca']. Quem decide isso é o Dono da Plataforma,
-  // em Empresas Clientes.
   modulos: string[]
-  // Descrição livre do cargo/perfil (ex.: "Engenheiro Civil") — só
-  // informativo, sem nenhum efeito de permissão. O próprio usuário edita a
-  // sua em /profile (via RPC atualizar_minha_funcao).
   funcao: string | null
+  termos_aceitos_em: string | null
+  versao_termos: string | null
 }
 
 interface AuthContextType {
@@ -28,12 +24,14 @@ interface AuthContextType {
   isLoading: boolean
   userProfile: UserProfile | null
   isLoadingProfile: boolean
+  precisaAceitarTermos: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
+  aceitarTermos: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -43,6 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [isLoadingProfile, setIsLoadingProfile] = useState(true)
+  const [precisaAceitarTermos, setPrecisaAceitarTermos] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -85,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // contrato da empresa) — ausência de linhas = sem restrição.
     let { data, error } = await supabase
       .from('user_profiles')
-      .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)')
+      .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)')
       .eq('id', userId)
       .single()
 
@@ -123,8 +122,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
         funcao: data.funcao,
+        termos_aceitos_em: data.termos_aceitos_em,
+        versao_termos: data.versao_termos,
       }
       setUserProfile(profile)
+      setPrecisaAceitarTermos(!data.termos_aceitos_em)
       idbSet(profileCacheKey(userId), profile).catch(() => {})
     } else {
       // Sem rede (apontador em campo), a busca acima não retorna `data` nem
@@ -187,6 +189,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message }
   }
 
+  const aceitarTermos = async () => {
+    const { error } = await supabase.rpc('aceitar_termos', { versao: '1.0' })
+    if (!error) {
+      setPrecisaAceitarTermos(false)
+      await refetchProfile()
+    }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -195,12 +205,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         isLoading,
         userProfile,
         isLoadingProfile,
+        precisaAceitarTermos,
         refetchProfile,
         signIn,
         signUp,
         signOut,
         resetPassword,
         updatePassword,
+        aceitarTermos,
       }}
     >
       {children}

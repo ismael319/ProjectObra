@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  Settings, PackageSearch, UserCog,
+  Settings, PackageSearch, UserCog, FileText,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -31,16 +31,23 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
   const temSuprimentos = modulos.includes('suprimentos')
   const temAdministracao = modulos.includes('administracao')
 
-  const planejamentoChildren: NavItem[] = [
-    { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-    ...(temEngenharia ? [{ icon: Calendar, label: 'Programação', path: '/dashboard/daily' }] : []),
-    ...(temEngenharia ? [{ icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' }] : []),
-    { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
-  ]
-
-  const engenhariaItems: NavItem[] = [
-    { icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning', children: planejamentoChildren },
-    ...(temEngenharia ? [{
+  // Todo o bloco de Engenharia (inclusive Curva S/Histograma MO/Ocorrências/
+  // Mão de Obra, que antes ficavam sempre visíveis) só existe quando a
+  // empresa/usuário tem o módulo 'engenharia' — sem isso, um usuário
+  // restrito a outro módulo (ex.: Administração) via user_modulos_visiveis
+  // continuava vendo essas telas de Engenharia, tanto na sidebar quanto (a
+  // rota em si não checava o módulo) direto pela URL.
+  const engenhariaItems: NavItem[] = temEngenharia ? [
+    {
+      icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
+      children: [
+        { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
+        { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
+        { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
+        { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
+      ],
+    },
+    {
       icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
       children: [
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
@@ -51,14 +58,14 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
         { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
       ],
-    }] : []),
+    },
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
-    ...(temEngenharia ? [{ icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' }] : []),
+    { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
     { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
-  ]
+  ] : []
 
   return [
-    { title: 'Engenharia', items: engenhariaItems },
+    ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
     ...(temSeguranca
       ? [{ title: 'Segurança', items: [{ icon: Shield, label: 'RDR - Dashboard', path: '/dashboard/security/rdr' }] }]
       : []),
@@ -397,6 +404,22 @@ export default function Sidebar({
             </Link>
           </div>
         )}
+
+        {/* Legal */}
+        <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
+          <Link
+            to="/legal/privacy"
+            onClick={() => onMobileClose()}
+            target="_blank"
+            className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+              collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+            } text-white/60 hover:text-white/80`}
+            title="Privacidade"
+          >
+            <FileText size={18} />
+            {!collapsed && <span>Privacidade e Termos</span>}
+          </Link>
+        </div>
       </aside>
 
       <button

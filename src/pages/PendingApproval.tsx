@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { Clock, XCircle, LogOut, RefreshCw, Lock, FileCheck, Shield } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import fgiLogo from '@/assets/fgi-logo.png'
@@ -86,7 +86,7 @@ export default function PendingApproval() {
 
         <div className="mt-6 text-center">
           <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
-          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs">
+          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs mb-3">
             <span className="flex items-center gap-1">
               <Lock size={12} />
               Criptografado
@@ -99,6 +99,13 @@ export default function PendingApproval() {
               <Shield size={12} />
               SSL/TLS
             </span>
+          </div>
+          <div className="flex items-center justify-center gap-3 text-blue-300/40 text-xs">
+            <Link to="/legal/privacy" className="hover:text-blue-300/70 transition">Privacidade</Link>
+            <span>·</span>
+            <Link to="/legal/terms" className="hover:text-blue-300/70 transition">Termos</Link>
+            <span>·</span>
+            <Link to="/legal/dpa" className="hover:text-blue-300/70 transition">DPA</Link>
           </div>
         </div>
       </div>

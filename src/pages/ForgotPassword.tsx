@@ -118,8 +118,8 @@ export default function ForgotPassword() {
 
         {/* Footer */}
         <div className="mt-6 text-center">
-          <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
-          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs">
+            <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
+          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs mb-3">
             <span className="flex items-center gap-1">
               <Lock size={12} />
               Criptografado
@@ -132,6 +132,13 @@ export default function ForgotPassword() {
               <Shield size={12} />
               SSL/TLS
             </span>
+          </div>
+          <div className="flex items-center justify-center gap-3 text-blue-300/40 text-xs">
+            <Link to="/legal/privacy" className="hover:text-blue-300/70 transition">Privacidade</Link>
+            <span>·</span>
+            <Link to="/legal/terms" className="hover:text-blue-300/70 transition">Termos</Link>
+            <span>·</span>
+            <Link to="/legal/dpa" className="hover:text-blue-300/70 transition">DPA</Link>
           </div>
         </div>
       </div>

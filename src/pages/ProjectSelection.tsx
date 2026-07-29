@@ -28,6 +28,10 @@ export default function ProjectSelection() {
   const { projects, currentProject, setCurrentProject, createProject, updateProject, deleteProject, duplicateProject, archiveProject, addCronograma } = useProjects()
   const { user, userProfile, signOut } = useAuth()
   const navigate = useNavigate()
+  // RLS real em projetos-acesso-edicao-migration.sql já restringe a escrita
+  // a Edição — isso aqui só espelha na tela pra não oferecer um botão que
+  // vai falhar (ou pior, funcionar por engano num ambiente sem a RLS nova).
+  const podeGerenciarProjetos = !!userProfile?.is_super_admin || userProfile?.papel === 'edicao'
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [search, setSearch] = useState('')
@@ -216,13 +220,15 @@ export default function ProjectSelection() {
               {projects.length} projeto{projects.length !== 1 ? 's' : ''} cadastrado{projects.length !== 1 ? 's' : ''}
             </p>
           </div>
-          <button
-            onClick={() => { setEditingProject(null); reset(); setCoverImage(''); setShowForm(true) }}
-            className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-xl transition shadow-lg shadow-blue-600/20"
-          >
-            <Plus size={20} />
-            Novo Projeto
-          </button>
+          {podeGerenciarProjetos && (
+            <button
+              onClick={() => { setEditingProject(null); reset(); setCoverImage(''); setShowForm(true) }}
+              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-xl transition shadow-lg shadow-blue-600/20"
+            >
+              <Plus size={20} />
+              Novo Projeto
+            </button>
+          )}
         </div>
 
         {/* Search + Filters */}
@@ -282,13 +288,15 @@ export default function ProjectSelection() {
                     {project.status.charAt(0).toUpperCase() + project.status.slice(1)}
                   </span>
                   <div className="relative">
+                    {podeGerenciarProjetos && (
                     <button
                       onClick={() => setMenuOpen(menuOpen === project.id ? null : project.id)}
                       className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition"
                     >
                       <MoreVertical size={16} />
                     </button>
-                    {menuOpen === project.id && (
+                    )}
+                    {podeGerenciarProjetos && menuOpen === project.id && (
                       <>
                         <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(null)} />
                         <div className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-20 overflow-hidden">
@@ -394,12 +402,14 @@ export default function ProjectSelection() {
                   >
                     <FolderOpen size={16} /> Abrir
                   </button>
-                  <button
-                    onClick={() => openManager(project)}
-                    className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
-                  >
-                    Gerenciar
-                  </button>
+                  {podeGerenciarProjetos && (
+                    <button
+                      onClick={() => openManager(project)}
+                      className="flex items-center justify-center gap-2 px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-xl text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+                    >
+                      Gerenciar
+                    </button>
+                  )}
                 </div>
                 </div>
               </div>

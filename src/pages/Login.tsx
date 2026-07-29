@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Shield, Lock, FileCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { supabase } from '@/lib/supabase'
+import TurnstileWidget from '@/components/TurnstileWidget'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const loginSchema = z.object({
@@ -18,6 +20,8 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
+  const [turnstileError, setTurnstileError] = useState(false)
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -25,14 +29,52 @@ export default function Login() {
     resolver: zodResolver(loginSchema),
   })
 
+  const onTurnstileVerify = useCallback((token: string) => {
+    setTurnstileToken(token)
+    setTurnstileError(false)
+  }, [])
+
+  const onTurnstileExpire = useCallback(() => {
+    setTurnstileToken('')
+  }, [])
+
   const onSubmit = async (data: LoginFormData) => {
     setError('')
+
+    if (!turnstileToken) {
+      setError('Complete a verificação de segurança')
+      return
+    }
+
     setIsLoading(true)
+
+    // Verifica rate limit antes de tentar login
+    const { data: rateLimitOk } = await supabase
+      .rpc('verificar_rate_limit_login', { p_ip: '' })
+    if (rateLimitOk === false) {
+      setIsLoading(false)
+      setError('Muitas tentativas de login. Aguarde 15 minutos.')
+      return
+    }
+
     const { error } = await signIn(data.email, data.password)
     setIsLoading(false)
+
     if (error) {
+      void supabase.rpc('registrar_evento_seguranca', {
+        p_event_type: 'login_failed',
+        p_severity: 'warning',
+        p_email: data.email,
+        p_ip: '',
+      })
       setError('Email ou senha incorretos')
     } else {
+      void supabase.rpc('registrar_evento_seguranca', {
+        p_event_type: 'login_success',
+        p_severity: 'info',
+        p_email: data.email,
+        p_ip: '',
+      })
       navigate('/')
     }
   }
@@ -145,9 +187,13 @@ export default function Login() {
               )}
             </div>
 
+            <div className="py-2">
+              <TurnstileWidget onVerify={onTurnstileVerify} onExpire={onTurnstileExpire} />
+            </div>
+
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !turnstileToken}
               className="w-full bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-blue-400 disabled:to-blue-400 text-white font-semibold py-3 px-4 rounded-lg shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/30 hover:-translate-y-px active:translate-y-0 transition-all flex items-center justify-center gap-2"
             >
               {isLoading ? (
@@ -171,7 +217,7 @@ export default function Login() {
         {/* Footer */}
         <div className="mt-6 text-center">
           <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
-          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs">
+          <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs mb-3">
             <span className="flex items-center gap-1">
               <Lock size={12} />
               Criptografado
@@ -184,6 +230,13 @@ export default function Login() {
               <Shield size={12} />
               SSL/TLS
             </span>
+          </div>
+          <div className="flex items-center justify-center gap-3 text-blue-300/40 text-xs">
+            <Link to="/legal/privacy" className="hover:text-blue-300/70 transition">Privacidade</Link>
+            <span>·</span>
+            <Link to="/legal/terms" className="hover:text-blue-300/70 transition">Termos</Link>
+            <span>·</span>
+            <Link to="/legal/dpa" className="hover:text-blue-300/70 transition">DPA</Link>
           </div>
         </div>
       </div>

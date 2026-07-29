@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { toast } from 'sonner'
-import { ArrowLeft, User, Mail, Briefcase, Save, Palette } from 'lucide-react'
+import { ArrowLeft, User, Mail, Briefcase, Save, Palette, Download, Trash2, Shield } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { useTheme } from '@/lib/theme-context'
@@ -186,6 +186,43 @@ export default function Profile() {
           >
             Voltar
           </button>
+        </div>
+      </div>
+
+      {/* Privacidade e Dados */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <Shield size={20} className="text-blue-500" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gray-100">Privacidade e Dados</h2>
+        </div>
+        <div className="space-y-3">
+          <Link
+            to="/profile/dados"
+            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
+          >
+            <div className="flex items-center gap-3">
+              <Download size={18} className="text-gray-400 group-hover:text-blue-500 transition" />
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Exportar dados</p>
+                <p className="text-xs text-gray-500">Baixe todos os seus dados pessoais</p>
+              </div>
+            </div>
+            <ArrowLeft size={16} className="text-gray-400 rotate-180" />
+          </Link>
+
+          <Link
+            to="/profile/excluir"
+            className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
+          >
+            <div className="flex items-center gap-3">
+              <Trash2 size={18} className="text-gray-400 group-hover:text-red-500 transition" />
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Excluir conta</p>
+                <p className="text-xs text-gray-500">Solicite a remoção dos seus dados</p>
+              </div>
+            </div>
+            <ArrowLeft size={16} className="text-gray-400 rotate-180" />
+          </Link>
         </div>
       </div>
     </div>

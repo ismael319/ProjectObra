@@ -28,11 +28,21 @@ const LaborTracking = lazy(() => import('@/pages/LaborTracking'))
 const ProjectSelection = lazy(() => import('@/pages/ProjectSelection'))
 const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
+const ExportarDados = lazy(() => import('@/pages/ExportarDados'))
+const ExcluirConta = lazy(() => import('@/pages/ExcluirConta'))
 const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
 const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
 const PlatformAdmin = lazy(() => import('@/pages/admin/PlatformAdmin'))
 const SiengeAlertas = lazy(() => import('@/pages/SiengeAlertas'))
 const AdministracaoHome = lazy(() => import('@/pages/administracao/AdministracaoHome'))
+const SecurityMonitoring = lazy(() => import('@/pages/admin/SecurityMonitoring'))
+
+// Legal pages
+const Privacy = lazy(() => import('@/pages/legal/Privacy'))
+const Terms = lazy(() => import('@/pages/legal/Terms'))
+const DPA = lazy(() => import('@/pages/legal/DPA'))
+const Subprocessors = lazy(() => import('@/pages/legal/Subprocessors'))
+const AceitarTermos = lazy(() => import('@/pages/AceitarTermos'))
 const ImportarEfetivo = lazy(() => import('@/pages/administracao/ImportarEfetivo'))
 const ImportarPonto = lazy(() => import('@/pages/administracao/ImportarPonto'))
 
@@ -78,6 +88,20 @@ function App() {
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/update-password" element={<UpdatePassword />} />
 
+                    <Route path="/legal/privacy" element={<Privacy />} />
+                    <Route path="/legal/terms" element={<Terms />} />
+                    <Route path="/legal/dpa" element={<DPA />} />
+                    <Route path="/legal/subprocessors" element={<Subprocessors />} />
+
+                    <Route
+                      path="/aceitar-termos"
+                      element={
+                        <SessionOnlyRoute>
+                          <AceitarTermos />
+                        </SessionOnlyRoute>
+                      }
+                    />
+
                     <Route
                       path="/aguardando-aprovacao"
                       element={
@@ -122,6 +146,22 @@ function App() {
                         </ProtectedRoute>
                       }
                     />
+                    <Route
+                      path="/profile/dados"
+                      element={
+                        <ProtectedRoute>
+                          <ExportarDados />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile/excluir"
+                      element={
+                        <ProtectedRoute>
+                          <ExcluirConta />
+                        </ProtectedRoute>
+                      }
+                    />
 
                     <Route
                       path="/dashboard"
@@ -133,12 +173,12 @@ function App() {
                     >
                       <Route index element={<DashboardHome />} />
                       <Route path="activities" element={<Activities />} />
-                      <Route path="planning" element={<SCurve />} />
+                      <Route path="planning" element={<RequireModulo modulo="engenharia"><SCurve /></RequireModulo>} />
                       <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />
-                      <Route path="resources" element={<ResourceHistogram />} />
+                      <Route path="resources" element={<RequireModulo modulo="engenharia"><ResourceHistogram /></RequireModulo>} />
                       <Route path="daily" element={<RequireModulo modulo="engenharia"><DailyProgramming /></RequireModulo>} />
-                      <Route path="occurrences" element={<Occurrences />} />
-                      <Route path="labor" element={<LaborTracking />} />
+                      <Route path="occurrences" element={<RequireModulo modulo="engenharia"><Occurrences /></RequireModulo>} />
+                      <Route path="labor" element={<RequireModulo modulo="engenharia"><LaborTracking /></RequireModulo>} />
                       <Route path="people" element={<RequireModulo modulo="engenharia"><ApontamentoDashboard /></RequireModulo>} />
                       <Route path="people/lancamento" element={<RequireModulo modulo="engenharia"><ApontamentoLancamento /></RequireModulo>} />
                       <Route path="people/validacao" element={<RequireModulo modulo="engenharia"><ApontamentoValidacao /></RequireModulo>} />
@@ -159,6 +199,7 @@ function App() {
                       <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
                       <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
+                      <Route path="admin/seguranca" element={<SecurityMonitoring />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/projects" replace />} />
