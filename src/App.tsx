@@ -32,6 +32,9 @@ const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
 const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
 const PlatformAdmin = lazy(() => import('@/pages/admin/PlatformAdmin'))
 const SiengeAlertas = lazy(() => import('@/pages/SiengeAlertas'))
+const AdministracaoHome = lazy(() => import('@/pages/administracao/AdministracaoHome'))
+const ImportarEfetivo = lazy(() => import('@/pages/administracao/ImportarEfetivo'))
+const ImportarPonto = lazy(() => import('@/pages/administracao/ImportarPonto'))
 
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
@@ -150,6 +153,9 @@ function App() {
                       <Route path="people/importar-eap" element={<RequireModulo modulo="engenharia"><ApontamentoImportarEap /></RequireModulo>} />
                       <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
                       <Route path="suprimentos" element={<RequireModulo modulo="suprimentos"><SiengeAlertas /></RequireModulo>} />
+                      <Route path="administracao" element={<RequireModulo modulo="administracao"><AdministracaoHome /></RequireModulo>} />
+                      <Route path="administracao/importar-efetivo" element={<RequireModulo modulo="administracao"><ImportarEfetivo /></RequireModulo>} />
+                      <Route path="administracao/importar-ponto" element={<RequireModulo modulo="administracao"><ImportarPonto /></RequireModulo>} />
                       <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
                       <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />

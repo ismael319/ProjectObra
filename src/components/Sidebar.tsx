@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  UserCog, PackageSearch,
+  Settings, PackageSearch, UserCog, Upload,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -29,6 +29,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
   const temEngenharia = modulos.includes('engenharia')
   const temSeguranca = modulos.includes('seguranca')
   const temSuprimentos = modulos.includes('suprimentos')
+  const temAdministracao = modulos.includes('administracao')
 
   const planejamentoChildren: NavItem[] = [
     { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
@@ -63,6 +64,15 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
       : []),
     ...(temSuprimentos
       ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
+      : []),
+    ...(temAdministracao
+      ? [{
+          title: 'Administração', items: [
+            { icon: UserCog, label: 'Início', path: '/dashboard/administracao' },
+            { icon: Upload, label: 'Importar Efetivo', path: '/dashboard/administracao/importar-efetivo' },
+            { icon: Upload, label: 'Importar Ponto', path: '/dashboard/administracao/importar-ponto' },
+          ],
+        }]
       : []),
     { title: 'Qualidade', items: [] },
   ]
@@ -126,14 +136,7 @@ export default function Sidebar({
   const isInsercaoPontual = papel === 'insercao_pontual'
   const podeGerenciarUsuarios = papel === 'edicao'
 
-  const adminItems: NavItem[] = []
-  if (podeGerenciarUsuarios) adminItems.push({ icon: UserCog, label: 'Gestão de Usuários', path: '/dashboard/admin/users' })
-
-  const navSections = isInsercaoPontual
-    ? navSectionsInsercaoPontual
-    : adminItems.length > 0
-      ? [...buildNavSections(modulos), { title: 'Administração', items: adminItems }]
-      : buildNavSections(modulos)
+  const navSections = isInsercaoPontual ? navSectionsInsercaoPontual : buildNavSections(modulos)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )
@@ -184,10 +187,10 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 overflow-y-auto border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 flex flex-col border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
         style={{ backgroundColor: sidebarBg }}
       >
-        <nav className={`${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
+        <nav className={`flex-1 overflow-y-auto ${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
           {!isInsercaoPontual && (
             <>
               <Link
@@ -373,6 +376,29 @@ export default function Sidebar({
             </div>
           ))}
         </nav>
+
+        {podeGerenciarUsuarios && (
+          <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
+            <Link
+              to="/dashboard/admin/users"
+              onClick={() => onMobileClose()}
+              className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+              } ${
+                isActive('/dashboard/admin/users')
+                  ? 'text-white'
+                  : 'text-white/80 hover:text-white'
+              }`}
+              style={activeStyle('/dashboard/admin/users')}
+              onMouseEnter={(e) => { if (!isActive('/dashboard/admin/users')) e.currentTarget.style.backgroundColor = sidebarHover }}
+              onMouseLeave={(e) => { if (!isActive('/dashboard/admin/users')) e.currentTarget.style.backgroundColor = 'transparent' }}
+              title="Sistema"
+            >
+              <Settings size={18} />
+              {!collapsed && <span>Sistema</span>}
+            </Link>
+          </div>
+        )}
       </aside>
 
       <button
