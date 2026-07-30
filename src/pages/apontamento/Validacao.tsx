@@ -271,10 +271,18 @@ export default function ValidacaoPage() {
       const horasDiaMap = new Map<string, number>((diasTrabalho ?? []).map((d) => [d.data, d.horas_dia]));
       const HORAS_DIA_PADRAO = 8; // fallback pra apontamentos validados antes desta jornada existir
 
-      const { data: itens } = await supabase
+      // cronograma_itens é do fluxo antigo de EAP por importação de XML —
+      // quem não usa mais esse fluxo pode nem ter a tabela no banco. A EAP
+      // atual (eap_modelos) já calcula HH direto de apontamentos_diarios, então
+      // sem essa tabela só pulamos a sincronização em vez de falhar a validação.
+      const { data: itens, error: itensErr } = await supabase
         .from("cronograma_itens")
         .select("id,cronograma_id,nome,atividade_id,pai_id,ativo");
-      if (!itens) throw new Error("Erro ao buscar itens do cronograma");
+      if (itensErr) {
+        if (itensErr.code === "PGRST205") return;
+        throw itensErr;
+      }
+      if (!itens) return;
 
       const horasPorAtivId = new Map<string, number>();
       const horasPorNome = new Map<string, number>();
