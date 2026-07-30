@@ -8,8 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
+import { useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades } from "./lib/catalog";
 import { CheckCircle2, Undo2, Loader2, Clock, Pencil, Trash2, Save, X } from "lucide-react";
 import { Calendar, CalendarDayButton } from "./ui/calendar";
+import { Combobox } from "@/components/ui/combobox";
 
 interface HorasDia {
   inicio: string;
@@ -50,12 +52,18 @@ const DIAS_SEMANA = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira",
 interface Apontamento {
   id: string;
   data: string;
+  empresa_id: string;
   empresa_nome: string;
+  lideranca_id: string;
   lideranca_nome: string;
   lideranca_tipo: string;
+  setor_id: string;
   setor_nome: string;
+  area_id: string | null;
   area_nome: string | null;
+  subarea_id: string | null;
   subarea_nome: string | null;
+  atividade_id: string;
   atividade_nome: string;
   pedreiro: number;
   servente: number;
@@ -78,6 +86,17 @@ export default function ValidacaoPage() {
     const [y, m] = todayISO().split("-").map(Number);
     return new Date(y, m - 1, 1);
   });
+
+  const { data: empresas = [] } = useEmpresas();
+  const { data: liderancas = [] } = useLiderancas();
+  const { data: setores = [] } = useSetores();
+  const { data: areas = [] } = useAreas(draft.setor_id);
+  const { data: subareas = [] } = useSubareas(draft.area_id);
+  const { data: atividades = [] } = useAtividades();
+  const liderancaOpts = useMemo(
+    () => liderancas.map((l) => ({ value: l.id, label: l.nome, group: l.tipo })),
+    [liderancas],
+  );
 
   const handleDataChange = (novaData: string) => {
     setData(novaData);
@@ -194,12 +213,19 @@ export default function ValidacaoPage() {
 
   const iniciarEdicao = (a: Apontamento) => {
     setDraft({
+      data: a.data,
+      atividade_id: a.atividade_id,
       atividade_nome: a.atividade_nome,
+      empresa_id: a.empresa_id,
       empresa_nome: a.empresa_nome,
+      lideranca_id: a.lideranca_id,
       lideranca_nome: a.lideranca_nome,
       lideranca_tipo: a.lideranca_tipo,
+      setor_id: a.setor_id,
       setor_nome: a.setor_nome,
+      area_id: a.area_id,
       area_nome: a.area_nome,
+      subarea_id: a.subarea_id,
       subarea_nome: a.subarea_nome,
       pedreiro: a.pedreiro,
       servente: a.servente,
@@ -487,51 +513,95 @@ export default function ValidacaoPage() {
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Empresa</Label>
-                            <Input
-                              value={draft.empresa_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, empresa_nome: e.target.value }))}
+                            <Combobox
+                              options={empresas.map((e) => ({ value: e.id, label: e.nome }))}
+                              value={draft.empresa_id ?? null}
+                              onChange={(v) => {
+                                const empresa = empresas.find((e) => e.id === v);
+                                setDraft((d) => ({ ...d, empresa_id: v ?? undefined, empresa_nome: empresa?.nome ?? d.empresa_nome }));
+                              }}
+                              placeholder="Selecione a empresa"
                             />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Atividade</Label>
-                            <Input
-                              value={draft.atividade_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, atividade_nome: e.target.value }))}
+                            <Combobox
+                              options={atividades.map((a) => ({ value: a.id, label: a.nome }))}
+                              value={draft.atividade_id ?? null}
+                              onChange={(v) => {
+                                const atividade = atividades.find((a) => a.id === v);
+                                setDraft((d) => ({ ...d, atividade_id: v ?? undefined, atividade_nome: atividade?.nome ?? d.atividade_nome }));
+                              }}
+                              placeholder="Selecione a atividade"
                             />
                           </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">Liderança</Label>
-                            <Input
-                              value={draft.lideranca_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, lideranca_nome: e.target.value }))}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-xs text-muted-foreground">Tipo liderança</Label>
-                            <Input
-                              value={draft.lideranca_tipo ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, lideranca_tipo: e.target.value }))}
+                          <div className="space-y-1 sm:col-span-2">
+                            <Label className="text-xs text-muted-foreground">Liderança / Encarregado</Label>
+                            <Combobox
+                              options={liderancaOpts}
+                              value={draft.lideranca_id ?? null}
+                              onChange={(v) => {
+                                const lider = liderancas.find((l) => l.id === v);
+                                setDraft((d) => ({
+                                  ...d,
+                                  lideranca_id: v ?? undefined,
+                                  lideranca_nome: lider?.nome ?? d.lideranca_nome,
+                                  lideranca_tipo: lider?.tipo ?? d.lideranca_tipo,
+                                }));
+                              }}
+                              placeholder="Selecione a liderança"
                             />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Setor</Label>
-                            <Input
-                              value={draft.setor_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, setor_nome: e.target.value }))}
+                            <Combobox
+                              options={setores.map((s) => ({ value: s.id, label: s.nome }))}
+                              value={draft.setor_id ?? null}
+                              onChange={(v) => {
+                                const setor = setores.find((s) => s.id === v);
+                                setDraft((d) => ({
+                                  ...d,
+                                  setor_id: v ?? undefined,
+                                  setor_nome: setor?.nome ?? d.setor_nome,
+                                  area_id: null,
+                                  area_nome: null,
+                                  subarea_id: null,
+                                  subarea_nome: null,
+                                }));
+                              }}
+                              placeholder="Selecione o setor"
                             />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Área</Label>
-                            <Input
-                              value={draft.area_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, area_nome: e.target.value || null }))}
+                            <Combobox
+                              options={areas.map((a) => ({ value: a.id, label: a.nome }))}
+                              value={draft.area_id ?? null}
+                              onChange={(v) => {
+                                const area = areas.find((a) => a.id === v);
+                                setDraft((d) => ({
+                                  ...d,
+                                  area_id: v ?? null,
+                                  area_nome: area?.nome ?? null,
+                                  subarea_id: null,
+                                  subarea_nome: null,
+                                }));
+                              }}
+                              placeholder={draft.setor_id ? (areas.length === 0 ? "Sem áreas cadastradas" : "Selecione a área") : "Escolha o setor primeiro"}
+                              disabled={!draft.setor_id}
                             />
                           </div>
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Subárea</Label>
-                            <Input
-                              value={draft.subarea_nome ?? ""}
-                              onChange={(e) => setDraft((d) => ({ ...d, subarea_nome: e.target.value || null }))}
+                            <Combobox
+                              options={subareas.map((s) => ({ value: s.id, label: s.nome }))}
+                              value={draft.subarea_id ?? null}
+                              onChange={(v) => {
+                                const subarea = subareas.find((s) => s.id === v);
+                                setDraft((d) => ({ ...d, subarea_id: v ?? null, subarea_nome: subarea?.nome ?? null }));
+                              }}
+                              placeholder={draft.area_id ? (subareas.length === 0 ? "Sem subáreas" : "Selecione a subárea") : "Escolha a área primeiro"}
+                              disabled={!draft.area_id}
                             />
                           </div>
                         </div>
