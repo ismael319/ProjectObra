@@ -51,7 +51,7 @@ export default function ImportarEfetivoPage() {
     if (!resultado || !organizacaoId) return;
     setEstagio("importando");
     try {
-      const r = await importarEfetivo({ organizacaoId, userId: user?.id, linhas: resultado.linhas });
+      const r = await importarEfetivo({ organizacaoId, userId: user?.id, arquivoNome: fileName, linhas: resultado.linhas });
       setResumo(r);
       setEstagio("concluido");
       toast.success(`${r.totalLinhas} funcionário(s) importado(s).`);

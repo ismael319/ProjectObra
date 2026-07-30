@@ -5,6 +5,7 @@ import {
   listarDemissoes,
   listarDocumentosPorFuncionario,
   listarAlertasDocumentos,
+  listarUltimaImportacaoEfetivo,
   efetivoDoDia,
 } from "./db";
 
@@ -98,6 +99,14 @@ export function useEfetivoDoDia(organizacaoId: string | undefined, data: string)
   return useQuery({
     queryKey: ["efetivo_do_dia", organizacaoId, data],
     queryFn: () => efetivoDoDia(organizacaoId!, data),
+    enabled: !!organizacaoId,
+  });
+}
+
+export function useUltimaImportacaoEfetivo(organizacaoId?: string) {
+  return useQuery({
+    queryKey: ["ultima_importacao_efetivo", organizacaoId],
+    queryFn: () => listarUltimaImportacaoEfetivo(organizacaoId!),
     enabled: !!organizacaoId,
   });
 }

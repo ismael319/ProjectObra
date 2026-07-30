@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -6,7 +6,6 @@ import { z } from 'zod'
 import { Eye, EyeOff, Loader2, Shield, Lock, FileCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import TurnstileWidget from '@/components/TurnstileWidget'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const loginSchema = z.object({
@@ -20,8 +19,6 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
-  const [turnstileToken, setTurnstileToken] = useState('')
-  const [turnstileError, setTurnstileError] = useState(false)
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -29,23 +26,8 @@ export default function Login() {
     resolver: zodResolver(loginSchema),
   })
 
-  const onTurnstileVerify = useCallback((token: string) => {
-    setTurnstileToken(token)
-    setTurnstileError(false)
-  }, [])
-
-  const onTurnstileExpire = useCallback(() => {
-    setTurnstileToken('')
-  }, [])
-
   const onSubmit = async (data: LoginFormData) => {
     setError('')
-
-    if (!turnstileToken) {
-      setError('Complete a verificação de segurança')
-      return
-    }
-
     setIsLoading(true)
 
     // Verifica rate limit antes de tentar login
@@ -187,13 +169,9 @@ export default function Login() {
               )}
             </div>
 
-            <div className="py-2">
-              <TurnstileWidget onVerify={onTurnstileVerify} onExpire={onTurnstileExpire} />
-            </div>
-
             <button
               type="submit"
-              disabled={isLoading || !turnstileToken}
+              disabled={isLoading}
               className="w-full bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-blue-400 disabled:to-blue-400 text-white font-semibold py-3 px-4 rounded-lg shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/30 hover:-translate-y-px active:translate-y-0 transition-all flex items-center justify-center gap-2"
             >
               {isLoading ? (

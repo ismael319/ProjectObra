@@ -52,9 +52,10 @@ export type ResumoImportacaoEfetivo = {
 export async function importarEfetivo(params: {
   organizacaoId: string;
   userId?: string | null;
+  arquivoNome: string;
   linhas: FuncionarioParseado[];
 }): Promise<ResumoImportacaoEfetivo> {
-  const { organizacaoId, userId, linhas } = params;
+  const { organizacaoId, userId, arquivoNome, linhas } = params;
   if (linhas.length === 0) {
     return { totalLinhas: 0, novos: 0, atualizados: 0, documentosGravados: 0, catalogosCriados: [], documentosSemTipoConhecido: [] };
   }
@@ -66,7 +67,7 @@ export async function importarEfetivo(params: {
       carregarCatalogo("rh_encarregados", organizacaoId),
       carregarCatalogo("rh_grupos", organizacaoId),
       supabase.from("tipos_documento").select("id,key,validade_dias").eq("organizacao_id", organizacaoId),
-      supabase.from("funcionarios").select("matricula").eq("organizacao_id", organizacaoId),
+      supabase.from("funcionarios").select("*").eq("organizacao_id", organizacaoId),
       supabase.from("rh_cargos").select("id,setor_padrao_id,grupo_id,categoria").eq("organizacao_id", organizacaoId),
     ]);
 
@@ -77,9 +78,21 @@ export async function importarEfetivo(params: {
   const tipoDocPorKey = new Map(
     (tiposDocumentoResp.data as { id: string; key: string; validade_dias: number }[]).map((t) => [t.key, t])
   );
-  const matriculasJaExistiam = new Set(
-    (funcionariosExistentesResp.data as { matricula: string }[]).map((f) => f.matricula)
+  // Reimportar não deve desfazer o que já foi corrigido/preenchido na
+  // plataforma — pra cada funcionário já existente (por matrícula), o valor
+  // que já está no banco tem prioridade sobre o que vem da planilha; só
+  // preenche do arquivo o que ainda estiver vazio. Só documentos_funcionario
+  // (vencimento de ASO/Integração) continua sempre atualizando pela
+  // planilha — isso é o dado que faz sentido vir sempre mais fresco.
+  const existentePorMatricula = new Map(
+    (funcionariosExistentesResp.data as FuncionarioRow[]).map((f) => [f.matricula, f])
   );
+  const matriculasJaExistiam = new Set(existentePorMatricula.keys());
+
+  function comPrioridadeExistente<T>(valorExistente: T | null | undefined, valorPlanilha: T | null): T | null {
+    if (valorExistente === null || valorExistente === undefined || (valorExistente as unknown) === "") return valorPlanilha;
+    return valorExistente;
+  }
   // Retaguarda pra Setor/Grupo/Categoria: quando a planilha não traz esses
   // campos pra uma linha (ex.: sem coluna SETOR), usa o padrão já cadastrado
   // pro Cargo (Cadastro de Cargos) em vez de deixar em branco — mesma lógica
@@ -120,27 +133,31 @@ export async function importarEfetivo(params: {
     const setorId = setorIdDaPlanilha ?? padraoCargo?.setor_padrao_id ?? null;
     const grupoId = grupoIdDaPlanilha ?? padraoCargo?.grupo_id ?? null;
     const categoria = f.categoria ?? padraoCargo?.categoria ?? null;
+    // NOT NULL no banco — quando a planilha não traz um status reconhecido,
+    // entra com um padrão conservador (a definir depois direto na
+    // plataforma), em vez de travar a linha fora do sistema.
+    const statusBdr = f.statusBdr ?? "aguardando_documentacao";
+    const statusFs = f.statusFs ?? "bloqueado";
+
+    const existente = existentePorMatricula.get(f.matricula);
 
     linhasParaGravar.push({
       organizacao_id: organizacaoId,
       matricula: f.matricula,
-      nome: f.nome,
-      cpf: f.cpf,
-      cargo_id: cargoId,
-      setor_id: setorId,
-      encarregado_id: encarregadoId,
-      indicacao: f.indicacao,
-      data_admissao: f.admissao,
-      obra_codigo: f.obraCodigo,
-      local: f.local,
-      // NOT NULL no banco — quando a planilha não traz um status
-      // reconhecido, entra com um padrão conservador (a definir depois
-      // direto na plataforma), em vez de travar a linha fora do sistema.
-      status_bdr: f.statusBdr ?? "aguardando_documentacao",
-      status_fs: f.statusFs ?? "bloqueado",
-      grupo_id: grupoId,
-      categoria,
-      criado_por: userId ?? null,
+      nome: comPrioridadeExistente(existente?.nome, f.nome),
+      cpf: comPrioridadeExistente(existente?.cpf, f.cpf),
+      cargo_id: comPrioridadeExistente(existente?.cargo_id, cargoId),
+      setor_id: comPrioridadeExistente(existente?.setor_id, setorId),
+      encarregado_id: comPrioridadeExistente(existente?.encarregado_id, encarregadoId),
+      indicacao: comPrioridadeExistente(existente?.indicacao, f.indicacao),
+      data_admissao: comPrioridadeExistente(existente?.data_admissao, f.admissao),
+      obra_codigo: comPrioridadeExistente(existente?.obra_codigo, f.obraCodigo),
+      local: comPrioridadeExistente(existente?.local, f.local),
+      status_bdr: comPrioridadeExistente(existente?.status_bdr, statusBdr),
+      status_fs: comPrioridadeExistente(existente?.status_fs, statusFs),
+      grupo_id: comPrioridadeExistente(existente?.grupo_id, grupoId),
+      categoria: comPrioridadeExistente(existente?.categoria, categoria),
+      criado_por: existente?.criado_por ?? userId ?? null,
     });
 
     const docs: { tipo_documento_id: string; data_emissao: string; validade_dias_no_momento: number }[] = [];
@@ -203,6 +220,17 @@ export async function importarEfetivo(params: {
       if (error) throw new Error(error.message);
       documentosGravados += lote.length;
     }
+
+    // Só pra exibir "última importação" na tela — se isso falhar, não
+    // desfaz o import (os funcionários já foram gravados de verdade).
+    await supabase.from("efetivo_importacoes").insert({
+      organizacao_id: organizacaoId,
+      arquivo_nome: arquivoNome,
+      total_linhas: linhasParaGravar.length,
+      novos,
+      atualizados,
+      importado_por: userId ?? null,
+    });
 
     return { totalLinhas: linhasParaGravar.length, novos, atualizados, documentosGravados, catalogosCriados, documentosSemTipoConhecido };
   } catch (erro) {
@@ -351,10 +379,12 @@ export type FuncionarioRow = {
   local: Local | null;
   status_bdr: StatusBdr;
   status_fs: StatusFs;
+  ativo: boolean;
   grupo_id: string | null;
   categoria: Categoria | null;
   criado_em: string;
   atualizado_em: string;
+  criado_por: string | null;
 };
 
 // Cria um item novo num catálogo (rh_setores/rh_cargos/rh_encarregados/
@@ -376,10 +406,40 @@ export async function criarItemCatalogo(
   return data as { id: string; nome: string };
 }
 
+// Traz todo mundo (ativo ou não) — a aba Funcionários mostra o quadro
+// completo; quem precisa só de ativos (Dashboard/Efetivo do Dia/alertas de
+// Documentação) filtra por conta própria ou já filtra na própria query.
 export async function listarFuncionarios(organizacaoId: string): Promise<FuncionarioRow[]> {
   const { data, error } = await supabase.from("funcionarios").select("*").eq("organizacao_id", organizacaoId).order("nome");
   if (error) throw new Error(error.message);
   return data as FuncionarioRow[];
+}
+
+export type UltimaImportacaoEfetivo = {
+  arquivoNome: string;
+  totalLinhas: number;
+  novos: number;
+  atualizados: number;
+  importadoEm: string;
+};
+
+export async function listarUltimaImportacaoEfetivo(organizacaoId: string): Promise<UltimaImportacaoEfetivo | null> {
+  const { data, error } = await supabase
+    .from("efetivo_importacoes")
+    .select("arquivo_nome, total_linhas, novos, atualizados, importado_em")
+    .eq("organizacao_id", organizacaoId)
+    .order("importado_em", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) return null;
+  return {
+    arquivoNome: data.arquivo_nome,
+    totalLinhas: data.total_linhas,
+    novos: data.novos,
+    atualizados: data.atualizados,
+    importadoEm: data.importado_em,
+  };
 }
 
 export type FuncionarioInput = {
@@ -438,9 +498,12 @@ export async function salvarFuncionario(params: {
 }
 
 // Transação em duas etapas (não há transação real via PostgREST): grava a
-// cópia em demissoes ANTES de apagar de funcionarios — se algo falhar entre
-// as duas, o pior caso é uma linha de demissoes "solta" pra limpar depois,
-// nunca perder o registro do funcionário sem deixar rastro.
+// cópia em demissoes ANTES de marcar ativo=false — se algo falhar entre as
+// duas, o pior caso é uma linha de demissoes "solta" pra limpar depois,
+// nunca perder o vínculo sem deixar rastro. Não apaga mais o funcionário
+// (era ON DELETE CASCADE em documentos_funcionario — desligar apagava o
+// histórico de ASO/NRs da pessoa pra sempre); agora ele só fica inativo,
+// continua na aba Funcionários e pode ser reativado sem perder nada.
 export async function desligarFuncionario(params: {
   organizacaoId: string;
   funcionario: FuncionarioRow;
@@ -468,8 +531,13 @@ export async function desligarFuncionario(params: {
   });
   if (erroInsert) throw new Error(erroInsert.message);
 
-  const { error: erroDelete } = await supabase.from("funcionarios").delete().eq("id", funcionario.id);
-  if (erroDelete) throw new Error(erroDelete.message);
+  const { error: erroUpdate } = await supabase.from("funcionarios").update({ ativo: false }).eq("id", funcionario.id);
+  if (erroUpdate) throw new Error(erroUpdate.message);
+}
+
+export async function reativarFuncionario(funcionarioId: string): Promise<void> {
+  const { error } = await supabase.from("funcionarios").update({ ativo: true }).eq("id", funcionarioId);
+  if (error) throw new Error(error.message);
 }
 
 export type DemissaoRow = {
@@ -550,8 +618,9 @@ export type AlertaDocumento = {
 export async function listarAlertasDocumentos(organizacaoId: string, diasJanela = 30): Promise<AlertaDocumento[]> {
   const { data, error } = await supabase
     .from("documentos_funcionario")
-    .select("funcionario_id, data_vencimento, funcionarios!inner(nome, organizacao_id), tipos_documento(nome)")
-    .eq("funcionarios.organizacao_id", organizacaoId);
+    .select("funcionario_id, data_vencimento, funcionarios!inner(nome, organizacao_id, ativo), tipos_documento(nome)")
+    .eq("funcionarios.organizacao_id", organizacaoId)
+    .eq("funcionarios.ativo", true);
   if (error) throw new Error(error.message);
 
   const hoje = new Date();
@@ -596,7 +665,7 @@ export type EfetivoDoDiaLinha = {
 export async function efetivoDoDia(organizacaoId: string, data: string): Promise<EfetivoDoDiaLinha[]> {
   const [setoresResp, funcionariosResp, pontoResp, campoResp] = await Promise.all([
     supabase.from("rh_setores").select("id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
-    supabase.from("funcionarios").select("setor_id").eq("organizacao_id", organizacaoId),
+    supabase.from("funcionarios").select("setor_id").eq("organizacao_id", organizacaoId).eq("ativo", true),
     supabase.from("rh_efetivo_ponto_diario").select("setor_id,total_presentes").eq("organizacao_id", organizacaoId).eq("data", data),
     supabase.from("apontamentos_diarios").select("setor_nome,pedreiro,servente,carpinteiro,qntdd_funcao").eq("data", data),
   ]);

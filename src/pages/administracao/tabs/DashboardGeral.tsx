@@ -35,11 +35,14 @@ export default function DashboardGeral() {
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
 
-  const { data: funcionarios = [], isLoading } = useFuncionarios(organizacaoId);
+  const { data: funcionariosTodos = [], isLoading } = useFuncionarios(organizacaoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
   const { data: setores = [] } = useRhSetores(organizacaoId);
   const { data: grupos = [] } = useRhGrupos(organizacaoId);
   const { data: alertasDocumentos = [] } = useAlertasDocumentos(organizacaoId);
+
+  // Dashboard é sobre o efetivo atual — desligados não entram nas contagens.
+  const funcionarios = useMemo(() => funcionariosTodos.filter((f) => f.ativo), [funcionariosTodos]);
 
   const cargoNomePorId = useMemo(() => new Map(cargos.map((c) => [c.id, c.nome])), [cargos]);
   const setorNomePorId = useMemo(() => new Map(setores.map((s) => [s.id, s.nome])), [setores]);

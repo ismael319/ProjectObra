@@ -15,7 +15,7 @@ export default function Documentacao() {
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
 
-  const { data: funcionarios = [] } = useFuncionarios(organizacaoId);
+  const { data: funcionariosTodos = [] } = useFuncionarios(organizacaoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
   const { data: alertas = [], isLoading: carregandoAlertas } = useAlertasDocumentos(organizacaoId);
 
@@ -23,6 +23,9 @@ export default function Documentacao() {
   const [verDocumentos, setVerDocumentos] = useState<FuncionarioRow | null>(null);
 
   const cargoNomePorId = useMemo(() => new Map(cargos.map((c) => [c.id, c.nome])), [cargos]);
+
+  // Não faz sentido cobrar renovação de ASO de quem já foi desligado.
+  const funcionarios = useMemo(() => funcionariosTodos.filter((f) => f.ativo), [funcionariosTodos]);
 
   const pendenciasPorFuncionario = useMemo(() => {
     const map = new Map<string, number>();

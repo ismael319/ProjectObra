@@ -11,8 +11,11 @@ import { Combobox } from "@/components/ui/combobox";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth-context";
-import { useFuncionarios, useRhCargos, useRhSetores, useRhEncarregados, useRhGrupos } from "@/lib/administracao/catalog";
-import type { FuncionarioRow, Local, StatusBdr, StatusFs } from "@/lib/administracao/db";
+import {
+  useFuncionarios, useRhCargos, useRhSetores, useRhEncarregados, useRhGrupos,
+  useUltimaImportacaoEfetivo,
+} from "@/lib/administracao/catalog";
+import { reativarFuncionario, type FuncionarioRow, type Local, type StatusBdr, type StatusFs } from "@/lib/administracao/db";
 import { buildFuncionariosWorkbook, downloadFuncionariosWorkbook } from "@/lib/administracao/excel-export";
 import { StatusBdrPill, StatusFsPill } from "../status-pills";
 import FuncionarioFormModal from "./FuncionarioFormModal";
@@ -27,8 +30,11 @@ const LOCAL_LABEL: Record<Local, string> = {
   turno_noite: "Turno à noite",
 };
 
+type StatusAtivo = "todos" | "ativo" | "inativo";
+
 type Filtros = {
   busca: string;
+  status: StatusAtivo;
   statusBdr: StatusBdr | null;
   statusFs: StatusFs | null;
   local: Local | null;
@@ -36,9 +42,9 @@ type Filtros = {
   setorId: string | null;
 };
 
-const FILTROS_INICIAIS: Filtros = { busca: "", statusBdr: null, statusFs: null, local: null, grupoId: null, setorId: null };
+const FILTROS_INICIAIS: Filtros = { busca: "", status: "todos", statusBdr: null, statusFs: null, local: null, grupoId: null, setorId: null };
 
-export default function FuncionariosAtivos() {
+export default function Funcionarios() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
@@ -48,6 +54,7 @@ export default function FuncionariosAtivos() {
   const { data: setores = [] } = useRhSetores(organizacaoId);
   const { data: encarregados = [] } = useRhEncarregados(organizacaoId);
   const { data: grupos = [] } = useRhGrupos(organizacaoId);
+  const { data: ultimaImportacao } = useUltimaImportacaoEfetivo(organizacaoId);
 
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS);
   const [page, setPage] = useState(0);
@@ -65,6 +72,8 @@ export default function FuncionariosAtivos() {
     const busca = filtros.busca.trim().toLowerCase();
     return funcionarios.filter((f) => {
       if (busca && !f.nome.toLowerCase().includes(busca) && !f.matricula.toLowerCase().includes(busca) && !(f.cpf ?? "").includes(busca)) return false;
+      if (filtros.status === "ativo" && !f.ativo) return false;
+      if (filtros.status === "inativo" && f.ativo) return false;
       if (filtros.statusBdr && f.status_bdr !== filtros.statusBdr) return false;
       if (filtros.statusFs && f.status_fs !== filtros.statusFs) return false;
       if (filtros.local && f.local !== filtros.local) return false;
@@ -77,12 +86,18 @@ export default function FuncionariosAtivos() {
   const totalPages = pageSize === "todos" ? 1 : Math.max(1, Math.ceil(filtrados.length / pageSize));
   const pagina = pageSize === "todos" ? filtrados : filtrados.slice(page * pageSize, page * pageSize + pageSize);
 
-  const resumo = useMemo(() => ({
-    total: funcionarios.length,
-    liberadoFs: funcionarios.filter((f) => f.status_bdr === "liberado_fs").length,
-    aguardandoDoc: funcionarios.filter((f) => f.status_bdr === "aguardando_documentacao").length,
-    bloqueado: funcionarios.filter((f) => f.status_fs === "bloqueado").length,
-  }), [funcionarios]);
+  // Cards de resumo contam só quem está ativo hoje — a tabela abaixo mostra
+  // todo mundo (ativo ou não), mas "Total ativos"/"Liberado FS"/etc. seriam
+  // enganosos se incluíssem desligados.
+  const resumo = useMemo(() => {
+    const ativos = funcionarios.filter((f) => f.ativo);
+    return {
+      total: ativos.length,
+      liberadoFs: ativos.filter((f) => f.status_bdr === "liberado_fs").length,
+      aguardandoDoc: ativos.filter((f) => f.status_bdr === "aguardando_documentacao").length,
+      bloqueado: ativos.filter((f) => f.status_fs === "bloqueado").length,
+    };
+  }, [funcionarios]);
 
   function setF<K extends keyof Filtros>(k: K, v: Filtros[K]) {
     setPage(0);
@@ -94,12 +109,20 @@ export default function FuncionariosAtivos() {
     qc.invalidateQueries({ queryKey: ["demissoes", organizacaoId] });
   }
 
-  // O toggle "Ativo" é só um atalho pra abrir o mesmo fluxo de Desligar (com
-  // motivo + data) — não existe um estado "inativo mas ainda em Funcionários"
-  // nesse modelo: ou o funcionário está na lista de Ativos, ou já foi
-  // desligado e está em Demissões.
-  function handleToggleAtivo(f: FuncionarioRow) {
-    setDesligando(f);
+  // Ligar o toggle abre Desligar (precisa de motivo + data); desligar
+  // direto reativa (funcionário volta pra ativo, sem precisar de motivo).
+  async function handleToggleAtivo(f: FuncionarioRow) {
+    if (f.ativo) {
+      setDesligando(f);
+      return;
+    }
+    try {
+      await reativarFuncionario(f.id);
+      toast.success(`${f.nome} reativado.`);
+      invalidar();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function handleExportar() {
@@ -136,6 +159,15 @@ export default function FuncionariosAtivos() {
               </div>
             </div>
             <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Combobox
+                options={[{ value: "ativo", label: "Ativo" }, { value: "inativo", label: "Inativo" }]}
+                value={filtros.status === "todos" ? null : filtros.status}
+                onChange={(v) => setF("status", (v as StatusAtivo | null) ?? "todos")}
+                placeholder="Todos"
+              />
+            </div>
+            <div className="space-y-1.5">
               <Label>Status BDR</Label>
               <Combobox
                 options={[
@@ -157,6 +189,8 @@ export default function FuncionariosAtivos() {
                 placeholder="Todos"
               />
             </div>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5">
               <Label>Local</Label>
               <Combobox
@@ -166,8 +200,6 @@ export default function FuncionariosAtivos() {
                 placeholder="Todos"
               />
             </div>
-          </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5">
               <Label>Setor</Label>
               <Combobox options={setores.map((s) => ({ value: s.id, label: s.nome }))} value={filtros.setorId} onChange={(v) => setF("setorId", v)} placeholder="Todos" />
@@ -178,7 +210,15 @@ export default function FuncionariosAtivos() {
             </div>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <Button variant="outline" size="sm" onClick={() => { setFiltros(FILTROS_INICIAIS); setPage(0); }}>Limpar filtros</Button>
+            <div className="flex flex-wrap items-center gap-3">
+              <Button variant="outline" size="sm" onClick={() => { setFiltros(FILTROS_INICIAIS); setPage(0); }}>Limpar filtros</Button>
+              {ultimaImportacao && (
+                <p className="text-xs text-muted-foreground">
+                  Última importação: <span className="font-medium">{ultimaImportacao.arquivoNome}</span> em{" "}
+                  {new Date(ultimaImportacao.importadoEm).toLocaleString("pt-BR")} ({ultimaImportacao.novos} novo(s), {ultimaImportacao.atualizados} atualizado(s))
+                </p>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={handleExportar}><Download size={16} /> Exportar</Button>
               <Link to="/dashboard/administracao/importar-efetivo">
@@ -211,7 +251,7 @@ export default function FuncionariosAtivos() {
                 {isLoading && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
                 {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
                 {pagina.map((f) => (
-                  <TableRow key={f.id}>
+                  <TableRow key={f.id} className={!f.ativo ? "opacity-60" : ""}>
                     <TableCell className="font-mono text-xs">{f.matricula}</TableCell>
                     <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{f.cargo_id ? cargoNomePorId.get(f.cargo_id) ?? "—" : "—"}</TableCell>
@@ -220,7 +260,7 @@ export default function FuncionariosAtivos() {
                     <TableCell><StatusBdrPill status={f.status_bdr} /></TableCell>
                     <TableCell><StatusFsPill status={f.status_fs} /></TableCell>
                     <TableCell>
-                      <Switch checked={true} onCheckedChange={() => handleToggleAtivo(f)} title="Desligar" />
+                      <Switch checked={f.ativo} onCheckedChange={() => handleToggleAtivo(f)} title={f.ativo ? "Desligar" : "Reativar"} />
                     </TableCell>
                     <TableCell>
                       <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditando(f)} title="Editar">
