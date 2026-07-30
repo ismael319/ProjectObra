@@ -64,12 +64,7 @@ function ResumoTable({ titulo, coluna, rows }: { titulo: string; coluna: string;
 }
 
 export default function DashboardPage() {
-  const [dataInicio, setDataInicio] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() - 30);
-    return d.toISOString().slice(0, 10);
-  });
-  const [dataFim, setDataFim] = useState(todayISO());
+  const [data, setData] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
   const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
   const [setorIds, setSetorIds] = useState<string[]>([]);
@@ -85,13 +80,12 @@ export default function DashboardPage() {
   const { data: atividades = [] } = useAtividades(false);
 
   const { data: apontamentos = [], isLoading } = useQuery({
-    queryKey: ["dashboard", dataInicio, dataFim, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
+    queryKey: ["dashboard", data, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
     queryFn: async () => {
       let q = supabase
         .from("apontamentos_diarios")
         .select("*")
-        .gte("data", dataInicio)
-        .lte("data", dataFim)
+        .eq("data", data)
         .order("data", { ascending: true });
       if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
       if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
@@ -99,9 +93,9 @@ export default function DashboardPage() {
       if (areaIds.length > 0) q = q.in("area_id", areaIds);
       if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
       if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
-      const { data, error } = await q;
+      const { data: rows, error } = await q;
       if (error) throw error;
-      return (data ?? []) as Apontamento[];
+      return (rows ?? []) as Apontamento[];
     },
   });
 
@@ -144,7 +138,7 @@ export default function DashboardPage() {
 
   const handleDownloadPdf = () => {
     if (apontamentos.length === 0) { toast.warning("Nenhum registro para exportar"); return; }
-    downloadPdf(apontamentos, dataInicio, dataFim);
+    downloadPdf(apontamentos, data, data);
     toast.success("PDF gerado");
   };
 
@@ -153,7 +147,7 @@ export default function DashboardPage() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Resumo Diário</h1>
-          <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra.</p>
+          <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra em {formatBR(data)}.</p>
         </div>
         <Button onClick={handleDownloadPdf} disabled={isLoading}>
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
@@ -165,12 +159,8 @@ export default function DashboardPage() {
         <CardContent className="pt-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
-              <Label>Data início</Label>
-              <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Data fim</Label>
-              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+              <Label>Data</Label>
+              <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
             </div>
             <div className="space-y-1.5">
               <Label>Empresa</Label>
