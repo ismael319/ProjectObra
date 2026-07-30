@@ -4,12 +4,16 @@
 // proporcional ao espaço livre em disco.
 
 const DB_NAME = 'obracontrol_kv'
-const DB_VERSION = 2
+const DB_VERSION = 3
 const STORE_NAME = 'kv'
 // Fila de apontamentos capturados offline, aguardando envio ao Supabase.
 // Store separado (em vez de uma chave só no `kv`) para poder ler/gravar/
 // remover item a item sem reescrever um array inteiro a cada mutação.
 export const QUEUE_STORE_NAME = 'apontamentos_queue'
+// Mesma ideia, store próprio pra fila de cargas de concreto capturadas
+// offline (módulo Qualidade) — não reaproveita QUEUE_STORE_NAME porque o
+// formato do payload é outro (cargas_concreto + destinos, não apontamentos).
+export const CONCRETO_QUEUE_STORE_NAME = 'cargas_concreto_queue'
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -24,18 +28,22 @@ function openDB(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(QUEUE_STORE_NAME)) {
         db.createObjectStore(QUEUE_STORE_NAME, { keyPath: 'id' })
       }
+      if (!db.objectStoreNames.contains(CONCRETO_QUEUE_STORE_NAME)) {
+        db.createObjectStore(CONCRETO_QUEUE_STORE_NAME, { keyPath: 'id' })
+      }
     }
   })
 }
 
-export async function withQueueStore<T>(
+async function withStore<T>(
+  storeName: string,
   mode: IDBTransactionMode,
   fn: (store: IDBObjectStore) => IDBRequest<T> | void,
 ): Promise<T> {
   const db = await openDB()
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(QUEUE_STORE_NAME, mode)
-    const store = tx.objectStore(QUEUE_STORE_NAME)
+    const tx = db.transaction(storeName, mode)
+    const store = tx.objectStore(storeName)
     const request = fn(store)
     tx.onerror = () => reject(tx.error)
     if (request) {
@@ -45,6 +53,20 @@ export async function withQueueStore<T>(
       tx.oncomplete = () => resolve(undefined as T)
     }
   })
+}
+
+export async function withQueueStore<T>(
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest<T> | void,
+): Promise<T> {
+  return withStore<T>(QUEUE_STORE_NAME, mode, fn)
+}
+
+export async function withConcretoQueueStore<T>(
+  mode: IDBTransactionMode,
+  fn: (store: IDBObjectStore) => IDBRequest<T> | void,
+): Promise<T> {
+  return withStore<T>(CONCRETO_QUEUE_STORE_NAME, mode, fn)
 }
 
 export async function idbGet<T>(key: string): Promise<T | undefined> {

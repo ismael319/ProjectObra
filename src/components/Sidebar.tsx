@@ -9,6 +9,7 @@ import {
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog, FileText,
+  Truck, Upload,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -30,6 +31,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
   const temSeguranca = modulos.includes('seguranca')
   const temSuprimentos = modulos.includes('suprimentos')
   const temAdministracao = modulos.includes('administracao')
+  const temQualidade = modulos.includes('qualidade')
 
   // Todo o bloco de Engenharia (inclusive Curva S/Histograma MO/Ocorrências/
   // Mão de Obra, que antes ficavam sempre visíveis) só existe quando a
@@ -64,6 +66,19 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
     { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
   ] : []
 
+  const qualidadeItems: NavItem[] = temQualidade ? [
+    {
+      icon: Truck, label: 'Concreto', path: '/dashboard/qualidade/concreto',
+      children: [
+        { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
+        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
+        { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
+        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
+        { icon: Upload, label: 'Importar histórico', path: '/dashboard/qualidade/concreto/importar-historico' },
+      ],
+    },
+  ] : []
+
   return [
     ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
     ...(temSeguranca
@@ -79,7 +94,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
           ],
         }]
       : []),
-    { title: 'Qualidade', items: [] },
+    ...(temQualidade ? [{ title: 'Qualidade', items: qualidadeItems }] : []),
   ]
 }
 

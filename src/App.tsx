@@ -46,6 +46,13 @@ const AceitarTermos = lazy(() => import('@/pages/AceitarTermos'))
 const ImportarEfetivo = lazy(() => import('@/pages/administracao/ImportarEfetivo'))
 const ImportarPonto = lazy(() => import('@/pages/administracao/ImportarPonto'))
 
+// Qualidade
+const ConcretoCadastro = lazy(() => import('@/pages/qualidade/concreto/Cadastro'))
+const ConcretoLancamento = lazy(() => import('@/pages/qualidade/concreto/Lancamento'))
+const ConcretoDashboard = lazy(() => import('@/pages/qualidade/concreto/Dashboard'))
+const ConcretoImportarHistorico = lazy(() => import('@/pages/qualidade/concreto/ImportarHistorico'))
+const ConcretoConsulta = lazy(() => import('@/pages/qualidade/concreto/Consulta'))
+
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
 const ApontamentoValidacao = lazy(() => import('@/pages/apontamento/Validacao'))
@@ -196,6 +203,11 @@ function App() {
                       <Route path="administracao" element={<RequireModulo modulo="administracao"><AdministracaoHome /></RequireModulo>} />
                       <Route path="administracao/importar-efetivo" element={<RequireModulo modulo="administracao"><ImportarEfetivo /></RequireModulo>} />
                       <Route path="administracao/importar-ponto" element={<RequireModulo modulo="administracao"><ImportarPonto /></RequireModulo>} />
+                      <Route path="qualidade/concreto/cadastro" element={<RequireModulo modulo="qualidade"><ConcretoCadastro /></RequireModulo>} />
+                      <Route path="qualidade/concreto/lancamento" element={<RequireModulo modulo="qualidade"><ConcretoLancamento /></RequireModulo>} />
+                      <Route path="qualidade/concreto/dashboard" element={<RequireModulo modulo="qualidade"><ConcretoDashboard /></RequireModulo>} />
+                      <Route path="qualidade/concreto/importar-historico" element={<RequireModulo modulo="qualidade"><ConcretoImportarHistorico /></RequireModulo>} />
+                      <Route path="qualidade/concreto/consulta" element={<RequireModulo modulo="qualidade"><ConcretoConsulta /></RequireModulo>} />
                       <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
                       <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
