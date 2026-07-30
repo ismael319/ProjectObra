@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO, formatBR } from "./lib/date-utils";
@@ -10,6 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Tooltip as InfoTooltip, TooltipContent as InfoTooltipContent,
+  TooltipProvider as InfoTooltipProvider, TooltipTrigger as InfoTooltipTrigger,
+} from "@/components/ui/tooltip";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { toast } from "sonner";
 import { Download, Loader2 } from "lucide-react";
@@ -19,45 +23,69 @@ import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
 
-function ResumoTable({ titulo, coluna, rows }: { titulo: string; coluna: string; rows: Aggregate[] }) {
+function ResumoTable({
+  titulo, coluna, rows, tooltipFor,
+}: {
+  titulo: string; coluna: string; rows: Aggregate[]; tooltipFor?: (key: string) => ReactNode;
+}) {
   const totalGeral = rows.reduce((s, r) => s + r.total, 0);
 
   return (
     <Card>
       <CardHeader><CardTitle className="text-base">{titulo}</CardTitle></CardHeader>
       <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{coluna}</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.length === 0 ? (
+        <InfoTooltipProvider delayDuration={200}>
+          <Table>
+            <TableHeader>
               <TableRow>
-                <TableCell colSpan={2} className="text-center py-8 text-muted-foreground">
-                  Nenhum registro no período.
-                </TableCell>
+                <TableHead>{coluna}</TableHead>
+                <TableHead className="text-right">Total</TableHead>
               </TableRow>
-            ) : (
-              rows.map((r) => (
-                <TableRow key={r.key}>
-                  <TableCell className="font-medium">{r.key}</TableCell>
-                  <TableCell className="text-right font-semibold">{r.total}</TableCell>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={2} className="text-center py-8 text-muted-foreground">
+                    Nenhum registro no período.
+                  </TableCell>
                 </TableRow>
-              ))
+              ) : (
+                rows.map((r) => {
+                  const conteudo = tooltipFor?.(r.key);
+                  if (!conteudo) {
+                    return (
+                      <TableRow key={r.key}>
+                        <TableCell className="font-medium">{r.key}</TableCell>
+                        <TableCell className="text-right font-semibold">{r.total}</TableCell>
+                      </TableRow>
+                    );
+                  }
+                  return (
+                    <InfoTooltip key={r.key}>
+                      <InfoTooltipTrigger asChild>
+                        <TableRow>
+                          <TableCell className="font-medium">{r.key}</TableCell>
+                          <TableCell className="text-right font-semibold">{r.total}</TableCell>
+                        </TableRow>
+                      </InfoTooltipTrigger>
+                      <InfoTooltipContent side="right" align="start" className="max-w-none">
+                        {conteudo}
+                      </InfoTooltipContent>
+                    </InfoTooltip>
+                  );
+                })
+              )}
+            </TableBody>
+            {rows.length > 0 && (
+              <TableFooter>
+                <TableRow>
+                  <TableCell>Total</TableCell>
+                  <TableCell className="text-right">{totalGeral}</TableCell>
+                </TableRow>
+              </TableFooter>
             )}
-          </TableBody>
-          {rows.length > 0 && (
-            <TableFooter>
-              <TableRow>
-                <TableCell>Total</TableCell>
-                <TableCell className="text-right">{totalGeral}</TableCell>
-              </TableRow>
-            </TableFooter>
-          )}
-        </Table>
+          </Table>
+        </InfoTooltipProvider>
       </CardContent>
     </Card>
   );
@@ -126,6 +154,33 @@ export default function DashboardPage() {
     () => groupSum(apontamentos, (a) => a.area_nome ?? "Sem área").sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
     [apontamentos]
   );
+
+  // Detalhe pro balão de cada encarregado: quebra por função (pedreiro/
+  // servente/carpinteiro/outros) e por atividade em que ele apareceu.
+  const detalheEncarregado = useMemo(() => {
+    const map = new Map<string, { pedreiro: number; servente: number; carpinteiro: number; qntdd_funcao: number; atividades: Map<string, number> }>();
+    for (const a of apontamentos) {
+      const k = a.lideranca_nome;
+      if (!map.has(k)) map.set(k, { pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, atividades: new Map() });
+      const g = map.get(k)!;
+      g.pedreiro += a.pedreiro; g.servente += a.servente; g.carpinteiro += a.carpinteiro; g.qntdd_funcao += a.qntdd_funcao;
+      g.atividades.set(a.atividade_nome, (g.atividades.get(a.atividade_nome) ?? 0) + a.total);
+    }
+    return map;
+  }, [apontamentos]);
+
+  // Detalhe pro balão de cada área: quais encarregados tiveram gente
+  // apontada ali e quantas pessoas cada um.
+  const detalheArea = useMemo(() => {
+    const map = new Map<string, Map<string, number>>();
+    for (const a of apontamentos) {
+      const k = a.area_nome ?? "Sem área";
+      if (!map.has(k)) map.set(k, new Map());
+      const g = map.get(k)!;
+      g.set(a.lideranca_nome, (g.get(a.lideranca_nome) ?? 0) + a.total);
+    }
+    return map;
+  }, [apontamentos]);
 
   const porFuncao = useMemo(() => {
     const items: { name: string; value: number }[] = [];
@@ -233,8 +288,48 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <ResumoTable titulo="Funcionários por Encarregado" coluna="Encarregado" rows={porEncarregado} />
-        <ResumoTable titulo="Funcionários por Área" coluna="Área" rows={porArea} />
+        <ResumoTable
+          titulo="Funcionários por Encarregado"
+          coluna="Encarregado"
+          rows={porEncarregado}
+          tooltipFor={(key) => {
+            const det = detalheEncarregado.get(key);
+            if (!det) return null;
+            const atividades = [...det.atividades.entries()].sort((a, b) => b[1] - a[1]);
+            return (
+              <div className="space-y-1.5">
+                <div>
+                  <p className="font-semibold">Por função</p>
+                  <p>Pedreiro {det.pedreiro} · Servente {det.servente} · Carpinteiro {det.carpinteiro} · Outros {det.qntdd_funcao}</p>
+                </div>
+                <div>
+                  <p className="font-semibold">Por atividade</p>
+                  <ul className="list-disc pl-4">
+                    {atividades.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
+                  </ul>
+                </div>
+              </div>
+            );
+          }}
+        />
+        <ResumoTable
+          titulo="Funcionários por Área"
+          coluna="Área"
+          rows={porArea}
+          tooltipFor={(key) => {
+            const det = detalheArea.get(key);
+            if (!det || det.size === 0) return null;
+            const encarregados = [...det.entries()].sort((a, b) => b[1] - a[1]);
+            return (
+              <div>
+                <p className="font-semibold">Encarregados</p>
+                <ul className="list-disc pl-4">
+                  {encarregados.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
+                </ul>
+              </div>
+            );
+          }}
+        />
       </div>
     </div>
   );
