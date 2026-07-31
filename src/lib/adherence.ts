@@ -6,6 +6,13 @@ import { getAreaNivel2 } from "./week-activities";
 
 export type ActivityStatus = "pendente" | "concluida" | "parcial" | "nao_concluida";
 
+export interface SubEtapa {
+  id: string;
+  activity_id: string;
+  nome: string;
+  concluida: boolean;
+}
+
 export interface ActivityLike {
   id: string;
   name: string;
@@ -25,6 +32,10 @@ export interface ActivityLike {
   areaPath?: string | null;
   /** UID da tarefa no cronograma de origem (WBSActivity.uid, como string) — só em atividades importadas via cronograma; null em extras manuais e em importações antigas feitas antes desse campo existir. */
   taskUid?: string | null;
+  /** Sub-etapas do dia (ex.: Armação/Concretagem/Bases de uma mesma atividade "Bypass") —
+   * quando existe pelo menos uma, o status da atividade é calculado a partir delas
+   * (ver computeStatusFromSubetapas em programacao-db.ts) em vez dos 3 botões manuais. */
+  subetapas?: SubEtapa[];
 }
 
 export interface WeekIndicators {

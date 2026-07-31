@@ -23,6 +23,7 @@ const SCurve = lazy(() => import('@/pages/SCurve'))
 const GanttChart = lazy(() => import('@/pages/GanttChart'))
 const ResourceHistogram = lazy(() => import('@/pages/ResourceHistogram'))
 const DailyProgramming = lazy(() => import('@/pages/DailyProgramming'))
+const ProgramacaoVisual = lazy(() => import('@/pages/ProgramacaoVisual'))
 const Occurrences = lazy(() => import('@/pages/Occurrences'))
 const LaborTracking = lazy(() => import('@/pages/LaborTracking'))
 const ProjectSelection = lazy(() => import('@/pages/ProjectSelection'))
@@ -184,6 +185,7 @@ function App() {
                       <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />
                       <Route path="resources" element={<RequireModulo modulo="engenharia"><ResourceHistogram /></RequireModulo>} />
                       <Route path="daily" element={<RequireModulo modulo="engenharia"><DailyProgramming /></RequireModulo>} />
+                      <Route path="daily/visual" element={<RequireModulo modulo="engenharia"><ProgramacaoVisual /></RequireModulo>} />
                       <Route path="occurrences" element={<RequireModulo modulo="engenharia"><Occurrences /></RequireModulo>} />
                       <Route path="labor" element={<RequireModulo modulo="engenharia"><LaborTracking /></RequireModulo>} />
                       <Route path="people" element={<RequireModulo modulo="engenharia"><ApontamentoDashboard /></RequireModulo>} />

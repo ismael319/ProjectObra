@@ -9,7 +9,7 @@ import {
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog, FileText,
-  Truck, Upload,
+  Truck, Upload, Image,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -45,6 +45,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
       children: [
         { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
         { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
+        { icon: Image, label: 'Programação Visual', path: '/dashboard/daily/visual' },
         { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
         { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
       ],

@@ -2,7 +2,7 @@
 // Adaptado do Weekly Craft Pro para usar Supabase client diretamente.
 
 import { supabase } from './supabase'
-import type { ActivityLike, ActivityStatus } from './adherence'
+import type { ActivityLike, ActivityStatus, SubEtapa } from './adherence'
 import { isoWeekFromParts, addDays, toISODateStr } from './iso-week'
 
 interface WeekRow {
@@ -91,6 +91,27 @@ async function ensureWeek(isoYear: number, isoWeek: number): Promise<WeekRow> {
   return data as WeekRow
 }
 
+// Busca as sub-etapas de um conjunto de atividades numa única query (evita N+1 —
+// getWeek/getActivitiesInDateRange já trazem várias dezenas de atividades de uma vez)
+// e devolve um Map pronto pra anexar em cada ActivityLike.
+async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<string, SubEtapa[]>> {
+  const map = new Map<string, SubEtapa[]>()
+  if (activityIds.length === 0) return map
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .select('id,activity_id,nome,concluida')
+    .in('activity_id', activityIds)
+  if (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return map
+    throw new Error(error.message)
+  }
+  for (const s of (data ?? []) as SubEtapa[]) {
+    if (!map.has(s.activity_id)) map.set(s.activity_id, [])
+    map.get(s.activity_id)!.push(s)
+  }
+  return map
+}
+
 // Buscar semana + atividades
 export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekData> {
   const week = await ensureWeek(isoYear, isoWeek)
@@ -110,6 +131,8 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     .maybeSingle()
 
   const partialWeight = setting && typeof setting.value === 'number' ? setting.value : 0.5
+
+  const subetapasPorAtividade = await fetchSubetapasByActivity((activities ?? []).map((a: ActivityRow) => a.id))
 
   // Atividades importadas (is_extra=false) ainda reaproveitam a coluna `area` pra
   // guardar a área (nível 2/3 da EDT) — sem coluna dedicada no banco. `company`
@@ -132,6 +155,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
+    subetapas: subetapasPorAtividade.get(a.id) ?? [],
   }))
 
   return { week, activities: mappedActivities, partialWeight }
@@ -152,6 +176,8 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
 
   if (error) throw new Error(error.message)
 
+  const subetapasPorAtividade = await fetchSubetapasByActivity((activities ?? []).map((a: ActivityRow) => a.id))
+
   return (activities ?? []).map((a: ActivityRow) => ({
     id: a.id,
     name: a.name,
@@ -168,6 +194,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
+    subetapas: subetapasPorAtividade.get(a.id) ?? [],
   }))
 }
 
@@ -203,6 +230,41 @@ export async function setActivityStatus(
 
   const { error } = await supabase.from('activities').update(patch).eq('id', activityId)
   if (error) throw new Error(error.message)
+}
+
+// ============ Sub-etapas de uma atividade do dia ============
+// Uma atividade (ex.: "Bypass") pode ser composta de frentes menores no mesmo
+// dia (Armação, Concretagem, Bases, Montagem); cada uma é marcada concluída
+// individualmente e o status da atividade passa a ser derivado delas — ver
+// computeStatusFromSubetapas.
+
+export async function addSubEtapa(activityId: string, nome: string): Promise<SubEtapa> {
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .insert({ activity_id: activityId, nome })
+    .select('id,activity_id,nome,concluida')
+    .single()
+  if (error) throw new Error(error.message)
+  return data as SubEtapa
+}
+
+export async function toggleSubEtapa(id: string, concluida: boolean): Promise<void> {
+  const { error } = await supabase.from('activity_subetapas').update({ concluida }).eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteSubEtapa(id: string): Promise<void> {
+  const { error } = await supabase.from('activity_subetapas').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+/** null = a atividade não tem sub-etapas (status continua manual, pelos 3 botões). */
+export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatus | null {
+  if (subetapas.length === 0) return null
+  const concluidas = subetapas.filter((s) => s.concluida).length
+  if (concluidas === subetapas.length) return 'concluida'
+  if (concluidas === 0) return 'nao_concluida'
+  return 'parcial'
 }
 
 // Deletar atividade

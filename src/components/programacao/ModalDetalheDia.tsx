@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle } from 'lucide-react'
-import { computeDelayDays, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
+import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks } from 'lucide-react'
+import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
+import { addSubEtapa, toggleSubEtapa, deleteSubEtapa, computeStatusFromSubetapas } from '@/lib/programacao-db'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -288,8 +289,54 @@ function ActivityRow({
   detail: WBSActivity | null
 }) {
   const [obs, setObs] = useState(activity.observation ?? '')
+  const [showSubetapas, setShowSubetapas] = useState(false)
+  const [novaSubetapa, setNovaSubetapa] = useState('')
+  const [savingSubetapa, setSavingSubetapa] = useState(false)
   const canDelete = !weekConsolidated || activity.is_extra
   const delayDays = detail ? computeDelayDays(detail) : 0
+  const subetapas = activity.subetapas ?? []
+  const temSubetapas = subetapas.length > 0
+
+  // Sub-etapas concluídas/não determinam o status da atividade automaticamente —
+  // sincroniza no banco (e via onSetStatus, o fetchData(false) do pai já traz a
+  // lista de sub-etapas atualizada de volta).
+  async function sincronizarStatus(lista: SubEtapa[]) {
+    const status = computeStatusFromSubetapas(lista)
+    if (status) await onSetStatus(activity.id, status, obs || null)
+  }
+
+  async function handleAddSubetapa() {
+    const nome = novaSubetapa.trim()
+    if (!nome) return
+    setSavingSubetapa(true)
+    try {
+      const nova = await addSubEtapa(activity.id, nome)
+      setNovaSubetapa('')
+      await sincronizarStatus([...subetapas, nova])
+    } finally {
+      setSavingSubetapa(false)
+    }
+  }
+
+  async function handleToggleSubetapa(sub: SubEtapa) {
+    setSavingSubetapa(true)
+    try {
+      await toggleSubEtapa(sub.id, !sub.concluida)
+      await sincronizarStatus(subetapas.map((s) => (s.id === sub.id ? { ...s, concluida: !sub.concluida } : s)))
+    } finally {
+      setSavingSubetapa(false)
+    }
+  }
+
+  async function handleDeleteSubetapa(sub: SubEtapa) {
+    setSavingSubetapa(true)
+    try {
+      await deleteSubEtapa(sub.id)
+      await sincronizarStatus(subetapas.filter((s) => s.id !== sub.id))
+    } finally {
+      setSavingSubetapa(false)
+    }
+  }
 
   return (
     <div className={`rounded-md border p-3 transition-colors ${cardColorClasses(activity)}`}>
@@ -335,6 +382,8 @@ function ActivityRow({
             tone="emerald"
             icon={<CheckCircle2 size={16} />}
             label="Concluída"
+            disabled={temSubetapas}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
             onClick={() => onSetStatus(activity.id, 'concluida', obs || null)}
           />
           <StatusButton
@@ -342,6 +391,8 @@ function ActivityRow({
             tone="amber"
             icon={<MinusCircle size={16} />}
             label="Parcial"
+            disabled={temSubetapas}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
             onClick={() => onSetStatus(activity.id, 'parcial', obs || null)}
           />
           <StatusButton
@@ -349,6 +400,8 @@ function ActivityRow({
             tone="red"
             icon={<XCircle size={16} />}
             label="Não concluída"
+            disabled={temSubetapas}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
             onClick={() => onSetStatus(activity.id, 'nao_concluida', obs || null)}
           />
           <button
@@ -360,6 +413,60 @@ function ActivityRow({
             <Trash2 size={14} />
           </button>
         </div>
+      </div>
+
+      <div className="mt-2">
+        <button
+          type="button"
+          onClick={() => setShowSubetapas((v) => !v)}
+          className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition"
+        >
+          {showSubetapas ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <ListChecks size={12} />
+          Sub-etapas{temSubetapas ? ` (${subetapas.filter((s) => s.concluida).length}/${subetapas.length})` : ''}
+        </button>
+        {showSubetapas && (
+          <div className="mt-1.5 space-y-1 pl-4 border-l-2 border-gray-100 dark:border-gray-700">
+            {subetapas.map((s) => (
+              <div key={s.id} className="flex items-center gap-2 text-xs">
+                <input
+                  type="checkbox"
+                  checked={s.concluida}
+                  disabled={savingSubetapa}
+                  onChange={() => handleToggleSubetapa(s)}
+                  className="w-3.5 h-3.5"
+                />
+                <span className={`flex-1 ${s.concluida ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-800 dark:text-gray-200'}`}>
+                  {s.nome}
+                </span>
+                <button
+                  onClick={() => handleDeleteSubetapa(s)}
+                  disabled={savingSubetapa}
+                  className="text-gray-300 hover:text-red-600 dark:text-gray-600 dark:hover:text-red-400 transition disabled:opacity-30"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            ))}
+            <div className="flex items-center gap-2 pt-0.5">
+              <input
+                value={novaSubetapa}
+                onChange={(e) => setNovaSubetapa(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddSubetapa() }}
+                placeholder="Nova sub-etapa..."
+                disabled={savingSubetapa}
+                className="flex-1 text-xs px-2 py-1 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleAddSubetapa}
+                disabled={savingSubetapa || !novaSubetapa.trim()}
+                className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 disabled:opacity-30 transition"
+              >
+                <Plus size={14} />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
       <textarea
         placeholder="Observações"
@@ -382,12 +489,16 @@ function StatusButton({
   icon,
   label,
   onClick,
+  disabled,
+  hint,
 }: {
   active: boolean
   tone: 'emerald' | 'amber' | 'red'
   icon: React.ReactNode
   label: string
   onClick: () => void
+  disabled?: boolean
+  hint?: string
 }) {
   const tones: Record<string, string> = {
     emerald: active ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : '',
@@ -400,13 +511,14 @@ function StatusButton({
         <button
           type="button"
           onClick={onClick}
-          className={`p-1.5 rounded-md transition hover:bg-gray-200 dark:hover:bg-gray-600 ${tones[tone]}`}
+          disabled={disabled}
+          className={`p-1.5 rounded-md transition hover:bg-gray-200 dark:hover:bg-gray-600 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent ${tones[tone]}`}
         >
           {icon}
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs">
-        <span className="font-semibold">{label}</span> — {STATUS_HINTS[label] ?? ''}
+        <span className="font-semibold">{label}</span> — {STATUS_HINTS[label] ?? ''}{hint}
       </TooltipContent>
     </Tooltip>
   )
