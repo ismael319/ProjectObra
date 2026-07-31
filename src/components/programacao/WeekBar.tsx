@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -21,6 +21,7 @@ interface Props {
   onImportActivities: () => void
   onClearWeek: () => void
   onManageEngenheiros: () => void
+  onExportSemanal: () => void
 }
 
 export default function WeekBar({
@@ -41,6 +42,7 @@ export default function WeekBar({
   onImportActivities,
   onClearWeek,
   onManageEngenheiros,
+  onExportSemanal,
 }: Props) {
   const start = parseISODateStr(startDate)
   const end = parseISODateStr(endDate)
@@ -188,6 +190,18 @@ export default function WeekBar({
                 <TooltipContent side="left" className="max-w-xs">Cadastra qual engenheiro responde por cada área do cronograma — sugerido automaticamente na 2ª etapa da importação.</TooltipContent>
               </Tooltip>
               <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => { setActionsOpen(false); onExportSemanal() }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                  >
+                    <Image size={14} className="text-blue-600" />
+                    Exportar Programação Semanal
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs">Gera uma imagem com a semana inteira por Engenheiro, pra compartilhar no WhatsApp.</TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

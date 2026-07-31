@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks, Image, Ban, RotateCcw } from 'lucide-react'
+import { toast } from 'sonner'
 import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
@@ -20,6 +21,10 @@ interface Props {
   activities: ActivityLike[]
   weekConsolidated: boolean
   onSetStatus: (id: string, status: ActivityStatus, observation: string | null) => Promise<void>
+  /** Inativa/reativa um item pra análise (ex.: não ficou claro por que não foi
+   * executado) — sai do PPC/aderência enquanto inativo. Funciona mesmo com a semana
+   * bloqueada, igual às sub-etapas. */
+  onSetInativa: (id: string, inativa: boolean, motivo: string | null) => Promise<void>
   onDelete: (id: string) => Promise<void>
   onAddExtra: (payload: {
     planned_date: string
@@ -32,6 +37,9 @@ interface Props {
   }) => Promise<void>
   onClearDay: () => void
   onAddFromCronograma: () => void
+  /** Abre o gerador de imagem (Fechamento/Programação) pro dia aberto — funciona
+   * mesmo com a semana bloqueada, é só um reflexo do que já está gravado. */
+  onExportarImagem: () => void
   /** Resolve a atividade importada pra sua WBSActivity de origem no cronograma (pra
    * mostrar atraso, % avanço atual e datas de início/término) — null quando a
    * atividade é extra manual ou foi importada antes desse vínculo existir. */
@@ -45,6 +53,9 @@ const EXTRAS_GROUP = '__extras__'
 // está pendente é que "extra" ganha uma cor própria (azul) pra se distinguir de uma
 // pendente comum (cinza neutro).
 function cardColorClasses(activity: ActivityLike): string {
+  if (activity.inativa) {
+    return 'border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-800/60 opacity-70'
+  }
   if (activity.status === 'concluida') {
     return 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/15'
   }
@@ -102,10 +113,12 @@ export default function ModalDetalheDia({
   activities,
   weekConsolidated,
   onSetStatus,
+  onSetInativa,
   onDelete,
   onAddExtra,
   onClearDay,
   onAddFromCronograma,
+  onExportarImagem,
   getActivityDetail,
 }: Props) {
   const [showExtra, setShowExtra] = useState(false)
@@ -153,6 +166,15 @@ export default function ModalDetalheDia({
             )}
           </div>
           <div className="flex items-center gap-1 shrink-0">
+            {activities.length > 0 && (
+              <button
+                onClick={onExportarImagem}
+                title="Gerar imagem do dia (Fechamento/Programação) pra compartilhar"
+                className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition"
+              >
+                <Image size={13} /> Gerar imagem
+              </button>
+            )}
             {activities.length > 0 && (
               <button
                 onClick={onClearDay}
@@ -226,6 +248,7 @@ export default function ModalDetalheDia({
                               activity={a}
                               weekConsolidated={weekConsolidated}
                               onSetStatus={onSetStatus}
+                              onSetInativa={onSetInativa}
                               onDelete={onDelete}
                               detail={getActivityDetail(a)}
                             />
@@ -279,12 +302,14 @@ function ActivityRow({
   activity,
   weekConsolidated,
   onSetStatus,
+  onSetInativa,
   onDelete,
   detail,
 }: {
   activity: ActivityLike
   weekConsolidated: boolean
   onSetStatus: Props['onSetStatus']
+  onSetInativa: Props['onSetInativa']
   onDelete: Props['onDelete']
   detail: WBSActivity | null
 }) {
@@ -292,10 +317,35 @@ function ActivityRow({
   const [showSubetapas, setShowSubetapas] = useState(false)
   const [novaSubetapa, setNovaSubetapa] = useState('')
   const [savingSubetapa, setSavingSubetapa] = useState(false)
+  const [showInativarForm, setShowInativarForm] = useState(false)
+  const [motivoInativar, setMotivoInativar] = useState('')
+  const [savingInativa, setSavingInativa] = useState(false)
   const canDelete = !weekConsolidated || activity.is_extra
   const delayDays = detail ? computeDelayDays(detail) : 0
   const subetapas = activity.subetapas ?? []
   const temSubetapas = subetapas.length > 0
+
+  async function handleInativar() {
+    const motivo = motivoInativar.trim()
+    if (!motivo) return
+    setSavingInativa(true)
+    try {
+      await onSetInativa(activity.id, true, motivo)
+      setShowInativarForm(false)
+      setMotivoInativar('')
+    } finally {
+      setSavingInativa(false)
+    }
+  }
+
+  async function handleReativar() {
+    setSavingInativa(true)
+    try {
+      await onSetInativa(activity.id, false, null)
+    } finally {
+      setSavingInativa(false)
+    }
+  }
 
   // Sub-etapas concluídas/não determinam o status da atividade automaticamente —
   // sincroniza no banco (e via onSetStatus, o fetchData(false) do pai já traz a
@@ -313,6 +363,8 @@ function ActivityRow({
       const nova = await addSubEtapa(activity.id, nome)
       setNovaSubetapa('')
       await sincronizarStatus([...subetapas, nova])
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao adicionar sub-etapa')
     } finally {
       setSavingSubetapa(false)
     }
@@ -323,6 +375,8 @@ function ActivityRow({
     try {
       await toggleSubEtapa(sub.id, !sub.concluida)
       await sincronizarStatus(subetapas.map((s) => (s.id === sub.id ? { ...s, concluida: !sub.concluida } : s)))
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao marcar sub-etapa')
     } finally {
       setSavingSubetapa(false)
     }
@@ -333,6 +387,8 @@ function ActivityRow({
     try {
       await deleteSubEtapa(sub.id)
       await sincronizarStatus(subetapas.filter((s) => s.id !== sub.id))
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao remover sub-etapa')
     } finally {
       setSavingSubetapa(false)
     }
@@ -349,9 +405,19 @@ function ActivityRow({
                 Extra
               </span>
             )}
+            {activity.inativa && (
+              <span className="flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-semibold bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 rounded">
+                <Ban size={10} /> Inativa
+              </span>
+            )}
           </div>
           {activity.areaPath && (
             <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{activity.areaPath}</p>
+          )}
+          {activity.inativa && activity.motivoInativacao && (
+            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+              <span className="font-medium">Motivo:</span> {activity.motivoInativacao}
+            </p>
           )}
           <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
             {activity.stage && <span>EDT: {activity.stage}</span>}
@@ -404,6 +470,25 @@ function ActivityRow({
             hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
             onClick={() => onSetStatus(activity.id, 'nao_concluida', obs || null)}
           />
+          {activity.inativa ? (
+            <button
+              disabled={savingInativa}
+              onClick={handleReativar}
+              title="Reativar — volta a contar no PPC/aderência"
+              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-30 text-gray-500 dark:text-gray-400"
+            >
+              <RotateCcw size={14} />
+            </button>
+          ) : (
+            <button
+              disabled={savingInativa}
+              onClick={() => setShowInativarForm((v) => !v)}
+              title="Inativar — tira do PPC/aderência pra analisar o motivo de não ter sido executada"
+              className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-30 text-gray-500 dark:text-gray-400"
+            >
+              <Ban size={14} />
+            </button>
+          )}
           <button
             disabled={!canDelete}
             onClick={() => onDelete(activity.id)}
@@ -414,6 +499,35 @@ function ActivityRow({
           </button>
         </div>
       </div>
+
+      {showInativarForm && !activity.inativa && (
+        <div className="mt-2 rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-2">
+          <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">
+            Motivo (por que ainda não foi executada?)
+          </label>
+          <textarea
+            value={motivoInativar}
+            onChange={(e) => setMotivoInativar(e.target.value)}
+            autoFocus
+            className="mt-1 w-full min-h-[52px] text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <div className="mt-1.5 flex justify-end gap-2">
+            <button
+              onClick={() => { setShowInativarForm(false); setMotivoInativar('') }}
+              className="px-2.5 py-1 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleInativar}
+              disabled={savingInativa || !motivoInativar.trim()}
+              className="px-2.5 py-1 text-xs font-medium bg-gray-600 text-white rounded hover:bg-gray-700 transition disabled:opacity-40"
+            >
+              Inativar
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="mt-2">
         <button

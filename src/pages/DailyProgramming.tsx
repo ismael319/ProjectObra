@@ -10,6 +10,7 @@ import {
   lockWeek,
   unlockWeek,
   setActivityStatus,
+  setActivityInativa,
   deleteActivity,
   addExtraActivity,
   mergeExcel,
@@ -26,6 +27,7 @@ import CardDia from '@/components/programacao/CardDia'
 import ModalDetalheDia from '@/components/programacao/ModalDetalheDia'
 import ModalImportarAtividades from '@/components/programacao/ModalImportarAtividades'
 import ModalEngenheirosArea from '@/components/programacao/ModalEngenheirosArea'
+import ModalExportarImagem, { type AlvoExportacao } from '@/components/programacao/ModalExportarImagem'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -53,6 +55,8 @@ export default function DailyProgramming() {
   const [showEngenheirosArea, setShowEngenheirosArea] = useState(false)
   const [engenheirosPorArea, setEngenheirosPorArea] = useState<Map<string, string>>(new Map())
   const [areaIdPorArea, setAreaIdPorArea] = useState<Map<string, string>>(new Map())
+  const [showExportar, setShowExportar] = useState(false)
+  const [alvoExportacao, setAlvoExportacao] = useState<AlvoExportacao | null>(null)
 
   // showLoading=false evita o spinner de página inteira (que some com o modal aberto)
   // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
@@ -217,6 +221,18 @@ export default function DailyProgramming() {
     }
   }
 
+  const handleExportarDia = (date: string) => {
+    setOpenDate(null)
+    setAlvoExportacao({ tipo: 'dia', data: date })
+    setShowExportar(true)
+  }
+
+  const handleExportarSemana = () => {
+    if (days.length === 0) return
+    setAlvoExportacao({ tipo: 'semana', weekDays: days })
+    setShowExportar(true)
+  }
+
   const goto = (y: number, w: number) => {
     setIsoYear(y)
     setIsoWeek(w)
@@ -335,6 +351,17 @@ export default function DailyProgramming() {
     }
   }
 
+  const handleSetInativa = async (id: string, inativa: boolean, motivo: string | null) => {
+    try {
+      await setActivityInativa(id, inativa, motivo)
+      toast.success(inativa ? 'Atividade inativada' : 'Atividade reativada')
+      fetchData(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao inativar a atividade'
+      toast.error(msg)
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
       await deleteActivity(id)
@@ -405,6 +432,7 @@ export default function DailyProgramming() {
         onImportActivities={handleSearchWeekActivities}
         onClearWeek={handleClearWeek}
         onManageEngenheiros={() => setShowEngenheirosArea(true)}
+        onExportSemanal={handleExportarSemana}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
@@ -432,10 +460,12 @@ export default function DailyProgramming() {
         activities={openDate ? (activitiesByDate.get(openDate) ?? []) : []}
         weekConsolidated={weekData.week.status === 'consolidado'}
         onSetStatus={handleSetStatus}
+        onSetInativa={handleSetInativa}
         onDelete={handleDelete}
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
+        onExportarImagem={() => openDate && handleExportarDia(openDate)}
         getActivityDetail={getActivityDetail}
       />
 
@@ -470,6 +500,12 @@ export default function DailyProgramming() {
         onOpenChange={setShowEngenheirosArea}
         projetoId={currentProject?.id ?? null}
         areasDoCronograma={areasDoCronograma}
+      />
+
+      <ModalExportarImagem
+        open={showExportar}
+        onOpenChange={setShowExportar}
+        alvo={alvoExportacao}
       />
     </div>
     </TooltipProvider>

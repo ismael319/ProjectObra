@@ -36,6 +36,12 @@ export interface ActivityLike {
    * quando existe pelo menos uma, o status da atividade é calculado a partir delas
    * (ver computeStatusFromSubetapas em programacao-db.ts) em vez dos 3 botões manuais. */
   subetapas?: SubEtapa[];
+  /** Marcada quando o item precisa ficar de lado pra análise (ex.: não fica claro por
+   * que não foi executado) — sai do cálculo de PPC/aderência (computeIndicators,
+   * computeSegment) e dos relatórios visuais enquanto estiver assim, mas continua
+   * visível na tela do dia pra ser revisada. */
+  inativa?: boolean;
+  motivoInativacao?: string | null;
 }
 
 export interface WeekIndicators {
@@ -65,14 +71,17 @@ export function computeIndicators(
   activities: ActivityLike[],
   partialWeight = 0.5,
 ): WeekIndicators {
-  const planned = activities.filter((a) => !a.is_extra);
-  const total = activities.length;
+  // Itens inativados (em análise) saem do cálculo inteiro — nem contam a favor nem
+  // contra o PPC/aderência enquanto isso não for resolvido.
+  const ativas = activities.filter((a) => !a.inativa);
+  const planned = ativas.filter((a) => !a.is_extra);
+  const total = ativas.length;
   const extras = total - planned.length;
   const denom = planned.length || 0;
-  const concluidas = activities.filter((a) => a.status === "concluida").length;
-  const parciais = activities.filter((a) => a.status === "parcial").length;
-  const naoConcluidas = activities.filter((a) => a.status === "nao_concluida").length;
-  const pendentes = activities.filter((a) => a.status === "pendente").length;
+  const concluidas = ativas.filter((a) => a.status === "concluida").length;
+  const parciais = ativas.filter((a) => a.status === "parcial").length;
+  const naoConcluidas = ativas.filter((a) => a.status === "nao_concluida").length;
+  const pendentes = ativas.filter((a) => a.status === "pendente").length;
   const weighted = planned.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
   return {
     total,
@@ -106,7 +115,7 @@ export function computeSegment(
   partialWeight = 0.5,
 ): SegmentRow[] {
   const groups = new Map<string, ActivityLike[]>();
-  for (const a of activities) {
+  for (const a of activities.filter((x) => !x.inativa)) {
     // Em atividades importadas (is_extra=false), `area` fica sempre null de propósito
     // (ver getWeek em programacao-db.ts) — o texto de verdade vem do nível 2 da EDT,
     // guardado em `areaPath`. Sem isso, "Aderência por Área" ficava sempre "(sem

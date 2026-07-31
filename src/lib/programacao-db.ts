@@ -33,6 +33,8 @@ interface ActivityRow {
   is_extra: boolean
   observation: string | null
   actual_productivity: string | null
+  inativa: boolean
+  motivo_inativacao: string | null
   created_at: string
   updated_at: string
 }
@@ -97,17 +99,23 @@ async function ensureWeek(isoYear: number, isoWeek: number): Promise<WeekRow> {
 async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<string, SubEtapa[]>> {
   const map = new Map<string, SubEtapa[]>()
   if (activityIds.length === 0) return map
-  const { data, error } = await supabase
-    .from('activity_subetapas')
-    .select('id,activity_id,nome,concluida')
-    .in('activity_id', activityIds)
-  if (error) {
-    if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return map
-    throw new Error(error.message)
-  }
-  for (const s of (data ?? []) as SubEtapa[]) {
-    if (!map.has(s.activity_id)) map.set(s.activity_id, [])
-    map.get(s.activity_id)!.push(s)
+  // Em lotes de 200 — uma semana inteira pode ter milhares de atividades, e um único
+  // filtro `in.(...)` com todos os ids de uma vez estoura o limite de tamanho da URL.
+  const CHUNK = 200
+  for (let i = 0; i < activityIds.length; i += CHUNK) {
+    const lote = activityIds.slice(i, i + CHUNK)
+    const { data, error } = await supabase
+      .from('activity_subetapas')
+      .select('id,activity_id,nome,concluida')
+      .in('activity_id', lote)
+    if (error) {
+      if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return map
+      throw new Error(error.message)
+    }
+    for (const s of (data ?? []) as SubEtapa[]) {
+      if (!map.has(s.activity_id)) map.set(s.activity_id, [])
+      map.get(s.activity_id)!.push(s)
+    }
   }
   return map
 }
@@ -116,13 +124,22 @@ async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<stri
 export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekData> {
   const week = await ensureWeek(isoYear, isoWeek)
 
-  const { data: activities, error } = await supabase
-    .from('activities')
-    .select('*')
-    .eq('week_id', week.id)
-    .order('planned_date', { ascending: true })
+  // Paginado pelo mesmo motivo de getActivitiesInDateRange: sem isso, o Supabase corta
+  // na página default (1000 linhas), o que uma semana cheia de atividades pode passar.
+  const PAGE_SIZE = 1000
+  const activities: ActivityRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('week_id', week.id)
+      .order('planned_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
 
-  if (error) throw new Error(error.message)
+    if (error) throw new Error(error.message)
+    activities.push(...((data ?? []) as ActivityRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
 
   const { data: setting } = await supabase
     .from('app_settings')
@@ -132,7 +149,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
 
   const partialWeight = setting && typeof setting.value === 'number' ? setting.value : 0.5
 
-  const subetapasPorAtividade = await fetchSubetapasByActivity((activities ?? []).map((a: ActivityRow) => a.id))
+  const subetapasPorAtividade = await fetchSubetapasByActivity(activities.map((a) => a.id))
 
   // Atividades importadas (is_extra=false) ainda reaproveitam a coluna `area` pra
   // guardar a área (nível 2/3 da EDT) — sem coluna dedicada no banco. `company`
@@ -156,6 +173,8 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
+    inativa: a.inativa,
+    motivoInativacao: a.motivo_inativacao,
   }))
 
   return { week, activities: mappedActivities, partialWeight }
@@ -167,16 +186,27 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
 // denominador), só muda a query pra filtrar por intervalo de planned_date em vez de
 // week_id.
 export async function getActivitiesInDateRange(startDate: string, endDate: string): Promise<ActivityLike[]> {
-  const { data: activities, error } = await supabase
-    .from('activities')
-    .select('*')
-    .gte('planned_date', startDate)
-    .lte('planned_date', endDate)
-    .order('planned_date', { ascending: true })
+  // Sem paginar, o Supabase corta na página default (1000 linhas) — um intervalo de 7
+  // dias com várias dezenas de tarefas por dia passa disso fácil (cada tarefa gera 1
+  // linha por dia sobreposto). Sem isso, a Programação Semanal só trazia as primeiras
+  // ~1000 linhas (na prática, só o primeiro engenheiro em ordem de inserção).
+  const PAGE_SIZE = 1000
+  const activities: ActivityRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .gte('planned_date', startDate)
+      .lte('planned_date', endDate)
+      .order('planned_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
 
-  if (error) throw new Error(error.message)
+    if (error) throw new Error(error.message)
+    activities.push(...((data ?? []) as ActivityRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
 
-  const subetapasPorAtividade = await fetchSubetapasByActivity((activities ?? []).map((a: ActivityRow) => a.id))
+  const subetapasPorAtividade = await fetchSubetapasByActivity(activities.map((a) => a.id))
 
   return (activities ?? []).map((a: ActivityRow) => ({
     id: a.id,
@@ -195,6 +225,8 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
+    inativa: a.inativa,
+    motivoInativacao: a.motivo_inativacao,
   }))
 }
 
@@ -232,6 +264,18 @@ export async function setActivityStatus(
   if (error) throw new Error(error.message)
 }
 
+// Inativar/reativar atividade — item colocado de lado pra análise (ex.: não fica
+// claro por que não foi executado); sai do PPC/aderência enquanto estiver inativo
+// (ver computeIndicators/computeSegment e buildRelatorioVisual/buildMatrizSemanal).
+// Funciona mesmo com a semana bloqueada, igual às sub-etapas.
+export async function setActivityInativa(activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('activities')
+    .update({ inativa, motivo_inativacao: inativa ? motivo : null })
+    .eq('id', activityId)
+  if (error) throw new Error(error.message)
+}
+
 // ============ Sub-etapas de uma atividade do dia ============
 // Uma atividade (ex.: "Bypass") pode ser composta de frentes menores no mesmo
 // dia (Armação, Concretagem, Bases, Montagem); cada uma é marcada concluída
@@ -258,13 +302,18 @@ export async function deleteSubEtapa(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-/** null = a atividade não tem sub-etapas (status continua manual, pelos 3 botões). */
+/**
+ * null = a atividade não tem sub-etapas (status continua manual, pelos 3 botões).
+ * Regra por proporção concluída: todas -> concluída; metade ou mais (mas não todas)
+ * -> parcial; menos da metade (mais da metade NÃO realizadas) -> não concluída.
+ */
 export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatus | null {
   if (subetapas.length === 0) return null
   const concluidas = subetapas.filter((s) => s.concluida).length
-  if (concluidas === subetapas.length) return 'concluida'
-  if (concluidas === 0) return 'nao_concluida'
-  return 'parcial'
+  const proporcao = concluidas / subetapas.length
+  if (proporcao === 1) return 'concluida'
+  if (proporcao >= 0.5) return 'parcial'
+  return 'nao_concluida'
 }
 
 // Deletar atividade
