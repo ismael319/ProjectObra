@@ -2,6 +2,7 @@
 // Adaptado do Weekly Craft Pro.
 
 import type { WBSActivity } from "./xml-parser";
+import { getAreaNivel2 } from "./week-activities";
 
 export type ActivityStatus = "pendente" | "concluida" | "parcial" | "nao_concluida";
 
@@ -95,7 +96,12 @@ export function computeSegment(
 ): SegmentRow[] {
   const groups = new Map<string, ActivityLike[]>();
   for (const a of activities) {
-    const key = (a[field] ?? "(sem valor)").toString().trim() || "(sem valor)";
+    // Em atividades importadas (is_extra=false), `area` fica sempre null de propósito
+    // (ver getWeek em programacao-db.ts) — o texto de verdade vem do nível 2 da EDT,
+    // guardado em `areaPath`. Sem isso, "Aderência por Área" ficava sempre "(sem
+    // valor)" pra tudo que veio do cronograma.
+    const raw = field === "area" && !a.is_extra && a.areaPath ? getAreaNivel2(a.areaPath) : a[field];
+    const key = (raw ?? "(sem valor)").toString().trim() || "(sem valor)";
     const arr = groups.get(key) ?? [];
     arr.push(a);
     groups.set(key, arr);

@@ -117,11 +117,23 @@ export default function SCurve() {
   const cronogramas = useMemo(() => currentProject?.cronogramas || [], [currentProject])
   const activeCronogramas = useMemo(() => cronogramas.filter((c) => c.ativo), [cronogramas])
 
-  useMemo(() => {
-    if (selectedCronogramas.length === 0 && activeCronogramas.length > 0) {
-      setSelectedCronogramas(activeCronogramas.map((c) => c.id))
-    }
-  }, [activeCronogramas, selectedCronogramas.length])
+  // Reconcilia a seleção salva no localStorage (chave global, não por
+  // projeto) com os cronogramas ativos de verdade: remove ids de
+  // cronogramas arquivados/excluídos ou de outro projeto, que senão ficam
+  // acumulando pra sempre e inflam a contagem "(N/M)" acima do total real.
+  // Se nada válido sobrar, volta a selecionar todos os ativos.
+  useEffect(() => {
+    if (activeCronogramas.length === 0) return
+    const validIds = new Set(activeCronogramas.map((c) => c.id))
+    setSelectedCronogramas((prev) => {
+      const pruned = prev.filter((id) => validIds.has(id))
+      const next = pruned.length > 0 ? pruned : activeCronogramas.map((c) => c.id)
+      const changed = next.length !== prev.length || next.some((id, i) => id !== prev[i])
+      if (!changed) return prev
+      localStorage.setItem(CRONSEL_KEY, JSON.stringify(next))
+      return next
+    })
+  }, [activeCronogramas])
 
   const toggleCronograma = useCallback((id: string) => {
     setSelectedCronogramas((prev) => {

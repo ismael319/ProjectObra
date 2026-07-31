@@ -22,6 +22,7 @@ interface ActivityRow {
   task_uid: string | null
   name: string
   company: string | null
+  source_cronograma: string | null
   discipline: string | null
   area: string | null
   stage: string | null
@@ -110,17 +111,15 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
 
   const partialWeight = setting && typeof setting.value === 'number' ? setting.value : 0.5
 
-  // Atividades importadas (is_extra=false) reaproveitam as colunas company/area pra
-  // guardar o nome do cronograma de origem e a área (nível 2/3 da EDT) — não existe
-  // coluna dedicada pra isso no banco, e criar uma exigiria migração. Como só
-  // extras manuais preenchem company/area "de verdade", a leitura abaixo separa os
-  // dois sentidos: pra atividade importada, company/area viram source/areaPath (uso
-  // interno) e ficam null nos campos originais (evita mostrar "Empresa: <cronograma>"
-  // na tela).
+  // Atividades importadas (is_extra=false) ainda reaproveitam a coluna `area` pra
+  // guardar a área (nível 2/3 da EDT) — sem coluna dedicada no banco. `company`
+  // (Empresa) já é um campo "de verdade" tanto pra extras quanto pra importadas
+  // (coletado na 2ª etapa da importação); o cronograma de origem tem coluna
+  // própria (source_cronograma), ver programacao-empresa-migration.sql.
   const mappedActivities: ActivityLike[] = (activities ?? []).map((a: ActivityRow) => ({
     id: a.id,
     name: a.name,
-    company: a.is_extra ? a.company : null,
+    company: a.company,
     discipline: a.discipline,
     area: a.is_extra ? a.area : null,
     stage: a.stage,
@@ -130,7 +129,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.is_extra ? undefined : (a.company ?? undefined),
+    source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
   }))
@@ -156,7 +155,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
   return (activities ?? []).map((a: ActivityRow) => ({
     id: a.id,
     name: a.name,
-    company: a.is_extra ? a.company : null,
+    company: a.company,
     discipline: a.discipline,
     area: a.is_extra ? a.area : null,
     stage: a.stage,
@@ -166,7 +165,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.is_extra ? undefined : (a.company ?? undefined),
+    source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
     areaPath: a.is_extra ? null : a.area,
     taskUid: a.task_uid,
   }))
@@ -237,6 +236,9 @@ export interface NewActivityPayload {
   isExtra?: boolean
   sourceCronograma?: string | null
   areaPath?: string | null
+  /** Área "de verdade" do cadastro Setor→Área→Etapa (setores/areas/subareas) —
+   * vinculada manualmente em "Engenheiros por Área", não é criada automaticamente. */
+  areaId?: string | null
   /** WBSActivity.uid da tarefa de origem no cronograma — permite depois buscar
    * atraso/% avanço/datas ao vivo do cronograma. Só faz sentido quando isExtra=false. */
   taskUid?: number | null
@@ -262,12 +264,15 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
       name: payload.name,
       planned_date: payload.planned_date,
       is_extra: isExtra,
-      // Atividade importada (isExtra=false): reaproveita company/area pra guardar o
-      // cronograma de origem e a área (nível 2/3) — sem coluna dedicada no banco (ver
-      // comentário em getWeek). Extra manual: usa os campos como o usuário digitou.
-      company: isExtra ? (payload.company ?? null) : (payload.sourceCronograma ?? null),
+      // Empresa é um campo "de verdade" nos dois casos (extra ou importada — nesse
+      // último caso, coletada na 2ª etapa do modal de importação). O cronograma de
+      // origem tem coluna própria (source_cronograma); `area` ainda reaproveita a
+      // área da EDT (nível 2/3) só nas importadas, sem coluna dedicada no banco.
+      company: payload.company ?? null,
+      source_cronograma: !isExtra ? (payload.sourceCronograma ?? null) : null,
       discipline: payload.discipline ?? null,
       area: isExtra ? (payload.area ?? null) : (payload.areaPath ?? null),
+      area_id: payload.areaId ?? null,
       stage: payload.stage ?? null,
       foreman: payload.foreman ?? null,
       observation: payload.observation ?? null,
@@ -332,4 +337,46 @@ export async function mergeExcel(
   }
 
   return { updated }
+}
+
+// ============ Engenheiro responsável por Área (nível 2 da EDT) ============
+// Cadastrado 1x por projeto — evita digitar o Engenheiro atividade por atividade
+// toda semana na importação (ver ModalEngenheirosArea/ModalImportarAtividades).
+
+export interface EngenheiroArea {
+  id: string
+  projeto_id: string
+  area_nome: string
+  engenheiro: string | null
+  /** Área "de verdade" do cadastro Setor→Área→Etapa vinculada a essa área do
+   * cronograma — escolhida manualmente, nunca criada sozinha (ver ModalEngenheirosArea). */
+  area_id: string | null
+}
+
+export async function listEngenheirosArea(projetoId: string): Promise<EngenheiroArea[]> {
+  const { data, error } = await supabase
+    .from('programacao_engenheiros_area')
+    .select('id,projeto_id,area_nome,engenheiro,area_id')
+    .eq('projeto_id', projetoId)
+  if (error) throw new Error(error.message)
+  return data as EngenheiroArea[]
+}
+
+export async function upsertEngenheiroArea(projetoId: string, areaNome: string, engenheiro: string): Promise<void> {
+  const { error } = await supabase
+    .from('programacao_engenheiros_area')
+    .upsert({ projeto_id: projetoId, area_nome: areaNome, engenheiro }, { onConflict: 'projeto_id,area_nome' })
+  if (error) throw new Error(error.message)
+}
+
+export async function upsertAreaVinculada(projetoId: string, areaNome: string, areaId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('programacao_engenheiros_area')
+    .upsert({ projeto_id: projetoId, area_nome: areaNome, area_id: areaId }, { onConflict: 'projeto_id,area_nome' })
+  if (error) throw new Error(error.message)
+}
+
+export async function deleteEngenheiroArea(id: string): Promise<void> {
+  const { error } = await supabase.from('programacao_engenheiros_area').delete().eq('id', id)
+  if (error) throw new Error(error.message)
 }

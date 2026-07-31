@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle } from 'lucide-react'
 import { computeDelayDays, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
+import { getAreaNivel2 } from '@/lib/week-activities'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -56,6 +57,32 @@ function cardColorClasses(activity: ActivityLike): string {
     return 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/15'
   }
   return 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750'
+}
+
+const SEM_AREA = 'Sem área'
+
+// Sub-agrupa as atividades de um cronograma por Área (nível 2 da EDT) — sem isso,
+// um dia com muitas atividades (várias dezenas) fica uma lista única fora de
+// ordem, misturando áreas bem diferentes da planta uma atrás da outra.
+function groupByArea(activities: ActivityLike[]): [string, ActivityLike[]][] {
+  const map = new Map<string, ActivityLike[]>()
+  for (const a of activities) {
+    const key = a.areaPath ? getAreaNivel2(a.areaPath) || SEM_AREA : SEM_AREA
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(a)
+  }
+  // Dentro de cada área, ordena por nível 3 da EDT (areaPath completo) + nome — junta
+  // atividades da mesma etapa (ex.: "COBERTURA") uma perto da outra, em vez de ordem
+  // de importação/id.
+  for (const acts of map.values()) {
+    acts.sort((x, y) => `${x.areaPath ?? ''}${x.name}`.localeCompare(`${y.areaPath ?? ''}${y.name}`, 'pt-BR'))
+  }
+
+  return Array.from(map.entries()).sort(([a], [b]) => {
+    if (a === SEM_AREA) return 1
+    if (b === SEM_AREA) return -1
+    return a.localeCompare(b, 'pt-BR')
+  })
 }
 
 function statusCounts(activities: ActivityLike[]) {
@@ -179,17 +206,32 @@ export default function ModalDetalheDia({
                   </div>
                 </button>
                 {!isCollapsed && (
-                  <div className="p-2 space-y-2 bg-white dark:bg-gray-800">
-                    {groupActivities.map((a) => (
-                      <ActivityRow
-                        key={a.id}
-                        activity={a}
-                        weekConsolidated={weekConsolidated}
-                        onSetStatus={onSetStatus}
-                        onDelete={onDelete}
-                        detail={getActivityDetail(a)}
-                      />
-                    ))}
+                  <div className="p-2 space-y-3 bg-white dark:bg-gray-800">
+                    {(() => {
+                      const areaGroups = groupByArea(groupActivities)
+                      // Só mostra o subtítulo de Área quando há mais de uma no cronograma —
+                      // com uma só (ou nenhuma, caso das extras) o rótulo seria redundante.
+                      const mostrarAreas = areaGroups.length > 1
+                      return areaGroups.map(([areaNome, areaActivities]) => (
+                        <div key={areaNome} className="space-y-2">
+                          {mostrarAreas && (
+                            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 px-1">
+                              {areaNome} <span className="font-normal normal-case">· {areaActivities.length}</span>
+                            </p>
+                          )}
+                          {areaActivities.map((a) => (
+                            <ActivityRow
+                              key={a.id}
+                              activity={a}
+                              weekConsolidated={weekConsolidated}
+                              onSetStatus={onSetStatus}
+                              onDelete={onDelete}
+                              detail={getActivityDetail(a)}
+                            />
+                          ))}
+                        </div>
+                      ))
+                    })()}
                   </div>
                 )}
               </div>
@@ -268,7 +310,7 @@ function ActivityRow({
             {activity.stage && <span>EDT: {activity.stage}</span>}
             {activity.discipline && <span>Disciplina: {activity.discipline}</span>}
             {activity.area && <span>Área: {activity.area}</span>}
-            {activity.foreman && <span>Encarregado: {activity.foreman}</span>}
+            {activity.foreman && <span>Engenheiro: {activity.foreman}</span>}
             {activity.company && <span>Empresa: {activity.company}</span>}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
@@ -405,7 +447,7 @@ function ExtraForm({
         <Field label="Disciplina" value={f.discipline} onChange={(v) => setF({ ...f, discipline: v })} />
         <Field label="Área" value={f.area} onChange={(v) => setF({ ...f, area: v })} />
         <Field label="Etapa" value={f.stage} onChange={(v) => setF({ ...f, stage: v })} />
-        <Field label="Encarregado" value={f.foreman} onChange={(v) => setF({ ...f, foreman: v })} />
+        <Field label="Engenheiro" value={f.foreman} onChange={(v) => setF({ ...f, foreman: v })} />
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition">

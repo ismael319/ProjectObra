@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { addActivitiesBulk } from '@/lib/programacao-db'
-import type { WeekActivity } from '@/lib/week-activities'
+import { getAreaNivel2, type WeekActivity } from '@/lib/week-activities'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -25,6 +25,13 @@ interface Props {
   sources: ImportSource[]
   weekId: string
   weekDays: string[]
+  /** Engenheiro sugerido por área (nível 2 da EDT), cadastrado em "Engenheiros por
+   * Área" (menu Ações) — aplicado direto na importação, sem confirmação por
+   * atividade; fica em branco quando a área não tem engenheiro cadastrado. */
+  engenheirosPorArea: Map<string, string>
+  /** Área "de verdade" (Setor→Área→Etapa) vinculada a cada área do cronograma, no
+   * mesmo cadastro "Engenheiros por Área" — grava area_id na atividade importada. */
+  areaIdPorArea: Map<string, string>
   onImported: () => void
 }
 
@@ -64,6 +71,8 @@ export default function ModalImportarAtividades({
   sources,
   weekId,
   weekDays,
+  engenheirosPorArea,
+  areaIdPorArea,
   onImported,
 }: Props) {
   const [expandedCronogramas, setExpandedCronogramas] = useState<Set<string>>(new Set())
@@ -148,14 +157,15 @@ export default function ModalImportarAtividades({
     setImporting(true)
     try {
       const rows = toImport.flatMap((a) =>
-        getOverlappingDays(a, weekDays).map((d) => ({
+        getOverlappingDays(a, weekDays).map((date) => ({
           weekId,
-          planned_date: d,
+          planned_date: date,
           name: a.taskName,
           discipline: a.discipline || null,
           area: a.area || null,
-          stage: a.wbs,
-          foreman: a.responsible || null,
+          stage: null,
+          foreman: engenheirosPorArea.get(getAreaNivel2(a.areaPath)) || null,
+          areaId: areaIdPorArea.get(getAreaNivel2(a.areaPath)) || null,
           isExtra: false,
           sourceCronograma: a.cronogramaNome,
           areaPath: a.areaPath || null,

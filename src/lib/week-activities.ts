@@ -93,3 +93,29 @@ export function findActivitiesWithWorkInWeek(
   return results
 }
 
+/** Nome do nível 2 da EDT de uma atividade (ex.: "CASA DE MÁQUINAS") — mesma definição
+ * de "área" usada em `areaPath` acima, só que sem o nível 3 junto. Usado pra sugerir o
+ * Engenheiro responsável (cadastrado por área) na 2ª etapa da importação. */
+export function getAreaNivel2(areaPath: string): string {
+  return areaPath.split(' / ')[0] ?? ''
+}
+
+/** Lista, sem repetição, os nomes de nível 2 da EDT de todos os cronogramas ativos do
+ * projeto — usada pra montar a tela de cadastro "Engenheiro por Área" com as áreas que
+ * realmente existem no(s) cronograma(s), em vez do usuário digitar às cegas. */
+export function listDistinctAreaNames(cronogramas: CronogramaInfo[]): string[] {
+  const names = new Set<string>()
+  for (const c of cronogramas) {
+    if (!c.ativo || !c.dados) continue
+    const wbsToName = new Map<string, string>()
+    for (const a of c.dados.activities) wbsToName.set(a.wbs, a.name)
+    for (const a of c.dados.activities) {
+      const parts = a.wbs.split('.')
+      if (parts.length < 2) continue
+      const level2 = wbsToName.get(parts.slice(0, 2).join('.'))
+      if (level2) names.add(level2)
+    }
+  }
+  return Array.from(names).sort((a, b) => a.localeCompare(b, 'pt-BR'))
+}
+

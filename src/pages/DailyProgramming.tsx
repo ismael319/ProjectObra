@@ -15,15 +15,17 @@ import {
   mergeExcel,
   clearWeekActivities,
   clearDayActivities,
+  listEngenheirosArea,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
-import { findActivitiesWithWorkInWeek, type WeekActivity } from '@/lib/week-activities'
+import { findActivitiesWithWorkInWeek, listDistinctAreaNames, type WeekActivity } from '@/lib/week-activities'
 import type { WBSActivity } from '@/lib/xml-parser'
 
 import WeekBar from '@/components/programacao/WeekBar'
 import CardDia from '@/components/programacao/CardDia'
 import ModalDetalheDia from '@/components/programacao/ModalDetalheDia'
 import ModalImportarAtividades from '@/components/programacao/ModalImportarAtividades'
+import ModalEngenheirosArea from '@/components/programacao/ModalEngenheirosArea'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -48,6 +50,9 @@ export default function DailyProgramming() {
   const [dayImportDate, setDayImportDate] = useState<string | null>(null)
   const [dayImportActivities, setDayImportActivities] = useState<WeekActivity[]>([])
   const [loadingDayImport, setLoadingDayImport] = useState(false)
+  const [showEngenheirosArea, setShowEngenheirosArea] = useState(false)
+  const [engenheirosPorArea, setEngenheirosPorArea] = useState<Map<string, string>>(new Map())
+  const [areaIdPorArea, setAreaIdPorArea] = useState<Map<string, string>>(new Map())
 
   // showLoading=false evita o spinner de página inteira (que some com o modal aberto)
   // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
@@ -74,10 +79,8 @@ export default function DailyProgramming() {
 
   const indicators = useMemo(() => computeIndicators(activities, partialWeight), [activities, partialWeight])
 
-  const segEmpresa = useMemo(() => computeSegment(activities, 'company', partialWeight), [activities, partialWeight])
   const segDisc = useMemo(() => computeSegment(activities, 'discipline', partialWeight), [activities, partialWeight])
   const segArea = useMemo(() => computeSegment(activities, 'area', partialWeight), [activities, partialWeight])
-  const segEtapa = useMemo(() => computeSegment(activities, 'stage', partialWeight), [activities, partialWeight])
   const segEnc = useMemo(() => computeSegment(activities, 'foreman', partialWeight), [activities, partialWeight])
 
   const days = useMemo(() => {
@@ -112,6 +115,29 @@ export default function DailyProgramming() {
         availableBLIndices: c.dados!.baselines.filter((bl) => bl.available).map((bl) => bl.index).sort((a, b) => a - b),
       }))
   }, [currentProject])
+
+  // Áreas (nível 2 da EDT) que existem de fato nos cronogramas ativos do projeto —
+  // usada tanto pra montar a tela "Engenheiros por Área" quanto (via engenheirosPorArea)
+  // pra sugerir o Engenheiro na 2ª etapa da importação.
+  const areasDoCronograma = useMemo(
+    () => listDistinctAreaNames(currentProject?.cronogramas || []),
+    [currentProject],
+  )
+
+  useEffect(() => {
+    if (!currentProject?.id) {
+      setEngenheirosPorArea(new Map())
+      setAreaIdPorArea(new Map())
+      return
+    }
+    listEngenheirosArea(currentProject.id)
+      .then((rows) => {
+        setEngenheirosPorArea(new Map(rows.filter((r) => r.engenheiro).map((r) => [r.area_nome, r.engenheiro!])))
+        setAreaIdPorArea(new Map(rows.filter((r) => r.area_id).map((r) => [r.area_nome, r.area_id!])))
+      })
+      .catch(() => { /* só afeta o preenchimento automático, não é crítico */ })
+    // Recarrega quando o modal de gerenciamento fecha, pra já refletir edições recentes.
+  }, [currentProject?.id, showEngenheirosArea])
 
   // Índice cronograma+uid -> WBSActivity, pra buscar atraso/% avanço/datas ao vivo
   // do cronograma quando o modal do dia mostra uma atividade importada. Só funciona
@@ -218,7 +244,7 @@ export default function DailyProgramming() {
       Disciplina: a.discipline ?? '',
       Área: a.area ?? '',
       Etapa: a.stage ?? '',
-      Encarregado: a.foreman ?? '',
+      Engenheiro: a.foreman ?? '',
       Data: a.planned_date,
       '% Previsto': a.planned_pct,
       Status: statusLabel[a.status] ?? a.status,
@@ -378,6 +404,7 @@ export default function DailyProgramming() {
         onUnlock={handleUnlock}
         onImportActivities={handleSearchWeekActivities}
         onClearWeek={handleClearWeek}
+        onManageEngenheiros={() => setShowEngenheirosArea(true)}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
@@ -388,12 +415,10 @@ export default function DailyProgramming() {
 
       <IndicadoresSemana ind={indicators} />
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-        <PainelAderencia title="Aderência por Empresa" rows={segEmpresa} />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
         <PainelAderencia title="Aderência por Disciplina" rows={segDisc} />
         <PainelAderencia title="Aderência por Área" rows={segArea} />
-        <PainelAderencia title="Aderência por Etapa" rows={segEtapa} />
-        <PainelAderencia title="Aderência por Encarregado" rows={segEnc} />
+        <PainelAderencia title="Aderência por Engenheiro" rows={segEnc} />
       </div>
 
       <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
@@ -422,6 +447,8 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         weekDays={days}
+        engenheirosPorArea={engenheirosPorArea}
+        areaIdPorArea={areaIdPorArea}
         onImported={() => fetchData(false)}
       />
 
@@ -433,7 +460,16 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         weekDays={dayImportDate ? [dayImportDate] : []}
+        engenheirosPorArea={engenheirosPorArea}
+        areaIdPorArea={areaIdPorArea}
         onImported={() => fetchData(false)}
+      />
+
+      <ModalEngenheirosArea
+        open={showEngenheirosArea}
+        onOpenChange={setShowEngenheirosArea}
+        projetoId={currentProject?.id ?? null}
+        areasDoCronograma={areasDoCronograma}
       />
     </div>
     </TooltipProvider>

@@ -58,6 +58,12 @@ interface CadastroPageProps {
   fields: CadastroField[];
   extraColumns?: { key: string; label: string; render?: (row: any) => string }[];
   orderBy?: string;
+  /** Restringe a lista a linhas onde `column = value` (ou `column IS NULL` quando
+   * value é null) — usado pelas subabas de Lideranças por Empresa, por exemplo. */
+  filter?: { column: string; value: string | null };
+  /** Pré-preenche o formulário ao criar um registro novo (ex.: empresa_id da
+   * subaba atual) — só sugestão, o campo continua editável/reatribuível. */
+  defaultFieldValues?: Record<string, any>;
 }
 
 export function CadastroPage({
@@ -67,6 +73,8 @@ export function CadastroPage({
   fields,
   extraColumns = [],
   orderBy = "nome",
+  filter,
+  defaultFieldValues,
 }: CadastroPageProps) {
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
@@ -79,9 +87,11 @@ export function CadastroPage({
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["cadastro", table],
+    queryKey: ["cadastro", table, filter?.column, filter?.value],
     queryFn: async () => {
-      const { data, error } = await supabase.from(table).select("*");
+      let q = supabase.from(table).select("*");
+      if (filter) q = filter.value === null ? q.is(filter.column, null) : q.eq(filter.column, filter.value);
+      const { data, error } = await q;
       if (error) throw error;
       return data;
     },
@@ -241,7 +251,7 @@ export function CadastroPage({
 
   function openNew() {
     setEditing(null);
-    const f: Record<string, any> = {};
+    const f: Record<string, any> = { ...defaultFieldValues };
     if (fields.some((fl) => fl.key === "codigo")) {
       const suggestion = suggestCodigo();
       if (suggestion) f.codigo = suggestion;
