@@ -33,7 +33,7 @@ describe("buildRelatorioVisual", () => {
     expect(r.areas[0].itens).toHaveLength(2);
   });
 
-  it("calcula aderência como concluídas / (concluídas + não concluídas), ignorando extras/parciais/pendentes", () => {
+  it("calcula aderência igual a computeIndicators.aderencia: planejadas (sem extras) no denominador, parcial vale meio crédito", () => {
     const r = buildRelatorioVisual([
       act({ status: "concluida" }),
       act({ status: "concluida" }),
@@ -44,11 +44,17 @@ describe("buildRelatorioVisual", () => {
     ]);
     expect(r.concluidas).toBe(2);
     expect(r.naoConcluidas).toBe(1);
-    expect(r.aderenciaPct).toBe(67); // 2 / 3 = 66.67% -> arredonda pra 67
+    // denom = 5 planejadas (extra fora); peso = 1+1+0+0.5+0 = 2.5 -> 2.5/5 = 50%
+    expect(r.aderenciaPct).toBe(50);
   });
 
-  it("retorna aderência null quando não há nada concluído/não concluído ainda (ex.: programação futura)", () => {
+  it("pendente conta no denominador (0% quando tudo está pendente, não null) — mesmo critério do painel de indicadores", () => {
     const r = buildRelatorioVisual([act({ status: "pendente" }), act({ status: "pendente" })]);
+    expect(r.aderenciaPct).toBe(0);
+  });
+
+  it("retorna aderência null só quando não há nenhuma atividade planejada (ex.: só extras)", () => {
+    const r = buildRelatorioVisual([act({ status: "concluida", isExtra: true })]);
     expect(r.aderenciaPct).toBeNull();
   });
 
@@ -96,5 +102,25 @@ describe("buildMatrizSemanal", () => {
       weekDays,
     );
     expect(r.engenheiros[0].linhas).toHaveLength(2);
+  });
+
+  it("extrai área (nível 2) e subárea (nível 3) do areaPath, e agrupa por área/subárea antes do nome", () => {
+    const r = buildMatrizSemanal(
+      [
+        act({ foreman: "Alaor", taskUid: "1", name: "Zebra", areaPath: "GALPÃO / COBERTURA" }),
+        act({ foreman: "Alaor", taskUid: "2", name: "Abacate", areaPath: "GALPÃO / FUNDAÇÃO" }),
+        act({ foreman: "Alaor", taskUid: "3", name: "Mesa", areaPath: "CASA DE MÁQUINAS" }),
+      ],
+      weekDays,
+    );
+    const linhas = r.engenheiros[0].linhas;
+    expect(linhas.find((l) => l.nome === "Zebra")).toMatchObject({ area: "GALPÃO", subarea: "COBERTURA" });
+    expect(linhas.find((l) => l.nome === "Abacate")).toMatchObject({ area: "GALPÃO", subarea: "FUNDAÇÃO" });
+    // Sem nível 3 no areaPath -> subárea vazia, não undefined.
+    expect(linhas.find((l) => l.nome === "Mesa")).toMatchObject({ area: "CASA DE MÁQUINAS", subarea: "" });
+    // Ordena por área primeiro ("CASA DE MÁQUINAS" antes de "GALPÃO"), e dentro da
+    // mesma área por subárea ("COBERTURA" antes de "FUNDAÇÃO") — não por nome da
+    // tarefa, que sozinho daria Abacate/Mesa/Zebra.
+    expect(linhas.map((l) => l.nome)).toEqual(["Mesa", "Zebra", "Abacate"]);
   });
 });

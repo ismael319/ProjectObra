@@ -1,6 +1,7 @@
 import { forwardRef } from 'react'
-import type { MatrizSemanal } from '@/lib/relatorio-visual'
+import type { LinhaMatriz, MatrizSemanal } from '@/lib/relatorio-visual'
 import type { ActivityStatus } from '@/lib/adherence'
+import type { WBSActivity } from '@/lib/xml-parser'
 import { WEEKDAY_LABELS } from '@/lib/iso-week'
 import RelatorioHeader from './RelatorioHeader'
 import StatBox from './StatBox'
@@ -12,27 +13,41 @@ interface Props {
   gestor?: string
   dataLabel: string
   matriz: MatrizSemanal
+  /** Resolve a tarefa da linha pro cronograma de origem (início/término reais) —
+   * undefined quando não há cronograma carregado pra resolver contra. Extras
+   * manuais e importações antigas sem taskUid também não resolvem (retorna null). */
+  getDetalhe?: (linha: LinhaMatriz) => WBSActivity | null
+}
+
+function formatDataCurta(d: Date): string {
+  return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
 // Imagem compartilhável (capturada via html2canvas) com uma tabela por Engenheiro,
 // uma linha por tarefa e uma coluna por dia da semana (SEX→QUI) colorida pelo status
 // daquele dia — complementa o card por Área (Fechamento/Programação de um único dia).
-// Cores em style inline de propósito — ver paleta.ts.
+// Sempre em paisagem (ver ModalExportarImagem): é uma tabela larga, não cabe bem em
+// retrato. Cores em style inline de propósito — ver paleta.ts.
 const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardProgramacaoSemanal(
-  { codigo, nomeProjeto, gestor, dataLabel, matriz },
+  { codigo, nomeProjeto, gestor, dataLabel, matriz, getDetalhe },
   ref,
 ) {
-  const { weekDays, engenheiros, concluidas, naoConcluidas, aderenciaPct } = matriz
+  const { weekDays, engenheiros, concluidas, naoConcluidas, aderenciaPct, totalAtividades } = matriz
 
   return (
-    <div ref={ref} className="w-[900px] p-6 space-y-4 font-sans" style={{ backgroundColor: COR.bg, color: COR.gray900 }}>
+    <div ref={ref} className="w-[1100px] p-6 space-y-4 font-sans" style={{ backgroundColor: COR.bg, color: COR.gray900 }}>
       <RelatorioHeader codigo={codigo} nomeProjeto={nomeProjeto} gestor={gestor} tipo="Programação semanal" dataLabel={dataLabel} />
 
       {engenheiros.length > 0 && (
         <div className="grid grid-cols-3 gap-3">
           <StatBox label="Concluídas" value={String(concluidas)} color={COR.emerald700} />
           <StatBox label="Não concluídas" value={String(naoConcluidas)} color={COR.red700} />
-          <StatBox label="Aderência" value={aderenciaPct != null ? `${aderenciaPct}%` : '—'} color={COR.navy} />
+          <StatBox
+            label="Aderência"
+            value={aderenciaPct != null ? `${aderenciaPct}%` : '—'}
+            color={COR.navy}
+            detalhe={`${concluidas}/${totalAtividades}`}
+          />
         </div>
       )}
 
@@ -61,6 +76,12 @@ const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardPr
                 <thead>
                   <tr>
                     <th className="text-left font-semibold pb-2 pr-2" style={{ color: COR.gray500 }}>TAREFA</th>
+                    {getDetalhe && (
+                      <>
+                        <th className="font-semibold pb-2 px-1 text-center whitespace-nowrap" style={{ color: COR.gray500 }}>Início</th>
+                        <th className="font-semibold pb-2 px-1 text-center whitespace-nowrap" style={{ color: COR.gray500 }}>Término</th>
+                      </>
+                    )}
                     {weekDays.map((d, i) => (
                       <th key={d} className="font-semibold pb-2 px-1 text-center" style={{ color: COR.gray500 }}>
                         <div>{WEEKDAY_LABELS[i]}</div>
@@ -70,24 +91,43 @@ const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardPr
                   </tr>
                 </thead>
                 <tbody>
-                  {eng.linhas.map((linha, i) => (
-                    <tr key={linha.taskKey} style={i > 0 ? { borderTop: `1px solid ${COR.gray100}` } : undefined}>
-                      <td className="py-2 pr-2" style={{ color: COR.gray800 }}>
-                        <span style={{ color: COR.indigo500, fontWeight: 600 }}>{linha.area}</span>
-                        <span style={{ color: COR.gray400 }}> · </span>
-                        {linha.nome}
-                      </td>
-                      {weekDays.map((d) => {
-                        const status = linha.porDia[d]
-                        const cor = corDoStatus(status)
-                        return (
-                          <td key={d} className="px-1 py-2">
-                            {cor && <div className="w-full h-5 rounded-md" style={{ backgroundColor: cor }} />}
-                          </td>
-                        )
-                      })}
-                    </tr>
-                  ))}
+                  {eng.linhas.map((linha, i) => {
+                    const detalhe = getDetalhe?.(linha) ?? null
+                    return (
+                      <tr key={linha.taskKey} style={i > 0 ? { borderTop: `1px solid ${COR.gray100}` } : undefined}>
+                        <td className="py-2 pr-2" style={{ color: COR.gray800 }}>
+                          <span style={{ color: COR.indigo500, fontWeight: 600 }}>{linha.area}</span>
+                          {linha.subarea && (
+                            <>
+                              <span style={{ color: COR.gray400 }}> - </span>
+                              <span style={{ color: COR.indigo500, fontWeight: 600 }}>{linha.subarea}</span>
+                            </>
+                          )}
+                          <span style={{ color: COR.gray400 }}> - </span>
+                          {linha.nome}
+                        </td>
+                        {getDetalhe && (
+                          <>
+                            <td className="px-1 py-2 text-center whitespace-nowrap" style={{ color: COR.gray500 }}>
+                              {detalhe ? formatDataCurta(detalhe.start) : '—'}
+                            </td>
+                            <td className="px-1 py-2 text-center whitespace-nowrap" style={{ color: COR.gray500 }}>
+                              {detalhe ? formatDataCurta(detalhe.finish) : '—'}
+                            </td>
+                          </>
+                        )}
+                        {weekDays.map((d) => {
+                          const status = linha.porDia[d]
+                          const cor = corDoStatus(status)
+                          return (
+                            <td key={d} className="px-1 py-2">
+                              {cor && <div className="w-full h-5 rounded-md" style={{ backgroundColor: cor }} />}
+                            </td>
+                          )
+                        })}
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

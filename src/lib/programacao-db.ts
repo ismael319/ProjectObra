@@ -298,8 +298,13 @@ export async function toggleSubEtapa(id: string, concluida: boolean): Promise<vo
 }
 
 export async function deleteSubEtapa(id: string): Promise<void> {
-  const { error } = await supabase.from('activity_subetapas').delete().eq('id', id)
+  // .select() no delete pra saber se alguma linha foi de fato removida — um DELETE
+  // bloqueado por RLS (USING não bate) não gera erro nenhum no Supabase, só afeta 0
+  // linhas silenciosamente; sem essa checagem, o botão "excluir" parecia não fazer
+  // nada e o usuário não tinha nenhum aviso do motivo.
+  const { data, error } = await supabase.from('activity_subetapas').delete().eq('id', id).select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível excluir a sub-etapa — verifique se seu nível de acesso é Edição')
 }
 
 /**

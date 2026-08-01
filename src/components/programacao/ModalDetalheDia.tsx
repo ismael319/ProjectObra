@@ -26,6 +26,11 @@ interface Props {
    * bloqueada, igual às sub-etapas. */
   onSetInativa: (id: string, inativa: boolean, motivo: string | null) => Promise<void>
   onDelete: (id: string) => Promise<void>
+  /** Atualiza a lista de atividades sem mudar status de nenhuma — usado quando a
+   * última sub-etapa de um item é excluída (computeStatusFromSubetapas volta a
+   * null, então onSetStatus não é chamado, e sem isso a lista não refletia a
+   * exclusão). */
+  onRefresh: () => void
   onAddExtra: (payload: {
     planned_date: string
     name: string
@@ -115,6 +120,7 @@ export default function ModalDetalheDia({
   onSetStatus,
   onSetInativa,
   onDelete,
+  onRefresh,
   onAddExtra,
   onClearDay,
   onAddFromCronograma,
@@ -169,10 +175,10 @@ export default function ModalDetalheDia({
             {activities.length > 0 && (
               <button
                 onClick={onExportarImagem}
-                title="Gerar imagem do dia (Fechamento/Programação) pra compartilhar"
+                title="Exportar o dia (Fechamento/Programação) em imagem, PDF ou mensagem de texto"
                 className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition"
               >
-                <Image size={13} /> Gerar imagem
+                <Image size={13} /> Exportar
               </button>
             )}
             {activities.length > 0 && (
@@ -250,6 +256,7 @@ export default function ModalDetalheDia({
                               onSetStatus={onSetStatus}
                               onSetInativa={onSetInativa}
                               onDelete={onDelete}
+                              onRefresh={onRefresh}
                               detail={getActivityDetail(a)}
                             />
                           ))}
@@ -304,6 +311,7 @@ function ActivityRow({
   onSetStatus,
   onSetInativa,
   onDelete,
+  onRefresh,
   detail,
 }: {
   activity: ActivityLike
@@ -311,6 +319,7 @@ function ActivityRow({
   onSetStatus: Props['onSetStatus']
   onSetInativa: Props['onSetInativa']
   onDelete: Props['onDelete']
+  onRefresh: Props['onRefresh']
   detail: WBSActivity | null
 }) {
   const [obs, setObs] = useState(activity.observation ?? '')
@@ -349,10 +358,14 @@ function ActivityRow({
 
   // Sub-etapas concluídas/não determinam o status da atividade automaticamente —
   // sincroniza no banco (e via onSetStatus, o fetchData(false) do pai já traz a
-  // lista de sub-etapas atualizada de volta).
+  // lista de sub-etapas atualizada de volta). Quando a lista fica vazia (excluiu a
+  // última), computeStatusFromSubetapas volta null e não há status pra sincronizar —
+  // mas ainda assim precisa atualizar a lista, senão a sub-etapa excluída continua
+  // aparecendo na tela até o modal ser reaberto.
   async function sincronizarStatus(lista: SubEtapa[]) {
     const status = computeStatusFromSubetapas(lista)
     if (status) await onSetStatus(activity.id, status, obs || null)
+    else onRefresh()
   }
 
   async function handleAddSubetapa() {
@@ -449,8 +462,8 @@ function ActivityRow({
             icon={<CheckCircle2 size={16} />}
             label="Concluída"
             disabled={temSubetapas}
-            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
-            onClick={() => onSetStatus(activity.id, 'concluida', obs || null)}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ' — clique de novo pra desmarcar (volta pra pendente), caso tenha clicado errado.'}
+            onClick={() => onSetStatus(activity.id, activity.status === 'concluida' ? 'pendente' : 'concluida', obs || null)}
           />
           <StatusButton
             active={activity.status === 'parcial'}
@@ -458,8 +471,8 @@ function ActivityRow({
             icon={<MinusCircle size={16} />}
             label="Parcial"
             disabled={temSubetapas}
-            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
-            onClick={() => onSetStatus(activity.id, 'parcial', obs || null)}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ' — clique de novo pra desmarcar (volta pra pendente), caso tenha clicado errado.'}
+            onClick={() => onSetStatus(activity.id, activity.status === 'parcial' ? 'pendente' : 'parcial', obs || null)}
           />
           <StatusButton
             active={activity.status === 'nao_concluida'}
@@ -467,8 +480,8 @@ function ActivityRow({
             icon={<XCircle size={16} />}
             label="Não concluída"
             disabled={temSubetapas}
-            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ''}
-            onClick={() => onSetStatus(activity.id, 'nao_concluida', obs || null)}
+            hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ' — clique de novo pra desmarcar (volta pra pendente), caso tenha clicado errado.'}
+            onClick={() => onSetStatus(activity.id, activity.status === 'nao_concluida' ? 'pendente' : 'nao_concluida', obs || null)}
           />
           {activity.inativa ? (
             <button

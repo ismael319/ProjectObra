@@ -462,6 +462,7 @@ export default function DailyProgramming() {
         onSetStatus={handleSetStatus}
         onSetInativa={handleSetInativa}
         onDelete={handleDelete}
+        onRefresh={() => fetchData(false)}
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}

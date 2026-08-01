@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
@@ -231,6 +232,7 @@ export default function ValidacaoPage() {
       servente: a.servente,
       carpinteiro: a.carpinteiro,
       qntdd_funcao: a.qntdd_funcao,
+      obs_planejamento: a.obs_planejamento,
     });
     setEditandoId(a.id);
   };
@@ -651,6 +653,14 @@ export default function ValidacaoPage() {
                             />
                           </div>
                         </div>
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Observações</Label>
+                          <Textarea
+                            rows={2}
+                            value={draft.obs_planejamento ?? ""}
+                            onChange={(e) => setDraft((d) => ({ ...d, obs_planejamento: e.target.value }))}
+                          />
+                        </div>
                         <div className="flex items-center gap-2 text-xs text-muted-foreground">
                           Total será{" "}
                           <strong>
@@ -743,6 +753,11 @@ export default function ValidacaoPage() {
                             </span>
                           )}
                         </div>
+                        {a.obs_planejamento && (
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            <span className="font-medium text-foreground">Observações:</span> {a.obs_planejamento}
+                          </div>
+                        )}
                         {a.validado && a.validado_em && (
                           <div className="mt-1 text-[11px] text-green-600">
                             Validado em {new Date(a.validado_em).toLocaleString("pt-BR")}

@@ -2,8 +2,8 @@
 // substitui o texto corrido mandado hoje pro WhatsApp — ver
 // src/components/relatorio/CardRelatorioVisual.tsx e src/pages/ProgramacaoVisual.tsx.
 
-import type { ActivityLike, ActivityStatus } from "./adherence";
-import { getAreaNivel2 } from "./week-activities";
+import { statusWeight, type ActivityLike, type ActivityStatus } from "./adherence";
+import { getAreaNivel2, getAreaNivel3 } from "./week-activities";
 
 export type SubEtapaRelatorio = {
   nome: string;
@@ -27,8 +27,9 @@ export type RelatorioVisual = {
   areas: AreaRelatorio[];
   concluidas: number;
   naoConcluidas: number;
-  /** null quando não há nenhuma concluída/não concluída ainda (ex.: programação do
-   * dia seguinte, tudo pendente) — evita mostrar "0%" enganoso. */
+  /** Mesma fórmula de computeIndicators.aderencia (adherence.ts): planejadas (sem
+   * extras) no denominador — inclusive pendentes — e parcial vale meio crédito. null
+   * só quando não há nenhuma atividade planejada (ex.: dia só com extras). */
   aderenciaPct: number | null;
   totalAtividades: number;
 };
@@ -41,7 +42,13 @@ function areaDe(a: ActivityLike): string {
   return a.areaPath ? getAreaNivel2(a.areaPath) || SEM_AREA : SEM_AREA;
 }
 
-export function buildRelatorioVisual(activities: ActivityLike[]): RelatorioVisual {
+/** Nível 3 da EDT ("subárea", ex.: "COBERTURA" dentro de "GALPÃO") — só usada na
+ * matriz semanal por Engenheiro, que mostra Área - Subárea - Atividade por linha. */
+function subareaDe(a: ActivityLike): string {
+  return a.areaPath ? getAreaNivel3(a.areaPath) : "";
+}
+
+export function buildRelatorioVisual(activities: ActivityLike[], partialWeight = 0.5): RelatorioVisual {
   // Itens inativados (em análise) não entram no relatório compartilhado — nem nos
   // cards nem nas estatísticas, mesmo critério de computeIndicators.
   const ativas = activities.filter((a) => !a.inativa);
@@ -68,18 +75,24 @@ export function buildRelatorioVisual(activities: ActivityLike[]): RelatorioVisua
     })
     .map(([nome, itens]) => ({ nome, itens }));
 
-  // Extras não entram no denominador de aderência — mesmo critério já usado em
-  // computeIndicators/computeSegment (lib/adherence.ts).
+  // Mesma fórmula de computeIndicators.aderencia (lib/adherence.ts) — extras não
+  // entram no denominador, parciais valem meio crédito (partialWeight), e pendentes
+  // CONTAM no denominador (diferente de "concluídas" e "não concluídas", que só
+  // contam quem já foi marcado). Sem isso, o card mostrava uma "Aderência" que não
+  // batia com o painel de indicadores do resto do app pro mesmo dia — ex.: 100% com
+  // itens pendentes ainda na lista, porque pendente/parcial ficavam de fora da conta
+  // dos dois lados.
   const planejadas = ativas.filter((a) => !a.is_extra);
   const concluidas = planejadas.filter((a) => a.status === "concluida").length;
   const naoConcluidas = planejadas.filter((a) => a.status === "nao_concluida").length;
-  const base = concluidas + naoConcluidas;
+  const denom = planejadas.length;
+  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
 
   return {
     areas,
     concluidas,
     naoConcluidas,
-    aderenciaPct: base > 0 ? Math.round((concluidas / base) * 100) : null,
+    aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
     totalAtividades: ativas.length,
   };
 }
@@ -91,6 +104,14 @@ export type LinhaMatriz = {
   nome: string;
   edt: string | null;
   area: string;
+  /** Nível 3 da EDT ("" quando a tarefa não tem esse nível) — exibida como
+   * Área - Subárea - Atividade em cada linha da matriz semanal. */
+  subarea: string;
+  /** Cronograma de origem + UID da tarefa — permite resolver início/término reais no
+   * cronograma (ver getActivityDetail em DailyProgramming.tsx); undefined/null em
+   * extras manuais e em importações antigas sem esse vínculo. */
+  source: string | undefined;
+  taskUid: string | null | undefined;
   /** dateISO -> status daquele dia; ausente = sem atividade programada nesse dia. */
   porDia: Record<string, ActivityStatus>;
 };
@@ -105,9 +126,9 @@ export type MatrizSemanal = {
   engenheiros: EngenheiroMatriz[];
   concluidas: number;
   naoConcluidas: number;
-  /** null quando não há nenhuma concluída/não concluída ainda — mesmo critério de
-   * RelatorioVisual.aderenciaPct. */
+  /** Mesmo critério de RelatorioVisual.aderenciaPct — ver ali. */
   aderenciaPct: number | null;
+  totalAtividades: number;
 };
 
 const SEM_ENGENHEIRO = "Sem engenheiro";
@@ -125,7 +146,7 @@ function normalizarData(iso: string): string {
   return iso.slice(0, 10);
 }
 
-export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[]): MatrizSemanal {
+export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[], partialWeight = 0.5): MatrizSemanal {
   // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) somem da
   // matriz e das estatísticas.
   const ativas = activities.filter((a) => !a.inativa);
@@ -135,7 +156,8 @@ export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[
     const taskKey = a.taskUid ?? a.id;
     if (!porEngenheiro.has(engenheiro)) porEngenheiro.set(engenheiro, new Map());
     const linhas = porEngenheiro.get(engenheiro)!;
-    if (!linhas.has(taskKey)) linhas.set(taskKey, { taskKey, nome: a.name, edt: a.stage, area: areaDe(a), porDia: {} });
+    if (!linhas.has(taskKey))
+      linhas.set(taskKey, { taskKey, nome: a.name, edt: a.stage, area: areaDe(a), subarea: subareaDe(a), source: a.source, taskUid: a.taskUid, porDia: {} });
     linhas.get(taskKey)!.porDia[normalizarData(a.planned_date)] = a.status;
   }
 
@@ -148,30 +170,33 @@ export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[
     .map(([nome, linhasMap]) => ({
       nome,
       // Agrupa por área primeiro (mesmo critério de "Sem área" por último usado no
-      // card por área) e só depois por nome da tarefa — deixa os itens da mesma
-      // área próximos em vez de intercalados em ordem alfabética pura por tarefa.
+      // card por área), depois por subárea, e só então por nome da tarefa — deixa os
+      // itens da mesma área/subárea próximos em vez de intercalados em ordem
+      // alfabética pura por tarefa.
       linhas: Array.from(linhasMap.values()).sort((x, y) => {
         if (x.area !== y.area) {
           if (x.area === SEM_AREA) return 1;
           if (y.area === SEM_AREA) return -1;
           return x.area.localeCompare(y.area, "pt-BR");
         }
+        if (x.subarea !== y.subarea) return x.subarea.localeCompare(y.subarea, "pt-BR");
         return x.nome.localeCompare(y.nome, "pt-BR");
       }),
     }));
 
-  // Mesmo critério de aderência do card por Área (buildRelatorioVisual): extras não
-  // entram no denominador.
+  // Mesma fórmula de computeIndicators.aderencia (ver buildRelatorioVisual acima).
   const planejadas = ativas.filter((a) => !a.is_extra);
   const concluidas = planejadas.filter((a) => a.status === "concluida").length;
   const naoConcluidas = planejadas.filter((a) => a.status === "nao_concluida").length;
-  const base = concluidas + naoConcluidas;
+  const denom = planejadas.length;
+  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
 
   return {
     weekDays,
     engenheiros,
     concluidas,
     naoConcluidas,
-    aderenciaPct: base > 0 ? Math.round((concluidas / base) * 100) : null,
+    aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
+    totalAtividades: ativas.length,
   };
 }

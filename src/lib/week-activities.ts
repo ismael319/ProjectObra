@@ -100,6 +100,13 @@ export function getAreaNivel2(areaPath: string): string {
   return areaPath.split(' / ')[0] ?? ''
 }
 
+/** Nome do nível 3 da EDT (a "subárea" dentro da área do nível 2, ex.: "COBERTURA"
+ * dentro de "GALPÃO DE BIOMASSA") — vazio quando a tarefa não tem esse nível (EDT com
+ * menos de 3 níveis de profundidade). */
+export function getAreaNivel3(areaPath: string): string {
+  return areaPath.split(' / ')[1] ?? ''
+}
+
 /** Lista, sem repetição, os nomes de nível 2 da EDT de todos os cronogramas ativos do
  * projeto — usada pra montar a tela de cadastro "Engenheiro por Área" com as áreas que
  * realmente existem no(s) cronograma(s), em vez do usuário digitar às cegas. */

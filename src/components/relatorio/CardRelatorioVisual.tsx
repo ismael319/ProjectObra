@@ -44,7 +44,12 @@ const CardRelatorioVisual = forwardRef<HTMLDivElement, Props>(function CardRelat
           <div className="grid grid-cols-3 gap-3">
             <StatBox label="Concluídas" value={String(concluidas)} color={COR.emerald700} />
             <StatBox label="Não concluídas" value={String(naoConcluidas)} color={COR.red700} />
-            <StatBox label="Aderência" value={aderenciaPct != null ? `${aderenciaPct}%` : '—'} color={COR.navy} />
+            <StatBox
+              label="Aderência"
+              value={aderenciaPct != null ? `${aderenciaPct}%` : '—'}
+              color={COR.navy}
+              detalhe={`${concluidas}/${totalAtividades}`}
+            />
           </div>
 
           <div className="space-y-4">

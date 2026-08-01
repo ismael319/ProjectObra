@@ -245,12 +245,13 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Registros</div><div className="mt-1 text-3xl font-bold">{resumo.registros}</div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Total pessoas</div><div className="mt-1 text-3xl font-bold">{resumo.total}</div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Pedreiros</div><div className="mt-1 text-3xl font-bold">{resumo.pedreiro}</div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Serventes</div><div className="mt-1 text-3xl font-bold">{resumo.servente}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Carpinteiro + Outros</div><div className="mt-1 text-3xl font-bold">{resumo.carpinteiro + resumo.qntdd_funcao}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Carpinteiros</div><div className="mt-1 text-3xl font-bold">{resumo.carpinteiro}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Outros</div><div className="mt-1 text-3xl font-bold">{resumo.qntdd_funcao}</div></CardContent></Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
