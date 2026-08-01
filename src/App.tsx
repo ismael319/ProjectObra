@@ -67,10 +67,6 @@ const ApontamentoImportarXml = lazy(() => import('@/pages/apontamento/ImportarXM
 const ApontamentoImportarEap = lazy(() => import('@/pages/apontamento/ImportarEAP'))
 const MapaChuvas = lazy(() => import('@/pages/apontamento/MapaChuvas'))
 
-// Segurança
-const RdrDashboard = lazy(() => import('@/pages/seguranca/RdrDashboard'))
-const RdrRegistros = lazy(() => import('@/pages/seguranca/RdrRegistros'))
-
 function LoadingFallback() {
   return (
     <div className="flex items-center justify-center min-h-screen">
@@ -208,8 +204,6 @@ function App() {
                       <Route path="qualidade/concreto/dashboard" element={<RequireModulo modulo="qualidade"><ConcretoDashboard /></RequireModulo>} />
                       <Route path="qualidade/concreto/importar-historico" element={<RequireModulo modulo="qualidade"><ConcretoImportarHistorico /></RequireModulo>} />
                       <Route path="qualidade/concreto/consulta" element={<RequireModulo modulo="qualidade"><ConcretoConsulta /></RequireModulo>} />
-                      <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
-                      <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
                       <Route path="admin/seguranca" element={<SecurityMonitoring />} />
                     </Route>
