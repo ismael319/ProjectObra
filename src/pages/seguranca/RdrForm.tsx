@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Loader2, Plus, Trash2, ImagePlus } from "lucide-react";
+import { ArrowLeft, Camera, ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -8,7 +8,8 @@ import {
   type FotoUpload,
 } from "@/lib/rdr/rdr-db";
 import { CATEGORIAS, MAX_FOTOS } from "@/lib/rdr/constants";
-import type { RdrFoto } from "@/lib/rdr/mappers";
+import { ehDesvio, type RdrFoto } from "@/lib/rdr/mappers";
+import { useSetores, useAreas, useSubareas } from "@/pages/apontamento/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,11 @@ import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+function horaAtual(): string {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 function FotoExistente({ foto, onRemove }: { foto: RdrFoto; onRemove: () => void }) {
@@ -103,13 +109,14 @@ export default function RdrForm() {
   const nomePadrao = user?.user_metadata?.nome ?? user?.email ?? "";
 
   const [data, setData] = useState(hojeISO());
-  const [hora, setHora] = useState("");
+  const [hora, setHora] = useState(horaAtual());
+  const [tipo, setTipo] = useState("Desvio");
   const [local, setLocal] = useState("");
   const [categorias, setCategorias] = useState<string[]>([]);
   const [concluido, setConcluido] = useState<string>("NÃO");
   const [nomeColaborador, setNomeColaborador] = useState("");
   const [responsavelSetor, setResponsavelSetor] = useState("");
-  const [responsavelRegistro, setResponsavelRegistro] = useState("");
+  const [responsavelRegistro, setResponsavelRegistro] = useState(nomePadrao);
   const [descricao, setDescricao] = useState("");
   const [sugestaoCorrecao, setSugestaoCorrecao] = useState("");
   const [prazo, setPrazo] = useState("");
@@ -123,6 +130,7 @@ export default function RdrForm() {
       setHora(record.hora ?? "");
       setLocal(record.local ?? "");
       setCategorias(record.categorias ?? []);
+      setTipo(ehDesvio(record.categorias ?? []) ? "Desvio" : "Reconhecimento");
       setConcluido(record.concluido || "NÃO");
       setNomeColaborador(record.nome_colaborador ?? "");
       setResponsavelSetor(record.responsavel_setor ?? "");
@@ -134,6 +142,34 @@ export default function RdrForm() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [record]);
+
+  useEffect(() => {
+    if (data === hojeISO() && !hora) setHora(horaAtual());
+  }, [data, hora]);
+
+  const { data: setores = [] } = useSetores();
+  const { data: areas = [] } = useAreas();
+  const { data: subareas = [] } = useSubareas();
+
+  const locaisEap = useMemo(() => {
+    const nomes = new Set<string>();
+    for (const s of setores) nomes.add(s.nome);
+    for (const a of areas) nomes.add(a.nome);
+    for (const s of subareas) nomes.add(s.nome);
+    return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [setores, areas, subareas]);
+
+  const ehReconhecimento = tipo === "Reconhecimento";
+
+  const handleTipoChange = (v: string | null) => {
+    const novo = v === "Reconhecimento" ? "Reconhecimento" : "Desvio";
+    setTipo(novo);
+    if (novo === "Reconhecimento") {
+      setCategorias(["Reconhecimento"]);
+    } else {
+      setCategorias((prev) => prev.filter((c) => c !== "Reconhecimento"));
+    }
+  };
 
   const totalFotos = existentes.length + novasFotos.length;
 
@@ -175,19 +211,20 @@ export default function RdrForm() {
       const recordId = isEdit ? id! : crypto.randomUUID();
       const uploads = await fazerUploadFotos(organizacaoId!, recordId, novasFotos);
       const fotosFinal = [...existentes, ...uploads];
+      const categoriasFinal = ehReconhecimento ? ["Reconhecimento"] : categorias;
       await salvarMut.mutateAsync({
         id: isEdit ? id : undefined,
         data_ocorrido: data,
         hora,
         local,
-        categorias,
+        categorias: categoriasFinal,
         concluido,
         nome_colaborador: nomeColaborador,
         responsavel_setor: responsavelSetor,
         responsavel_registro: responsavelRegistro,
         descricao,
-        sugestao_correcao: sugestaoCorrecao,
-        prazo: prazo || null,
+        sugestao_correcao: ehReconhecimento ? "" : sugestaoCorrecao,
+        prazo: ehReconhecimento ? null : prazo || null,
         fotos: fotosFinal,
       });
       if (isEdit) {
@@ -232,8 +269,30 @@ export default function RdrForm() {
             <Input type="time" value={hora} onChange={(e) => setHora(e.target.value)} />
           </div>
           <div className="space-y-1.5">
+            <Label>Tipo</Label>
+            <Combobox
+              options={[
+                { value: "Desvio", label: "Desvio" },
+                { value: "Reconhecimento", label: "Reconhecimento" },
+              ]}
+              value={tipo}
+              onChange={handleTipoChange}
+              placeholder="Selecione..."
+            />
+          </div>
+          <div className="space-y-1.5">
             <Label>Local</Label>
-            <Input value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Pátio de formas" />
+            <Input
+              list="rdr-locais"
+              value={local}
+              onChange={(e) => setLocal(e.target.value)}
+              placeholder="Ex.: Pátio de formas"
+            />
+            <datalist id="rdr-locais">
+              {locaisEap.map((l) => (
+                <option key={l} value={l} />
+              ))}
+            </datalist>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Registrado por</Label>
@@ -252,18 +311,24 @@ export default function RdrForm() {
             <Label>Responsável pelo registro</Label>
             <Input value={responsavelRegistro} onChange={(e) => setResponsavelRegistro(e.target.value)} />
           </div>
-          <div className="space-y-1.5">
-            <Label>Prazo</Label>
-            <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
-          </div>
+          {!ehReconhecimento && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Prazo</Label>
+              <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
+            </div>
+          )}
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Categorias *</Label>
-            <MultiCombobox
-              options={CATEGORIAS.map((c) => ({ value: c, label: c }))}
-              value={categorias}
-              onChange={setCategorias}
-              placeholder="Selecione as categorias..."
-            />
+            {ehReconhecimento ? (
+              <Input value="Reconhecimento" readOnly className="bg-muted text-muted-foreground" />
+            ) : (
+              <MultiCombobox
+                options={CATEGORIAS.filter((c) => c !== "Reconhecimento").map((c) => ({ value: c, label: c }))}
+                value={categorias}
+                onChange={setCategorias}
+                placeholder="Selecione as categorias..."
+              />
+            )}
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Status</Label>
@@ -281,10 +346,12 @@ export default function RdrForm() {
             <Label>Descrição *</Label>
             <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={4} placeholder="Descreva o desvio ou reconhecimento..." />
           </div>
-          <div className="space-y-1.5 sm:col-span-2">
-            <Label>Sugestão de correção</Label>
-            <Textarea value={sugestaoCorrecao} onChange={(e) => setSugestaoCorrecao(e.target.value)} rows={3} />
-          </div>
+          {!ehReconhecimento && (
+            <div className="space-y-1.5 sm:col-span-2">
+              <Label>Sugestão de correção</Label>
+              <Textarea value={sugestaoCorrecao} onChange={(e) => setSugestaoCorrecao(e.target.value)} rows={3} />
+            </div>
+          )}
           <div className="space-y-2 sm:col-span-2">
             <Label>Fotos ({totalFotos}/{MAX_FOTOS})</Label>
             <div className="flex flex-wrap gap-2">
@@ -305,20 +372,37 @@ export default function RdrForm() {
                 </div>
               ))}
               {totalFotos < MAX_FOTOS && (
-                <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary">
-                  <ImagePlus size={20} />
-                  <span className="text-xs">Adicionar</span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      void handleArquivos(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
-                </label>
+                <>
+                  <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary">
+                    <Camera size={20} />
+                    <span className="text-xs">Tirar foto</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleArquivos(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary">
+                    <ImagePlus size={20} />
+                    <span className="text-xs">Galeria</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        void handleArquivos(e.target.files);
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                </>
               )}
             </div>
           </div>

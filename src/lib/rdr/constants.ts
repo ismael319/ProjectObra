@@ -10,7 +10,7 @@ export const CATEGORIAS = [
   "Condição Insegura",
 ]
 
-export const MAX_FOTOS = 4
+export const MAX_FOTOS = 6
 
 export const MESES_PT = [
   "Janeiro",
