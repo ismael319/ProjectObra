@@ -21,6 +21,7 @@ export interface RdrRecord {
   descricao: string
   sugestao_correcao: string
   prazo: string | null
+  concluido_em: string | null
   fotos: RdrFoto[]
   criado_por: string | null
   criado_em: string
@@ -39,6 +40,7 @@ export interface RdrRecordInput {
   descricao: string
   sugestao_correcao: string
   prazo: string | null
+  concluido_em: string | null
   fotos: RdrFoto[]
 }
 

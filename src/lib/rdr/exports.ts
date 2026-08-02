@@ -28,8 +28,13 @@ export interface DashboardDados {
   desvios: number
   abertos: number
   finalizados: number
+  txConclusaoNoPrazo: number
+  prazoMedioDias: number
+  metaMensal: number
   porTecnico: Record<string, number>
   porCategoria: Record<string, number>
+  porLocal: Record<string, number>
+  pendentesPorResponsavel: Record<string, number>
 }
 
 export async function gerarPdfRegistro(record: RdrRecord): Promise<void> {
@@ -181,6 +186,12 @@ export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
   doc.setFont("helvetica", "normal")
   doc.setFontSize(10)
   doc.text(`Abertos: ${dados.abertos}  ·  Finalizados: ${dados.finalizados}`, 14, y)
+  y += 6
+  doc.text(
+    `Conclusão no prazo: ${dados.txConclusaoNoPrazo}%  ·  Prazo médio: ${dados.prazoMedioDias} dia(s)${dados.metaMensal > 0 ? `  ·  Meta mensal: ${dados.metaMensal}` : ""}`,
+    14,
+    y
+  )
   y += 10
 
   doc.setFontSize(11)
@@ -213,6 +224,34 @@ export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
   y += 6
   doc.setFontSize(11)
   doc.setFont("helvetica", "bold")
+  doc.text("Por local", 14, y)
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(9)
+  y += 6
+  const locais = Object.entries(dados.porLocal).sort((a, b) => b[1] - a[1])
+  for (const [loc, qtd] of locais) {
+    if (y > 270) y = novaPaginaPdf(doc, y)
+    doc.text(`${loc}: ${qtd}`, 14, y)
+    y += 5
+  }
+
+  y += 6
+  doc.setFontSize(11)
+  doc.setFont("helvetica", "bold")
+  doc.text("Pendências por responsável", 14, y)
+  doc.setFont("helvetica", "normal")
+  doc.setFontSize(9)
+  y += 6
+  const resp = Object.entries(dados.pendentesPorResponsavel).sort((a, b) => b[1] - a[1])
+  for (const [nome, qtd] of resp) {
+    if (y > 270) y = novaPaginaPdf(doc, y)
+    doc.text(`${nome}: ${qtd}`, 14, y)
+    y += 5
+  }
+
+  y += 6
+  doc.setFontSize(11)
+  doc.setFont("helvetica", "bold")
   doc.text("Registros", 14, y)
   y += 6
   for (const r of dados.registros) {
@@ -237,7 +276,7 @@ export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
   doc.save(`RDR-Relatorio-${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
-export function exportarExcelRdr(records: RdrRecord[]): void {
+export function exportarExcelRdr(records: RdrRecord[], dados?: DashboardDados): void {
   const wb = XLSX.utils.book_new()
 
   const detalhamento = records.map((r, i) => ({
@@ -299,9 +338,25 @@ export function exportarExcelRdr(records: RdrRecord[]): void {
     "Por Categoria"
   )
 
+  if (dados) {
+    const porLocal = Object.entries(dados.porLocal).sort((a, b) => b[1] - a[1])
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(porLocal.map(([local, qtd]) => ({ "Local": local, "Total": qtd }))),
+      "Por Local"
+    )
+
+    const pendResp = Object.entries(dados.pendentesPorResponsavel).sort((a, b) => b[1] - a[1])
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(pendResp.map(([nome, qtd]) => ({ "Responsável": nome, "Pendentes": qtd }))),
+      "Pendências por Responsável"
+    )
+  }
+
   const agora = new Date()
   const mes = MESES_PT_SHORT[agora.getMonth()]
-  const resumo = [
+  const resumo: { Indicador: string; Valor: string | number }[] = [
     { "Indicador": "Período", "Valor": `${mes}/${agora.getFullYear()}` },
     { "Indicador": "Registros", "Valor": records.length },
     { "Indicador": "Reconhecimentos", "Valor": records.filter((r) => (r.categorias ?? []).includes("Reconhecimento")).length },
@@ -309,6 +364,13 @@ export function exportarExcelRdr(records: RdrRecord[]): void {
     { "Indicador": "Finalizados", "Valor": records.filter((r) => r.concluido === "SIM").length },
     { "Indicador": "Abertos", "Valor": records.filter((r) => r.concluido !== "SIM").length },
   ]
+  if (dados) {
+    resumo.push(
+      { "Indicador": "Conclusão no prazo", "Valor": `${dados.txConclusaoNoPrazo}%` },
+      { "Indicador": "Prazo médio de atendimento (dias)", "Valor": dados.prazoMedioDias },
+      { "Indicador": "Meta mensal", "Valor": dados.metaMensal || "—" },
+    )
+  }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), "Resumo")
 
   XLSX.writeFile(wb, `RDR-${mes}-${agora.getFullYear()}.xlsx`)

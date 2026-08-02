@@ -131,3 +131,46 @@ export function useExcluirRecord(organizacaoId: string | undefined) {
     },
   })
 }
+
+export interface RdrConfigRow {
+  organizacao_id: string
+  chave: string
+  valor: string
+  atualizado_em: string
+  atualizado_por: string | null
+}
+
+export function useRdrConfig(organizacaoId: string | undefined) {
+  return useQuery({
+    queryKey: ["rdr_config", organizacaoId],
+    enabled: !!organizacaoId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("rdr_config")
+        .select("organizacao_id,chave,valor,atualizado_em,atualizado_por")
+        .eq("organizacao_id", organizacaoId!)
+      if (error) throw error
+      return (data as RdrConfigRow[]) ?? []
+    },
+  })
+}
+
+export function useSalvarRdrConfig(organizacaoId: string | undefined) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { chave: string; valor: string }) => {
+      const { error } = await supabase
+        .from("rdr_config")
+        .upsert({
+          organizacao_id: organizacaoId,
+          chave: input.chave,
+          valor: input.valor,
+          atualizado_em: new Date().toISOString(),
+        })
+      if (error) throw error
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["rdr_config", organizacaoId] })
+    },
+  })
+}

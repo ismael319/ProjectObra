@@ -114,6 +114,7 @@ export default function RdrForm() {
   const [local, setLocal] = useState("");
   const [categorias, setCategorias] = useState<string[]>([]);
   const [concluido, setConcluido] = useState<string>("NÃO");
+  const [concluidoEm, setConcluidoEm] = useState<string | null>(null);
   const [nomeColaborador, setNomeColaborador] = useState("");
   const [responsavelSetor, setResponsavelSetor] = useState("");
   const [responsavelRegistro, setResponsavelRegistro] = useState(nomePadrao);
@@ -132,6 +133,7 @@ export default function RdrForm() {
       setCategorias(record.categorias ?? []);
       setTipo(ehDesvio(record.categorias ?? []) ? "Desvio" : "Reconhecimento");
       setConcluido(record.concluido || "NÃO");
+      setConcluidoEm(record.concluido_em ?? null);
       setNomeColaborador(record.nome_colaborador ?? "");
       setResponsavelSetor(record.responsavel_setor ?? "");
       setResponsavelRegistro(record.responsavel_registro ?? "");
@@ -225,6 +227,7 @@ export default function RdrForm() {
         descricao,
         sugestao_correcao: ehReconhecimento ? "" : sugestaoCorrecao,
         prazo: ehReconhecimento ? null : prazo || null,
+        concluido_em: concluidoEm,
         fotos: fotosFinal,
       });
       if (isEdit) {
@@ -338,7 +341,11 @@ export default function RdrForm() {
                 { value: "NÃO", label: "NÃO — pendente" },
               ]}
               value={concluido}
-              onChange={(v) => setConcluido(v ?? "NÃO")}
+              onChange={(v) => {
+                const novo = v ?? "NÃO";
+                setConcluido(novo);
+                setConcluidoEm(novo === "SIM" ? new Date().toISOString() : null);
+              }}
               placeholder="Selecione..."
             />
           </div>

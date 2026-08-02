@@ -1,20 +1,22 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Loader2, FileText, FileSpreadsheet, ListFilter, AlertTriangle,
-  CheckCircle2, CalendarClock, ArrowRight,
+  CheckCircle2, CalendarClock, ArrowRight, Target, Clock, TrendingUp, TrendingDown,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer,
+  AreaChart, Area, Line,
 } from "recharts";
 import { useAuth } from "@/lib/auth-context";
-import { useRdrRecords } from "@/lib/rdr/rdr-db";
-import { ehDesvio, formatarData } from "@/lib/rdr/mappers";
+import { useRdrRecords, useRdrConfig, useSalvarRdrConfig } from "@/lib/rdr/rdr-db";
+import { ehDesvio, formatarData, type RdrRecord } from "@/lib/rdr/mappers";
 import { gerarPdfDashboard, exportarExcelRdr, type DashboardDados } from "@/lib/rdr/exports";
-import { MESES_PT } from "@/lib/rdr/constants";
+import { CATEGORIAS, MESES_PT, MESES_PT_SHORT } from "@/lib/rdr/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +52,38 @@ function mesKeyAtual(): string {
   return new Date().toLocaleDateString("en-CA").slice(0, 7);
 }
 
+function mesKeyAnterior(): string {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() - 1, 1).toLocaleDateString("en-CA").slice(0, 7);
+}
+
+function aplicarStatus(lista: RdrRecord[], filtro: FiltroStatus): RdrRecord[] {
+  switch (filtro) {
+    case "concluidos":
+      return lista.filter((r) => r.concluido === "SIM");
+    case "pendentes":
+      return lista.filter((r) => r.concluido !== "SIM");
+    case "desvios":
+      return lista.filter((r) => ehDesvio(r.categorias ?? []));
+    case "reconhecimentos":
+      return lista.filter((r) => !ehDesvio(r.categorias ?? []));
+    default:
+      return lista;
+  }
+}
+
+function DeltaChip({ atual, anterior, inverso = false }: { atual: number; anterior: number; inverso?: boolean }) {
+  const diff = atual - anterior;
+  if (diff === 0) return <span className="text-xs text-muted-foreground">0 vs mês anterior</span>;
+  const positivo = inverso ? diff < 0 : diff > 0;
+  return (
+    <span className={`inline-flex items-center gap-1 text-xs font-medium ${positivo ? "text-green-600" : "text-red-600"}`}>
+      {positivo ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+      {diff > 0 ? "+" : ""}{diff} vs mês anterior
+    </span>
+  );
+}
+
 export default function RdrDashboard() {
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
@@ -57,12 +91,24 @@ export default function RdrDashboard() {
 
   const [anoFiltro, setAnoFiltro] = useState<string | null>(null);
   const [mesFiltro, setMesFiltro] = useState<string | null>(null);
+  const [responsavelFiltro, setResponsavelFiltro] = useState<string | null>(null);
+  const [categoriaFiltro, setCategoriaFiltro] = useState<string | null>(null);
   const [filtroStatus, setFiltroStatus] = useState<FiltroStatus>("todos");
   const [exportandoPdf, setExportandoPdf] = useState(false);
 
   const hojeKey = new Date().toLocaleDateString("en-CA");
+  const anoAtual = String(new Date().getFullYear());
 
   const { data: registros = [], isLoading } = useRdrRecords(organizacaoId);
+  const { data: config = [] } = useRdrConfig(organizacaoId);
+  const salvarConfig = useSalvarRdrConfig(organizacaoId);
+
+  const configMeta = config.find((c) => c.chave === "meta_mensal_desvios")?.valor ?? "";
+  const metaMensal = Number(configMeta) || 0;
+  const [metaInput, setMetaInput] = useState("");
+  useEffect(() => {
+    setMetaInput(configMeta);
+  }, [configMeta]);
 
   const anos = useMemo(() => {
     const set = new Set<string>();
@@ -70,28 +116,32 @@ export default function RdrDashboard() {
     return [...set].filter(Boolean).sort().reverse();
   }, [registros]);
 
-  const filtrados = useMemo(() => {
+  const responsaveis = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of registros) {
+      const nome = (r.responsavel_registro ?? r.autor_nome ?? "").trim();
+      if (nome) set.add(nome);
+    }
+    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }, [registros]);
+
+  const base = useMemo(() => {
     return registros.filter((r) => {
+      if (responsavelFiltro && (r.responsavel_registro || r.autor_nome) !== responsavelFiltro) return false;
+      if (categoriaFiltro && !(r.categorias ?? []).includes(categoriaFiltro)) return false;
+      return true;
+    });
+  }, [registros, responsavelFiltro, categoriaFiltro]);
+
+  const filtrados = useMemo(() => {
+    return base.filter((r) => {
       if (anoFiltro && !r.data_ocorrido?.startsWith(anoFiltro)) return false;
       if (mesFiltro && r.data_ocorrido?.slice(5, 7) !== String(Number(mesFiltro)).padStart(2, "0")) return false;
       return true;
     });
-  }, [registros, anoFiltro, mesFiltro]);
+  }, [base, anoFiltro, mesFiltro]);
 
-  const dadosFiltrados = useMemo(() => {
-    switch (filtroStatus) {
-      case "concluidos":
-        return filtrados.filter((r) => r.concluido === "SIM");
-      case "pendentes":
-        return filtrados.filter((r) => r.concluido !== "SIM");
-      case "desvios":
-        return filtrados.filter((r) => ehDesvio(r.categorias ?? []));
-      case "reconhecimentos":
-        return filtrados.filter((r) => !ehDesvio(r.categorias ?? []));
-      default:
-        return filtrados;
-    }
-  }, [filtrados, filtroStatus]);
+  const dadosFiltrados = useMemo(() => aplicarStatus(filtrados, filtroStatus), [filtrados, filtroStatus]);
 
   const stats = useMemo(() => {
     const total = dadosFiltrados.length;
@@ -101,6 +151,40 @@ export default function RdrDashboard() {
     const reconhecimentos = dadosFiltrados.filter((r) => !ehDesvio(r.categorias ?? [])).length;
     const tx = total > 0 ? Math.round((concluidos / total) * 100) : 0;
     return { total, doMes, concluidos, pendentes, reconhecimentos, desvios: total - reconhecimentos, tx };
+  }, [dadosFiltrados]);
+
+  const contagensMes = useMemo(() => {
+    const lista = aplicarStatus(base, filtroStatus);
+    const contar = (l: RdrRecord[]) => ({
+      total: l.length,
+      concluidos: l.filter((r) => r.concluido === "SIM").length,
+      pendentes: l.filter((r) => r.concluido !== "SIM").length,
+      desvios: l.filter((r) => ehDesvio(r.categorias ?? [])).length,
+    });
+    return {
+      atual: contar(lista.filter((r) => r.data_ocorrido?.slice(0, 7) === mesKeyAtual())),
+      anterior: contar(lista.filter((r) => r.data_ocorrido?.slice(0, 7) === mesKeyAnterior())),
+    };
+  }, [base, filtroStatus]);
+
+  const kpiPrazo = useMemo(() => {
+    const concluidos = dadosFiltrados.filter((r) => r.concluido === "SIM");
+    const noPrazo = concluidos.filter((r) => {
+      if (!r.prazo) return true;
+      if (!r.concluido_em) return false;
+      return r.concluido_em.slice(0, 10) <= r.prazo;
+    }).length;
+    const tx = concluidos.length > 0 ? Math.round((noPrazo / concluidos.length) * 100) : 0;
+    let somaDias = 0;
+    let nDias = 0;
+    for (const r of concluidos) {
+      if (!r.concluido_em || !r.data_ocorrido) continue;
+      const dias = (new Date(r.concluido_em).getTime() - new Date(`${r.data_ocorrido}T12:00:00`).getTime()) / 86400000;
+      if (Number.isNaN(dias)) continue;
+      somaDias += dias;
+      nDias += 1;
+    }
+    return { noPrazo, concluidos: concluidos.length, tx, prazoMedio: nDias > 0 ? Math.round((somaDias / nDias) * 10) / 10 : 0 };
   }, [dadosFiltrados]);
 
   const porMesTipo = useMemo(() => {
@@ -119,8 +203,61 @@ export default function RdrDashboard() {
       if (ehDesvio(r.categorias ?? [])) item.desvios += 1;
       else item.reconhecimentos += 1;
     }
-    return chaves.map((c) => ({ mes: mesLabel(c), chave: c, ...mapa.get(c)! }));
-  }, [filtrados]);
+    return chaves.map((c) => ({ mes: mesLabel(c), chave: c, meta: metaMensal, ...mapa.get(c)! }));
+  }, [filtrados, metaMensal]);
+
+  const acumulado = useMemo(() => {
+    const anoAcumulado = anoFiltro ?? anoAtual;
+    const lista = aplicarStatus(base, filtroStatus).filter((r) => r.data_ocorrido?.slice(0, 4) === anoAcumulado);
+    const mesMax = anoAcumulado === anoAtual ? new Date().getMonth() : 11;
+    let desvios = 0;
+    let reconhecimentos = 0;
+    const resultado: { mes: string; desvios: number; reconhecimentos: number }[] = [];
+    for (let i = 0; i <= mesMax; i++) {
+      const chave = `${anoAcumulado}-${String(i + 1).padStart(2, "0")}`;
+      const mes = lista.filter((x) => x.data_ocorrido?.slice(0, 7) === chave);
+      desvios += mes.filter((x) => ehDesvio(x.categorias ?? [])).length;
+      reconhecimentos += mes.filter((x) => !ehDesvio(x.categorias ?? [])).length;
+      resultado.push({ mes: MESES_PT_SHORT[i], desvios, reconhecimentos });
+    }
+    return resultado;
+  }, [base, filtroStatus, anoFiltro, anoAtual]);
+
+  const reincidencia = useMemo(() => {
+    const agora = new Date();
+    const janela = new Set<string>();
+    for (let i = 5; i >= 0; i--) {
+      janela.add(new Date(agora.getFullYear(), agora.getMonth() - i, 1).toLocaleDateString("en-CA").slice(0, 7));
+    }
+    const porCat = new Map<string, { total: number; meses: Set<string> }>();
+    const porLoc = new Map<string, { total: number; meses: Set<string> }>();
+    for (const r of aplicarStatus(base, filtroStatus)) {
+      const k = r.data_ocorrido?.slice(0, 7);
+      if (!k || !janela.has(k)) continue;
+      if (ehDesvio(r.categorias ?? [])) {
+        for (const c of r.categorias ?? []) {
+          if (c === "Reconhecimento") continue;
+          const item = porCat.get(c) ?? { total: 0, meses: new Set<string>() };
+          item.total += 1;
+          item.meses.add(k);
+          porCat.set(c, item);
+        }
+      }
+      const loc = r.local?.trim();
+      if (loc) {
+        const item = porLoc.get(loc) ?? { total: 0, meses: new Set<string>() };
+        item.total += 1;
+        item.meses.add(k);
+        porLoc.set(loc, item);
+      }
+    }
+    const ordenar = (m: Map<string, { total: number; meses: Set<string> }>) =>
+      [...m.entries()]
+        .map(([nome, v]) => ({ nome, total: v.total, meses: v.meses.size }))
+        .sort((a, b) => b.meses - a.meses || b.total - a.total)
+        .slice(0, 5);
+    return { categorias: ordenar(porCat), locais: ordenar(porLoc) };
+  }, [base, filtroStatus]);
 
   const porTecnico = useMemo(() => {
     const map = new Map<string, number>();
@@ -138,6 +275,29 @@ export default function RdrDashboard() {
     }
     return [...map.entries()].map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total);
   }, [dadosFiltrados]);
+
+  const porLocal = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of dadosFiltrados) {
+      const loc = r.local?.trim();
+      if (!loc) continue;
+      map.set(loc, (map.get(loc) ?? 0) + 1);
+    }
+    return [...map.entries()].map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total).slice(0, 8);
+  }, [dadosFiltrados]);
+
+  const pendPorResp = useMemo(() => {
+    const map = new Map<string, { pendentes: number; vencidos: number }>();
+    for (const r of dadosFiltrados) {
+      if (r.concluido === "SIM") continue;
+      const nome = (r.responsavel_registro ?? r.autor_nome ?? "—").trim() || "—";
+      const item = map.get(nome) ?? { pendentes: 0, vencidos: 0 };
+      item.pendentes += 1;
+      if (r.prazo && r.prazo < hojeKey) item.vencidos += 1;
+      map.set(nome, item);
+    }
+    return [...map.entries()].map(([nome, v]) => ({ nome, ...v })).sort((a, b) => b.pendentes - a.pendentes).slice(0, 8);
+  }, [dadosFiltrados, hojeKey]);
 
   const vencidos = useMemo(() => {
     const hoje = new Date().toLocaleDateString("en-CA");
@@ -160,14 +320,30 @@ export default function RdrDashboard() {
       desvios: stats.desvios,
       abertos: stats.pendentes,
       finalizados: stats.concluidos,
+      txConclusaoNoPrazo: kpiPrazo.tx,
+      prazoMedioDias: kpiPrazo.prazoMedio,
+      metaMensal,
       porTecnico: Object.fromEntries(porTecnico.map((p) => [p.nome, p.total])),
       porCategoria: Object.fromEntries(porCategoria.map((p) => [p.nome, p.total])),
+      porLocal: Object.fromEntries(porLocal.map((p) => [p.nome, p.total])),
+      pendentesPorResponsavel: Object.fromEntries(pendPorResp.map((p) => [p.nome, p.pendentes])),
     }),
-    [dadosFiltrados, stats, porTecnico, porCategoria],
+    [dadosFiltrados, stats, kpiPrazo, metaMensal, porTecnico, porCategoria, porLocal, pendPorResp],
   );
 
   const irParaRegistros = (state: Record<string, string | boolean>) =>
     navigate("/dashboard/seguranca/registros", { state });
+
+  const handleMetaSave = async () => {
+    if (metaInput === configMeta) return;
+    try {
+      await salvarConfig.mutateAsync({ chave: "meta_mensal_desvios", valor: metaInput.trim() });
+      toast.success("Meta mensal atualizada");
+    } catch (e) {
+      toast.error("Falha ao salvar a meta");
+      console.error(e);
+    }
+  };
 
   const handleExportPdf = async () => {
     setExportandoPdf(true);
@@ -183,7 +359,7 @@ export default function RdrDashboard() {
 
   const handleExportExcel = () => {
     try {
-      exportarExcelRdr(dadosFiltrados);
+      exportarExcelRdr(dadosFiltrados, dadosExport);
     } catch (e) {
       toast.error("Falha ao gerar Excel");
       console.error(e);
@@ -204,7 +380,7 @@ export default function RdrDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="w-40 space-y-1.5">
+          <div className="w-36 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Ano</Label>
             <Combobox
               options={anos.map((a) => ({ value: a, label: a }))}
@@ -213,13 +389,31 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-40 space-y-1.5">
+          <div className="w-32 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Mês</Label>
             <Combobox
               options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))}
               value={mesFiltro}
               onChange={setMesFiltro}
               placeholder="Todos"
+            />
+          </div>
+          <div className="w-44 space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Responsável</Label>
+            <Combobox
+              options={responsaveis.map((r) => ({ value: r, label: r }))}
+              value={responsavelFiltro}
+              onChange={setResponsavelFiltro}
+              placeholder="Todos"
+            />
+          </div>
+          <div className="w-40 space-y-1.5">
+            <Label className="text-xs text-muted-foreground">Categoria</Label>
+            <Combobox
+              options={CATEGORIAS.map((c) => ({ value: c, label: c }))}
+              value={categoriaFiltro}
+              onChange={setCategoriaFiltro}
+              placeholder="Todas"
             />
           </div>
           <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exportandoPdf}>
@@ -284,7 +478,12 @@ export default function RdrDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">Total RDRs</CardTitle>
             </CardHeader>
-            <CardContent className="text-3xl font-bold">{stats.total}</CardContent>
+            <CardContent>
+              <div className="text-3xl font-bold">{stats.total}</div>
+              <div className="mt-1">
+                <DeltaChip atual={contagensMes.atual.total} anterior={contagensMes.anterior.total} />
+              </div>
+            </CardContent>
           </Card>
         </button>
         <button className="text-left" onClick={() => irParaRegistros({ mes: mesKeyAtual() })}>
@@ -294,7 +493,12 @@ export default function RdrDashboard() {
                 Este mês <CalendarClock size={13} />
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-3xl font-bold text-blue-600">{stats.doMes}</CardContent>
+            <CardContent>
+              <div className="text-3xl font-bold text-blue-600">{stats.doMes}</div>
+              <div className="mt-1">
+                <DeltaChip atual={contagensMes.atual.total} anterior={contagensMes.anterior.total} />
+              </div>
+            </CardContent>
           </Card>
         </button>
         <button className="text-left" onClick={() => irParaRegistros({ status: "finalizado" })}>
@@ -302,7 +506,12 @@ export default function RdrDashboard() {
             <CardHeader>
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">Concluídos</CardTitle>
             </CardHeader>
-            <CardContent className="text-3xl font-bold text-green-600">{stats.concluidos}</CardContent>
+            <CardContent>
+              <div className="text-3xl font-bold text-green-600">{stats.concluidos}</div>
+              <div className="mt-1">
+                <DeltaChip atual={contagensMes.atual.concluidos} anterior={contagensMes.anterior.concluidos} />
+              </div>
+            </CardContent>
           </Card>
         </button>
         <button className="text-left" onClick={() => irParaRegistros({ status: "aberto" })}>
@@ -312,7 +521,12 @@ export default function RdrDashboard() {
                 Pendentes <ListFilter size={13} />
               </CardTitle>
             </CardHeader>
-            <CardContent className="text-3xl font-bold text-red-600">{stats.pendentes}</CardContent>
+            <CardContent>
+              <div className="text-3xl font-bold text-red-600">{stats.pendentes}</div>
+              <div className="mt-1">
+                <DeltaChip inverso atual={contagensMes.atual.pendentes} anterior={contagensMes.anterior.pendentes} />
+              </div>
+            </CardContent>
           </Card>
         </button>
         <button className="text-left" onClick={() => irParaRegistros({ categoria: "Reconhecimento" })}>
@@ -323,6 +537,52 @@ export default function RdrDashboard() {
             <CardContent className="text-3xl font-bold text-emerald-600">{stats.reconhecimentos}</CardContent>
           </Card>
         </button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
+              Conclusão no prazo <CheckCircle2 size={13} />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-green-600">{kpiPrazo.tx}%</div>
+            <p className="text-xs text-muted-foreground">{kpiPrazo.noPrazo} de {kpiPrazo.concluidos} concluídos</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
+              Prazo médio de atendimento <Clock size={13} />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-blue-600">{kpiPrazo.prazoMedio} dia(s)</div>
+            <p className="text-xs text-muted-foreground">da ocorrência à conclusão</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
+              Meta mensal <Target size={13} />
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-3xl font-bold text-orange-600">
+              {metaMensal > 0 ? `${contagensMes.atual.desvios}/${metaMensal}` : "—"}
+            </div>
+            {metaMensal > 0 && (
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
+                <div
+                  className="h-full rounded bg-orange-500"
+                  style={{ width: `${Math.min(100, Math.round((contagensMes.atual.desvios / metaMensal) * 100))}%` }}
+                />
+              </div>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">desvios este mês</p>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
@@ -388,10 +648,99 @@ export default function RdrDashboard() {
         </Card>
       </div>
 
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Top locais</CardTitle>
+            <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={porLocal} layout="vertical" margin={{ left: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar
+                  dataKey="total"
+                  name="Registros"
+                  radius={[0, 4, 4, 0]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { nome?: string } }) =>
+                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome })
+                  }
+                >
+                  {porLocal.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            {porLocal.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-8">Sem dados</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Pendências por responsável</CardTitle>
+            <p className="text-xs text-muted-foreground">toque numa barra para abrir os registros abertos</p>
+          </CardHeader>
+          <CardContent>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={pendPorResp} layout="vertical" margin={{ left: 24 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
+                <Tooltip />
+                <Bar
+                  dataKey="pendentes"
+                  name="Pendentes"
+                  stackId="p"
+                  fill="#f59e0b"
+                  radius={[0, 0, 4, 4]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { nome?: string } }) =>
+                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome, status: "aberto" })
+                  }
+                />
+                <Bar
+                  dataKey="vencidos"
+                  name="Vencidos"
+                  stackId="p"
+                  fill="#ef4444"
+                  radius={[0, 4, 0, 0]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { nome?: string } }) =>
+                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome, status: "vencidos" })
+                  }
+                />
+              </BarChart>
+            </ResponsiveContainer>
+            {pendPorResp.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-8">Sem pendências</p>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Desvios vs Reconhecimentos (últimos 6 meses)</CardTitle>
-          <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-3">
+          <div>
+            <CardTitle className="text-base">Desvios vs Reconhecimentos (últimos 6 meses)</CardTitle>
+            <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Label className="text-xs text-muted-foreground">Meta/mês</Label>
+            <Input
+              type="number"
+              min={0}
+              value={metaInput}
+              onChange={(e) => setMetaInput(e.target.value)}
+              onBlur={() => void handleMetaSave()}
+              placeholder="0"
+              className="w-20"
+            />
+          </div>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={260}>
@@ -421,11 +770,97 @@ export default function RdrDashboard() {
                   d.payload?.chave && irParaRegistros({ mes: d.payload.chave })
                 }
               />
+              {metaMensal > 0 && (
+                <Line
+                  type="monotone"
+                  dataKey="meta"
+                  name={`Meta (${metaMensal})`}
+                  stroke="#f59e0b"
+                  strokeWidth={2}
+                  strokeDasharray="6 4"
+                  dot={false}
+                />
+              )}
             </BarChart>
           </ResponsiveContainer>
           {porMesTipo.every((m) => m.desvios === 0 && m.reconhecimentos === 0) && (
             <p className="text-center text-sm text-muted-foreground py-8">Sem dados</p>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Evolução acumulada ({anoFiltro ?? anoAtual})</CardTitle>
+          <p className="text-xs text-muted-foreground">acumulado no ano de desvios e reconhecimentos</p>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={260}>
+            <AreaChart data={acumulado}>
+              <defs>
+                <linearGradient id="gDesvios" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#ef4444" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#ef4444" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gRecon" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#16a34a" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="#16a34a" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" />
+              <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
+              <YAxis allowDecimals={false} />
+              <Tooltip />
+              <Area type="monotone" dataKey="desvios" name="Desvios acum." stackId="1" stroke="#ef4444" fill="url(#gDesvios)" />
+              <Area type="monotone" dataKey="reconhecimentos" name="Reconhecimentos acum." stackId="1" stroke="#16a34a" fill="url(#gRecon)" />
+            </AreaChart>
+          </ResponsiveContainer>
+          {acumulado.every((m) => m.desvios === 0 && m.reconhecimentos === 0) && (
+            <p className="text-center text-sm text-muted-foreground py-8">Sem dados</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Reincidência (últimos 6 meses)</CardTitle>
+          <p className="text-xs text-muted-foreground">itens que se repetem em meses distintos são destacados</p>
+        </CardHeader>
+        <CardContent className="grid gap-6 sm:grid-cols-2">
+          <div>
+            <div className="mb-2 text-sm font-semibold text-muted-foreground">Por categoria</div>
+            {reincidencia.categorias.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sem desvios no período.</p>
+            )}
+            <ul className="space-y-2">
+              {reincidencia.categorias.map((c) => (
+                <li key={c.nome} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate">{c.nome}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="text-muted-foreground">{c.total} reg · {c.meses} {c.meses === 1 ? "mês" : "meses"}</span>
+                    {c.meses >= 2 && <Badge variant="destructive">recorrente</Badge>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-semibold text-muted-foreground">Por local</div>
+            {reincidencia.locais.length === 0 && (
+              <p className="text-sm text-muted-foreground">Sem desvios no período.</p>
+            )}
+            <ul className="space-y-2">
+              {reincidencia.locais.map((l) => (
+                <li key={l.nome} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="truncate">{l.nome}</span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <span className="text-muted-foreground">{l.total} reg · {l.meses} {l.meses === 1 ? "mês" : "meses"}</span>
+                    {l.meses >= 2 && <Badge variant="destructive">recorrente</Badge>}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
         </CardContent>
       </Card>
 
