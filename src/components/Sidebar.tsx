@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BarChart3, GanttChart,
   Users, Calendar, AlertTriangle, Clock, PieChart,
-  Shield, Award, Menu, X, ChevronDown, ChevronRight,
+  Award, Menu, X, ChevronDown, ChevronRight,
   PanelLeftClose, PanelLeftOpen, TrendingUp,
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
@@ -80,11 +80,15 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
     },
   ] : []
 
+  const segurancaItems: NavItem[] = temSeguranca ? [
+    { icon: BarChart, label: 'Dashboard RDR', path: '/dashboard/seguranca/dashboard' },
+    { icon: ClipboardList, label: 'Novo Registro', path: '/dashboard/seguranca/novo' },
+    { icon: Search, label: 'Registros', path: '/dashboard/seguranca/registros' },
+  ] : []
+
   return [
     ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
-    ...(temSeguranca
-      ? [{ title: 'Segurança', items: [{ icon: Shield, label: 'Em breve', path: '#', disabled: true }] }]
-      : []),
+    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
     ...(temSuprimentos
       ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
       : []),

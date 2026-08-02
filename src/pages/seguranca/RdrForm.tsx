@@ -1,0 +1,339 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Loader2, Plus, Trash2, ImagePlus } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
+import {
+  useRdrRecord, useSalvarRecord, fazerUploadFotos, excluirFotos, obterFotoUrl,
+  type FotoUpload,
+} from "@/lib/rdr/rdr-db";
+import { CATEGORIAS, MAX_FOTOS } from "@/lib/rdr/constants";
+import type { RdrFoto } from "@/lib/rdr/mappers";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Combobox, MultiCombobox } from "@/components/ui/combobox";
+
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function FotoExistente({ foto, onRemove }: { foto: RdrFoto; onRemove: () => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [erro, setErro] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    obterFotoUrl(foto.path)
+      .then((u) => {
+        if (ativo) setUrl(u);
+      })
+      .catch(() => {
+        if (ativo) setErro(true);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [foto.path]);
+
+  if (erro) return null;
+  return (
+    <div className="relative">
+      {url ? (
+        <img src={url} alt={foto.name} className="h-24 w-24 rounded-md border object-cover" />
+      ) : (
+        <div className="h-24 w-24 animate-pulse rounded-md bg-muted" />
+      )}
+      <button
+        type="button"
+        onClick={onRemove}
+        className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white shadow"
+        title="Remover foto"
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
+  );
+}
+
+function comprimirImagem(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new Image();
+      img.onload = () => {
+        const maxDim = 1024;
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) {
+          reject(new Error("Canvas não suportado"));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL("image/jpeg", 0.7));
+      };
+      img.onerror = reject;
+      img.src = reader.result as string;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export default function RdrForm() {
+  const { id } = useParams<{ id: string }>();
+  const isEdit = !!id;
+  const navigate = useNavigate();
+  const { user, userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+
+  const { data: record, isLoading: carregandoRecord } = useRdrRecord(isEdit ? id : undefined);
+  const salvarMut = useSalvarRecord(organizacaoId);
+
+  const nomePadrao = user?.user_metadata?.nome ?? user?.email ?? "";
+
+  const [data, setData] = useState(hojeISO());
+  const [hora, setHora] = useState("");
+  const [local, setLocal] = useState("");
+  const [autorNome, setAutorNome] = useState(nomePadrao);
+  const [categorias, setCategorias] = useState<string[]>([]);
+  const [concluido, setConcluido] = useState<string>("NÃO");
+  const [nomeColaborador, setNomeColaborador] = useState("");
+  const [responsavelSetor, setResponsavelSetor] = useState("");
+  const [responsavelRegistro, setResponsavelRegistro] = useState("");
+  const [descricao, setDescricao] = useState("");
+  const [sugestaoCorrecao, setSugestaoCorrecao] = useState("");
+  const [prazo, setPrazo] = useState("");
+  const [existentes, setExistentes] = useState<RdrFoto[]>([]);
+  const [novasFotos, setNovasFotos] = useState<FotoUpload[]>([]);
+  const [salvando, setSalvando] = useState(false);
+
+  useEffect(() => {
+    if (record) {
+      setData(record.data_ocorrido);
+      setHora(record.hora ?? "");
+      setLocal(record.local ?? "");
+      setAutorNome(record.autor_nome || nomePadrao);
+      setCategorias(record.categorias ?? []);
+      setConcluido(record.concluido || "NÃO");
+      setNomeColaborador(record.nome_colaborador ?? "");
+      setResponsavelSetor(record.responsavel_setor ?? "");
+      setResponsavelRegistro(record.responsavel_registro ?? "");
+      setDescricao(record.descricao);
+      setSugestaoCorrecao(record.sugestao_correcao ?? "");
+      setPrazo(record.prazo ?? "");
+      setExistentes(record.fotos ?? []);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record]);
+
+  const totalFotos = existentes.length + novasFotos.length;
+
+  const handleArquivos = async (files: FileList | null) => {
+    if (!files || !files.length) return;
+    const restantes = MAX_FOTOS - totalFotos;
+    if (restantes <= 0) {
+      toast.warning(`Máximo de ${MAX_FOTOS} fotos por registro`);
+      return;
+    }
+    const lista = Array.from(files).slice(0, restantes);
+    const comprimidas: FotoUpload[] = [];
+    for (const f of lista) {
+      try {
+        comprimidas.push({ dataUrl: await comprimirImagem(f), name: f.name });
+      } catch {
+        toast.error("Não foi possível processar a imagem");
+      }
+    }
+    setNovasFotos((prev) => [...prev, ...comprimidas]);
+  };
+
+  const removerNova = (idx: number) => setNovasFotos((prev) => prev.filter((_, i) => i !== idx));
+
+  const removerExistente = (path: string) => setExistentes((prev) => prev.filter((f) => f.path !== path));
+
+  const podeSalvar = useMemo(
+    () => data && descricao.trim() && categorias.length > 0,
+    [data, descricao, categorias],
+  );
+
+  const handleSalvar = async () => {
+    if (!podeSalvar) {
+      toast.error("Preencha data, categorias e descrição");
+      return;
+    }
+    setSalvando(true);
+    try {
+      const recordId = isEdit ? id! : crypto.randomUUID();
+      const uploads = await fazerUploadFotos(organizacaoId!, recordId, novasFotos);
+      const fotosFinal = [...existentes, ...uploads];
+      await salvarMut.mutateAsync({
+        id: isEdit ? id : undefined,
+        data_ocorrido: data,
+        hora,
+        autor_nome: autorNome,
+        local,
+        categorias,
+        concluido,
+        nome_colaborador: nomeColaborador,
+        responsavel_setor: responsavelSetor,
+        responsavel_registro: responsavelRegistro,
+        descricao,
+        sugestao_correcao: sugestaoCorrecao,
+        prazo: prazo || null,
+        fotos: fotosFinal,
+      });
+      if (isEdit) {
+        const removidas = (record?.fotos ?? []).filter((f) => !existentes.some((e) => e.path === f.path));
+        if (removidas.length) await excluirFotos(removidas.map((f) => f.path)).catch(() => undefined);
+      }
+      toast.success(isEdit ? "Registro atualizado" : "Registro salvo");
+      navigate("/dashboard/seguranca/registros");
+    } catch (e) {
+      toast.error("Falha ao salvar registro");
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  if (isEdit && carregandoRecord) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>;
+  }
+
+  return (
+    <div className="mx-auto max-w-3xl space-y-4">
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => navigate(-1)} title="Voltar">
+          <ArrowLeft size={18} />
+        </Button>
+        <div>
+          <h1 className="text-2xl font-bold">{isEdit ? "Editar Registro" : "Novo Registro RDR"}</h1>
+          <p className="text-sm text-muted-foreground">Registro de Desvio e Reconhecimento</p>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Dados do registro</CardTitle></CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label>Data *</Label>
+            <Input type="date" value={data} onChange={(e) => setData(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Hora</Label>
+            <Input type="time" value={hora} onChange={(e) => setHora(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Local</Label>
+            <Input value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Pátio de formas" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Registrado por</Label>
+            <Input value={autorNome} onChange={(e) => setAutorNome(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Nome do colaborador</Label>
+            <Input value={nomeColaborador} onChange={(e) => setNomeColaborador(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Responsável pelo setor</Label>
+            <Input value={responsavelSetor} onChange={(e) => setResponsavelSetor(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Responsável pelo registro</Label>
+            <Input value={responsavelRegistro} onChange={(e) => setResponsavelRegistro(e.target.value)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Prazo</Label>
+            <Input type="date" value={prazo} onChange={(e) => setPrazo(e.target.value)} />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Categorias *</Label>
+            <MultiCombobox
+              options={CATEGORIAS.map((c) => ({ value: c, label: c }))}
+              value={categorias}
+              onChange={setCategorias}
+              placeholder="Selecione as categorias..."
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Status</Label>
+            <Combobox
+              options={[
+                { value: "SIM", label: "SIM — resolvido/finalizado" },
+                { value: "NÃO", label: "NÃO — pendente" },
+              ]}
+              value={concluido}
+              onChange={(v) => setConcluido(v ?? "NÃO")}
+              placeholder="Selecione..."
+            />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Descrição *</Label>
+            <Textarea value={descricao} onChange={(e) => setDescricao(e.target.value)} rows={4} placeholder="Descreva o desvio ou reconhecimento..." />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Sugestão de correção</Label>
+            <Textarea value={sugestaoCorrecao} onChange={(e) => setSugestaoCorrecao(e.target.value)} rows={3} />
+          </div>
+          <div className="space-y-2 sm:col-span-2">
+            <Label>Fotos ({totalFotos}/{MAX_FOTOS})</Label>
+            <div className="flex flex-wrap gap-2">
+              {existentes.map((f) => (
+                <FotoExistente key={f.path} foto={f} onRemove={() => removerExistente(f.path)} />
+              ))}
+              {novasFotos.map((f, i) => (
+                <div key={i} className="relative">
+                  <img src={f.dataUrl} alt={f.name} className="h-24 w-24 rounded-md border object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removerNova(i)}
+                    className="absolute -right-2 -top-2 rounded-full bg-destructive p-1 text-white shadow"
+                    title="Remover foto"
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              ))}
+              {totalFotos < MAX_FOTOS && (
+                <label className="flex h-24 w-24 cursor-pointer flex-col items-center justify-center gap-1 rounded-md border border-dashed text-muted-foreground hover:border-primary hover:text-primary">
+                  <ImagePlus size={20} />
+                  <span className="text-xs">Adicionar</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      void handleArquivos(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" onClick={() => navigate(-1)}>Cancelar</Button>
+        <Button onClick={() => void handleSalvar()} disabled={salvando || !podeSalvar}>
+          {salvando ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <Plus className="mr-1 h-4 w-4" />}
+          {isEdit ? "Salvar alterações" : "Salvar registro"}
+        </Button>
+      </div>
+    </div>
+  );
+}
