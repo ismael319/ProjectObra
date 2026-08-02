@@ -22,6 +22,7 @@
 // ============================================================================
 
 import { createClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 
 const OLD_URL = "https://hapjuixvwsotcbmpsmyx.supabase.co";
 const OLD_ANON = "sb_publishable_4SC7Z5-Ht_RhVAvRaFxyBw_NOE6KaFK";
@@ -67,8 +68,9 @@ let falhas = 0;
 
 for (const rec of records) {
   try {
-    // Reaproveita o id antigo para manter rastreabilidade.
-    const recordId = rec.id;
+    // O id antigo é um inteiro (não uuid) — geramos um uuid novo aqui para
+    // usar tanto no caminho das fotos quanto na linha da tabela nova.
+    const recordId = randomUUID();
 
     // 1) Fotos base64 -> bucket privado do novo projeto.
     const novasFotos = [];
@@ -109,7 +111,7 @@ for (const rec of records) {
       responsavel_registro: rec.responsavel_registro ?? "",
       descricao: rec.descricao ?? "",
       sugestao_correcao: rec.sugestao_correcao ?? "",
-      prazo: rec.prazo ?? null,
+      prazo: rec.prazo || null,
       fotos: novasFotos,
       criado_por: USER_ID,
       criado_em: rec.saved_at ?? new Date().toISOString(),
@@ -120,10 +122,10 @@ for (const rec of records) {
     if (insErr) throw new Error(`insert: ${insErr.message}`);
 
     ok++;
-    console.log(`[OK] ${recordId} (${rec.data_ocorrido}) fotos: ${novasFotos.length}`);
+    console.log(`[OK] antigo#${rec.id} -> ${recordId} (${rec.data_ocorrido}) fotos: ${novasFotos.length}`);
   } catch (e) {
     falhas++;
-    console.error(`[FALHA] ${rec.id}: ${e.message}`);
+    console.error(`[FALHA] antigo#${rec.id}: ${e.message}`);
   }
 }
 
