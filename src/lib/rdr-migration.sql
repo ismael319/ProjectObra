@@ -100,15 +100,3 @@ DROP POLICY IF EXISTS "rdr-fotos delete da organizacao" ON storage.objects;
 CREATE POLICY "rdr-fotos delete da organizacao"
   ON storage.objects FOR DELETE TO authenticated
   USING (bucket_id = 'rdr-fotos' AND (storage.foldername(name))[1] = public.user_organizacao()::text);
-
--- ============================================================
--- NOTA SOBRE MIGRAÇÃO DE DADOS (Projeto 1 -> ProjectObra):
--- Os registros antigos estão no projeto Supabase "hapjuixvwsotcbmpsmyx"
--- (RLS desabilitado, leitura via anon key). A migração é feita pelo script
--- scripts/migrar-rdr.mjs, que:
---   1. lê rdr_records do banco antigo;
---   2. faz upload das fotos base64 para o bucket rdr-fotos;
---   3. insere os registros no banco novo com o organizacao_id alvo.
--- autor_id antigo não corresponde a auth.users do ProjectObra — o script
--- mantém autor_nome e deixa autor_id/criado_por apontando para quem migra.
--- ============================================================
