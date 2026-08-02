@@ -106,9 +106,11 @@ export default function RdrRegistros() {
   const { data: registros = [], isLoading } = useRdrRecords(organizacaoId);
   const excluirMut = useExcluirRecord(organizacaoId);
 
-  const [busca, setBusca] = useState("");
-  const [status, setStatus] = useState<string | null>((location.state as { status?: string } | null)?.status ?? null);
-  const [categoria, setCategoria] = useState<string | null>(null);
+  const estadoInicial = (location.state ?? {}) as { status?: string; categoria?: string; busca?: string; mes?: string };
+  const [busca, setBusca] = useState(estadoInicial.busca ?? "");
+  const [status, setStatus] = useState<string | null>(estadoInicial.status ?? null);
+  const [categoria, setCategoria] = useState<string | null>(estadoInicial.categoria ?? null);
+  const [mes, setMes] = useState<string | null>(estadoInicial.mes ?? null);
   const [detalhe, setDetalhe] = useState<RdrRecord | null>(null);
   const [gerandoPdfId, setGerandoPdfId] = useState<string | null>(null);
 
@@ -116,10 +118,14 @@ export default function RdrRegistros() {
     window.history.replaceState({}, "");
   }, []);
 
+  const hojeKey = new Date().toLocaleDateString("en-CA");
+
   const filtrados = useMemo(() => {
     return registros.filter((r) => {
       if (status === "aberto" && r.concluido === "SIM") return false;
       if (status === "finalizado" && r.concluido !== "SIM") return false;
+      if (status === "vencidos" && (r.concluido === "SIM" || !r.prazo || r.prazo >= hojeKey)) return false;
+      if (mes && r.data_ocorrido?.slice(0, 7) !== mes) return false;
       if (categoria && !(r.categorias ?? []).includes(categoria)) return false;
       if (busca) {
         const q = busca.toLowerCase();
@@ -128,7 +134,16 @@ export default function RdrRegistros() {
       }
       return true;
     });
-  }, [registros, status, categoria, busca]);
+  }, [registros, status, categoria, busca, mes, hojeKey]);
+
+  const temFiltro = !!status || !!categoria || !!busca || !!mes;
+
+  const limparFiltros = () => {
+    setBusca("");
+    setStatus(null);
+    setCategoria(null);
+    setMes(null);
+  };
 
   const podeExcluir = userProfile?.papel === "edicao";
 
@@ -171,7 +186,7 @@ export default function RdrRegistros() {
 
       <Card>
         <CardContent className="pt-4">
-          <div className="grid gap-3 md:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Buscar</Label>
               <div className="relative">
@@ -185,6 +200,7 @@ export default function RdrRegistros() {
                 options={[
                   { value: "aberto", label: "Abertos" },
                   { value: "finalizado", label: "Finalizados" },
+                  { value: "vencidos", label: "Vencidos" },
                 ]}
                 value={status}
                 onChange={setStatus}
@@ -200,7 +216,20 @@ export default function RdrRegistros() {
                 placeholder="Todas"
               />
             </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Mês</Label>
+              <Input
+                type="month"
+                value={mes ?? ""}
+                onChange={(e) => setMes(e.target.value || null)}
+              />
+            </div>
           </div>
+          {temFiltro && (
+            <div className="mt-3">
+              <Button variant="outline" size="sm" onClick={limparFiltros}>Limpar filtros</Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
