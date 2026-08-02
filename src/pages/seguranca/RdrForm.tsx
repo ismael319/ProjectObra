@@ -105,7 +105,6 @@ export default function RdrForm() {
   const [data, setData] = useState(hojeISO());
   const [hora, setHora] = useState("");
   const [local, setLocal] = useState("");
-  const [autorNome, setAutorNome] = useState(nomePadrao);
   const [categorias, setCategorias] = useState<string[]>([]);
   const [concluido, setConcluido] = useState<string>("NÃO");
   const [nomeColaborador, setNomeColaborador] = useState("");
@@ -123,7 +122,6 @@ export default function RdrForm() {
       setData(record.data_ocorrido);
       setHora(record.hora ?? "");
       setLocal(record.local ?? "");
-      setAutorNome(record.autor_nome || nomePadrao);
       setCategorias(record.categorias ?? []);
       setConcluido(record.concluido || "NÃO");
       setNomeColaborador(record.nome_colaborador ?? "");
@@ -181,7 +179,6 @@ export default function RdrForm() {
         id: isEdit ? id : undefined,
         data_ocorrido: data,
         hora,
-        autor_nome: autorNome,
         local,
         categorias,
         concluido,
@@ -238,9 +235,10 @@ export default function RdrForm() {
             <Label>Local</Label>
             <Input value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Pátio de formas" />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 sm:col-span-2">
             <Label>Registrado por</Label>
-            <Input value={autorNome} onChange={(e) => setAutorNome(e.target.value)} />
+            <Input value={nomePadrao} readOnly className="bg-muted text-muted-foreground" />
+            <p className="text-xs text-muted-foreground">Sempre a conta logada — preenchido automaticamente pelo sistema.</p>
           </div>
           <div className="space-y-1.5">
             <Label>Nome do colaborador</Label>

@@ -30,7 +30,6 @@ export interface RdrRecord {
 export interface RdrRecordInput {
   data_ocorrido: string
   hora: string
-  autor_nome: string
   local: string
   categorias: string[]
   concluido: string
