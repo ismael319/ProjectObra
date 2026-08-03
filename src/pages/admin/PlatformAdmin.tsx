@@ -34,7 +34,7 @@ export default function PlatformAdmin() {
           </div>
           <div className="flex items-center gap-3">
             <span className="text-sm text-gray-500 dark:text-gray-400 hidden sm:block">{user?.email}</span>
-            <button onClick={() => signOut()} className="text-sm text-gray-500 hover:text-red-600 transition">
+            <button onClick={() => signOut()} className="text-sm text-gray-500 dark:text-gray-400 hover:text-red-600 transition">
               Sair
             </button>
           </div>

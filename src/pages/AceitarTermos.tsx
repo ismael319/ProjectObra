@@ -28,18 +28,18 @@ export default function AceitarTermos() {
           <p className="text-blue-200/60 text-sm mt-1">Aceite dos Termos de Uso</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
-          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8">
+          <div className="flex items-center gap-3 mb-6 pb-4 border-b border-gray-100 dark:border-gray-700">
             <Shield className="text-blue-600" size={24} />
             <div>
-              <h2 className="text-lg font-bold text-gray-900">Atualização em nossos Termos</h2>
-              <p className="text-sm text-gray-500">
+              <h2 className="text-lg font-bold text-gray-900 dark:text-white">Atualização em nossos Termos</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
                 Precisamos do seu consentimento para continuar utilizando a plataforma
               </p>
             </div>
           </div>
 
-          <div className="prose prose-sm max-w-none text-gray-600 mb-6">
+          <div className="prose prose-sm max-w-none text-gray-600 dark:text-gray-300 mb-6">
             <p>
               Para estar em conformidade com a <strong>Lei Geral de Proteção de Dados (LGPD — Lei nº 13.709/2018)</strong>,
               atualizamos nossa Política de Privacidade e Termos de Uso.
@@ -74,13 +74,13 @@ export default function AceitarTermos() {
               type="checkbox"
               checked={aceitou}
               onChange={(e) => setAceitou(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              className="mt-1 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
             />
             <div>
-              <span className="text-sm font-medium text-gray-900">
+              <span className="text-sm font-medium text-gray-900 dark:text-white">
                 Li e aceito a Política de Privacidade e os Termos de Uso
               </span>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                 Ao aceitar, você declara estar ciente de como seus dados serão tratados
               </p>
             </div>

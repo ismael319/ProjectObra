@@ -188,7 +188,7 @@ export default function Activities() {
                   <tr key={`${activity.uid}-${index}`} className={`hover:bg-gray-50 dark:hover:bg-gray-700/30 transition ${activity.isSummary ? 'bg-gray-50/50 dark:bg-gray-700/20' : ''}`}>
                     <td className="px-2 py-3">
                       {hasChildren && (
-                        <button onClick={() => toggleWbs(activity.wbs)} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
+                        <button onClick={() => toggleWbs(activity.wbs)} className="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
                           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                         </button>
                       )}
@@ -264,7 +264,7 @@ export default function Activities() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <Users size={14} className="text-gray-400" />
+                        <Users size={14} className="text-gray-400 dark:text-gray-500" />
                         <span className="text-xs text-gray-600 dark:text-gray-300 truncate max-w-[120px]">
                           {actResources.length > 0 ? actResources.join(', ') : '-'}
                         </span>

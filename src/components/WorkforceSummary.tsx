@@ -65,7 +65,7 @@ export default function WorkforceSummary() {
           </div>
           <div className="col-span-2 pt-2 border-t border-gray-100 dark:border-gray-700">
             <div className="flex items-center gap-2">
-              <Clock size={14} className="text-gray-400" />
+              <Clock size={14} className="text-gray-400 dark:text-gray-500" />
               <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{stats.last7Hours.toFixed(0)}h</span>
               <span className="text-xs text-gray-400 dark:text-gray-500">últimos 7 dias</span>
               {stats.trendPct !== null && (

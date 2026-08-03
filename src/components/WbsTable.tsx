@@ -60,8 +60,8 @@ export default function WbsTable({ activities: activitiesProp }: Props = {}) {
   const getStatusIcon = (activity: typeof activities[0]) => {
     if (activity.percentComplete === 100) return <CheckCircle size={14} className="text-green-500" />
     if (activity.percentComplete > 0) return <Clock size={14} className="text-blue-500" />
-    if (toDate(activity.finish) < new Date() && activity.percentComplete < 100) return <AlertTriangle size={14} className="text-red-500" />
-    return <Pause size={14} className="text-gray-400" />
+    if (toDate(activity.finish) < new Date() && activity.percentComplete < 100) return <AlertTriangle size={14} className="text-red-500 dark:text-red-400" />
+    return <Pause size={14} className="text-gray-400 dark:text-gray-500" />
   }
 
   const getStatusColor = (activity: typeof activities[0]) => {

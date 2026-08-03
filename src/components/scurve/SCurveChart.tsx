@@ -149,7 +149,7 @@ export function SCurveChart({
               })
             }
           }} onMouseLeave={() => onTooltipChange(null)}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" />
             {statusX !== null && chartData.length > 0 && (
               <ReferenceArea x1={chartData[0].date} x2={statusX} fill={COLOR_REAL} fillOpacity={0.06} />
             )}

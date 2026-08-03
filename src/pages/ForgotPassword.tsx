@@ -49,13 +49,13 @@ export default function ForgotPassword() {
         </div>
 
         {/* Card */}
-        <div className="bg-white rounded-2xl shadow-2xl p-8">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8">
           <div className="text-center mb-6">
             <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-4">
               <Mail className="text-blue-600" size={24} />
             </div>
-            <h2 className="text-2xl font-bold text-gray-900">Esqueceu a senha?</h2>
-            <p className="text-gray-500 text-sm mt-1">
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Esqueceu a senha?</h2>
+            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">
               Digite seu email e enviaremos um link para redefinir sua senha
             </p>
           </div>
@@ -74,7 +74,7 @@ export default function ForgotPassword() {
             )}
 
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Email
               </label>
               <input
@@ -83,8 +83,8 @@ export default function ForgotPassword() {
                 id="email"
                 autoComplete="email"
                 placeholder="seu@email.com"
-                className={`w-full px-4 py-3 border rounded-lg text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
-                  errors.email ? 'border-red-300' : 'border-gray-300'
+                className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
+                  errors.email ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'
                 }`}
               />
               {errors.email && (
@@ -109,7 +109,7 @@ export default function ForgotPassword() {
           </form>
 
           <div className="mt-6 text-center">
-            <Link to="/login" className="inline-flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700">
+            <Link to="/login" className="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
               <ArrowLeft size={16} />
               Voltar para o login
             </Link>

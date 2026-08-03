@@ -343,7 +343,7 @@ export default function CronogramaManager() {
                       onClick={() => setExpandedId(isExpanded ? null : c.id)}
                       className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
                     >
-                      {isExpanded ? <ChevronUp size={16} className="text-gray-400" /> : <ChevronDown size={16} className="text-gray-400" />}
+                      {isExpanded ? <ChevronUp size={16} className="text-gray-400 dark:text-gray-500" /> : <ChevronDown size={16} className="text-gray-400 dark:text-gray-500" />}
                     </button>
 
                     <button
@@ -405,7 +405,7 @@ export default function CronogramaManager() {
       )}
 
       {cronogramas.length > 0 && (
-        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-750">
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30">
           <span className="text-sm font-medium text-gray-600 dark:text-gray-300">Soma dos pesos (cronogramas ativos)</span>
           <div className="flex items-center gap-2">
             {!pesoOk && (

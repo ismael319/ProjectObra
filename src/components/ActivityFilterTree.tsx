@@ -86,7 +86,7 @@ function Row({ node, excluded, onToggle, expanded, onToggleExpand, searchTerm }:
         onClick={() => hasChildren && onToggleExpand(activity.uid)}
       >
         {hasChildren ? (
-          isOpen ? <ChevronDown size={14} className="text-gray-400 flex-shrink-0" /> : <ChevronRight size={14} className="text-gray-400 flex-shrink-0" />
+          isOpen ? <ChevronDown size={14} className="text-gray-400 dark:text-gray-500 flex-shrink-0" /> : <ChevronRight size={14} className="text-gray-400 dark:text-gray-500 flex-shrink-0" />
         ) : (
           <span className="w-3.5 flex-shrink-0" />
         )}
@@ -162,7 +162,7 @@ export default function ActivityFilterTree({ activities, excluded, onChange }: A
       </div>
 
       <div className="relative mb-2">
-        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
         <input
           type="text"
           value={search}
@@ -171,7 +171,7 @@ export default function ActivityFilterTree({ activities, excluded, onChange }: A
           className="w-full pl-7 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder:text-gray-400 focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
         {search && (
-          <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+          <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
             <X size={13} />
           </button>
         )}
@@ -189,7 +189,7 @@ export default function ActivityFilterTree({ activities, excluded, onChange }: A
 
       <div className="max-h-64 overflow-y-auto border border-gray-100 dark:border-gray-700 rounded-lg p-1">
         {visibleRoots.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-4">Nenhuma atividade encontrada</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-4">Nenhuma atividade encontrada</p>
         ) : (
           visibleRoots.map((node) => (
             <Row

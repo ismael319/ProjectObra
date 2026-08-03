@@ -227,7 +227,7 @@ export default function OrganizacaoDetailModal({
                           onClick={() => setExpandedMembroId(expanded ? null : membro.id)}
                           className="flex items-center gap-2 flex-1 min-w-0 text-left"
                         >
-                          {expanded ? <ChevronDown size={14} className="shrink-0 text-gray-400" /> : <ChevronRight size={14} className="shrink-0 text-gray-400" />}
+                          {expanded ? <ChevronDown size={14} className="shrink-0 text-gray-400 dark:text-gray-500" /> : <ChevronRight size={14} className="shrink-0 text-gray-400 dark:text-gray-500" />}
                           <span className="flex-1 min-w-0">
                             <span className="block text-sm font-medium text-gray-900 dark:text-white truncate">{membro.email ?? membro.id}</span>
                             {membro.funcao && (

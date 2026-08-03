@@ -231,7 +231,7 @@ export default function DashboardHome() {
                     <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-600 rounded-t-xl px-3 py-1.5 text-xs">
                       <span className="font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
                         {WIDGET_LABELS[w.id]}
-                        {!w.visible && <span className="text-gray-400">(oculto)</span>}
+                        {!w.visible && <span className="text-gray-400 dark:text-gray-500">(oculto)</span>}
                         {temFiltro && (
                           <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400" title="Filtro aplicado neste card">
                             <Filter size={11} /> filtrado

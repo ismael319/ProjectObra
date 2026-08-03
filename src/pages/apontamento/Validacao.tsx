@@ -516,7 +516,7 @@ export default function ValidacaoPage() {
                 return (
                   <div
                     key={a.id}
-                    className={`rounded-lg border p-3 text-sm ${a.validado ? "bg-green-50 border-green-200" : ""}`}
+                    className={`rounded-lg border p-3 text-sm ${a.validado ? "bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-800" : ""}`}
                   >
                     {emEdicao ? (
                       <div className="space-y-3">

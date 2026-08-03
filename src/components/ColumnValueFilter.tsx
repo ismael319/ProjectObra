@@ -272,7 +272,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
                 </div>
               )}
               <div className="relative mb-2">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500" />
                 <input
                   autoFocus
                   type="text"
@@ -284,7 +284,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
               </div>
               <div className="max-h-40 overflow-y-auto space-y-0.5">
                 {visibleColumns.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-3">Nenhuma coluna encontrada</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">Nenhuma coluna encontrada</p>
                 ) : (
                   visibleColumns.map((c) => (
                     <button
@@ -313,7 +313,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
               </button>
               <div className="max-h-40 overflow-y-auto space-y-0.5 mb-2">
                 {valueOptions.length === 0 ? (
-                  <p className="text-xs text-gray-400 text-center py-3">Nenhum valor encontrado</p>
+                  <p className="text-xs text-gray-400 dark:text-gray-500 text-center py-3">Nenhum valor encontrado</p>
                 ) : (
                   valueOptions.map(([value, count]) => (
                     <label

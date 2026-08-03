@@ -274,7 +274,7 @@ export default function ImportarXmlPage() {
                 {[1, 2, 3, 4, 5].map((depth) => (
                   <div key={depth} className="space-y-1">
                     <Label className="text-xs text-muted-foreground">Profundidade {depth}</Label>
-                    <select value={levelMap[depth] ?? 0} onChange={(e) => setLevelMap((p) => ({ ...p, [depth]: Number(e.target.value) }))} className="w-full border rounded px-2 py-1.5 text-sm">
+                    <select value={levelMap[depth] ?? 0} onChange={(e) => setLevelMap((p) => ({ ...p, [depth]: Number(e.target.value) }))} className="w-full border rounded px-2 py-1.5 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600">
                       <option value={0}>Não usar</option>
                       <option value={1}>Nível 1 (Setor)</option>
                       <option value={2}>Nível 2 (Área)</option>

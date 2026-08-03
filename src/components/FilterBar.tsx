@@ -101,7 +101,7 @@ export function FilterBar({ activities, resources, filters, onFiltersChange }: F
       {/* Main search */}
       <div className="flex gap-3">
         <div className="flex items-center bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-4 py-2.5 flex-1">
-          <Search size={18} className="text-gray-400" />
+          <Search size={18} className="text-gray-400 dark:text-gray-500" />
           <input
             type="text"
             placeholder="Buscar atividade, WBS, responsável..."
@@ -248,7 +248,7 @@ export function FilterBar({ activities, resources, filters, onFiltersChange }: F
               <button onClick={() => toggleFilter('responsibles', r)}><X size={12} /></button>
             </span>
           ))}
-          <button onClick={clearAll} className="text-xs text-gray-500 hover:text-red-500">Limpar tudo</button>
+          <button onClick={clearAll} className="text-xs text-gray-500 dark:text-gray-400 hover:text-red-500">Limpar tudo</button>
         </div>
       )}
     </div>

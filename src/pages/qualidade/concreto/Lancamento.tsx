@@ -321,7 +321,7 @@ export default function ConcretoLancamentoPage() {
             {online ? "Online" : "Offline — os lançamentos ficam salvos no aparelho"}
           </span>
           {pendentes.length > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+            <span className="rounded-full bg-amber-100 dark:bg-amber-900/30 px-2 py-0.5 text-xs font-medium text-amber-800 dark:text-amber-200">
               {pendentes.length} pendente(s) de envio
             </span>
           )}
@@ -528,7 +528,7 @@ function Chip({ children, variant }: { children: React.ReactNode; variant?: "pen
     variant === "error"
       ? "bg-destructive/10 text-destructive"
       : variant === "pending"
-        ? "bg-amber-100 text-amber-800"
+        ? "bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200"
         : "bg-secondary text-secondary-foreground";
   return <span className={`rounded-full px-2 py-0.5 ${cls}`}>{children}</span>;
 }
