@@ -72,17 +72,6 @@ export default function Privacy() {
               </div>
 
               <div className="bg-gray-50 rounded-lg p-4">
-                <h3 className="font-semibold text-gray-900">Dados de Registro de Segurança (RDR)</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  Registros de segurança do trabalho armazenados no Firebase, incluindo nome de colaboradores,
-                  responsáveis por setor, descrição de ocorrências e documentação fotográfica.
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  Base legal: execução de contrato (art. 7º, V) e cumprimento de obrigação legal regulatória (art. 7º, II)
-                </p>
-              </div>
-
-              <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="font-semibold text-gray-900">Dados armazenados localmente (Modo Offline / PWA)</h3>
                 <p className="text-sm text-gray-600 mt-1">
                   Quando o usuário utiliza o aplicativo FGI Decision (PWA), uma cópia funcional de dados de projetos,
@@ -136,7 +125,6 @@ export default function Privacy() {
             </p>
             <ul className="list-disc pl-6 space-y-1 text-gray-600">
               <li><strong>Supabase (AWS - EUA)</strong>: Banco de dados principal, autenticação e armazenamento de arquivos</li>
-              <li><strong>Firebase / Google Cloud Platform (EUA)</strong>: Armazenamento de registros de segurança (RDR)</li>
               <li><strong>Vercel (Cloudflare + AWS - Global)</strong>: Hospedagem e infraestrutura de borda</li>
               <li><strong>Groq Cloud (EUA)</strong>: Processamento de inteligência artificial (chat assistant)</li>
             </ul>

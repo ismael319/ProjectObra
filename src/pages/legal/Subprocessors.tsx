@@ -10,12 +10,6 @@ const subprocessors = [
     website: 'https://supabase.com',
   },
   {
-    name: 'Google Cloud / Firebase',
-    purpose: 'Armazenamento de registros de segurança do trabalho (RDR) e documentação',
-    location: 'EUA (us-central1)',
-    website: 'https://firebase.google.com',
-  },
-  {
     name: 'Vercel Inc.',
     purpose: 'Hospedagem da aplicação frontend, infraestrutura de borda e CDN',
     location: 'Rede global / AWS — EUA',

@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BarChart3, GanttChart,
   Users, Calendar, AlertTriangle, Clock, PieChart,
-  Shield, Award, Menu, X, ChevronDown, ChevronRight,
+  Award, Menu, X, ChevronDown, ChevronRight,
   PanelLeftClose, PanelLeftOpen, TrendingUp,
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
@@ -19,6 +19,7 @@ interface NavItem {
   label: string
   path: string
   children?: NavItem[]
+  disabled?: boolean
 }
 
 // Telas do Gantt Livre, Apontamento/EAP, Programação semanal e Mapa de Chuvas
@@ -79,11 +80,15 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
     },
   ] : []
 
+  const segurancaItems: NavItem[] = temSeguranca ? [
+    { icon: BarChart, label: 'Dashboard RDR', path: '/dashboard/seguranca/dashboard' },
+    { icon: ClipboardList, label: 'Novo Registro', path: '/dashboard/seguranca/novo' },
+    { icon: Search, label: 'Registros', path: '/dashboard/seguranca/registros' },
+  ] : []
+
   return [
     ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
-    ...(temSeguranca
-      ? [{ title: 'Segurança', items: [{ icon: Shield, label: 'RDR - Dashboard', path: '/dashboard/security/rdr' }] }]
-      : []),
+    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
     ...(temSuprimentos
       ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
       : []),
@@ -262,6 +267,19 @@ export default function Sidebar({
                     const itemExpanded = expandedItems.has(item.path)
                     const itemActive = isItemOrChildActive(item)
 
+                    if (item.disabled) {
+                      return (
+                        <div
+                          key={item.path}
+                          title="Em breve"
+                          className="flex items-center gap-3 px-3 py-2.5 rounded-md text-sm text-white/50 cursor-not-allowed select-none"
+                        >
+                          <item.icon size={17} className="opacity-60" />
+                          <span className="flex-1">{item.label}</span>
+                        </div>
+                      )
+                    }
+
                     if (hasChildren) {
                       return (
                         <div key={item.path}>
@@ -331,6 +349,17 @@ export default function Sidebar({
                 <div className="space-y-0.5 mt-1">
                   {section.items.map((item) => {
                     const hasChildren = item.children && item.children.length > 0
+                    if (item.disabled) {
+                      return (
+                        <div
+                          key={item.path}
+                          title="Em breve"
+                          className="flex items-center justify-center px-2 py-2.5 rounded-md text-sm text-white/50 cursor-not-allowed select-none"
+                        >
+                          <item.icon size={17} className="opacity-60" />
+                        </div>
+                      )
+                    }
                     if (hasChildren) {
                       return (
                         <div key={item.path} className="relative group">

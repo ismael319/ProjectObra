@@ -1,216 +1,305 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { subscribeRdrRecords, RDR_CATEGORIAS, type RdrRecord } from "@/lib/firebase-rdr";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Eye, Pencil, Trash2, FileText, Loader2, Search } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/lib/auth-context";
+import { useRdrRecords, useExcluirRecord, obterFotoUrl } from "@/lib/rdr/rdr-db";
+import { gerarPdfRegistro } from "@/lib/rdr/exports";
+import { CATEGORIAS } from "@/lib/rdr/constants";
+import { formatarData, formatarDataHora, type RdrRecord } from "@/lib/rdr/mappers";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Loader2 } from "lucide-react";
 
-type FiltroData = "todas" | "hoje" | "ontem" | "semana" | "mes" | "mesExato";
+function FotoItem({ path, name }: { path: string; name: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [erro, setErro] = useState(false);
 
-const PERIODOS: { id: FiltroData; label: string }[] = [
-  { id: "todas", label: "Todas" },
-  { id: "hoje", label: "Hoje" },
-  { id: "ontem", label: "Ontem" },
-  { id: "semana", label: "7 dias" },
-  { id: "mes", label: "Este mês" },
-  { id: "mesExato", label: "Mês específico" },
-];
+  useEffect(() => {
+    let ativo = true;
+    obterFotoUrl(path)
+      .then((u) => {
+        if (ativo) setUrl(u);
+      })
+      .catch(() => {
+        if (ativo) setErro(true);
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [path]);
 
-function chipClass(active: boolean) {
-  return `rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
-    active
-      ? "bg-primary text-primary-foreground border-primary"
-      : "bg-transparent text-muted-foreground border-input hover:bg-muted"
-  }`;
+  if (erro) return null;
+  if (!url) return <div className="h-24 w-24 animate-pulse rounded-md bg-muted" />;
+  return (
+    <a href={url} target="_blank" rel="noreferrer" title={name}>
+      <img src={url} alt={name} className="h-24 w-24 rounded-md object-cover border" />
+    </a>
+  );
+}
+
+function DetalheRecord({ record, onClose }: { record: RdrRecord; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Registro — {formatarData(record.data_ocorrido)}</DialogTitle>
+        </DialogHeader>
+        <div className="grid gap-3 text-sm sm:grid-cols-2">
+          <div><span className="font-semibold">Local:</span> {record.local || "—"}</div>
+          <div><span className="font-semibold">Hora:</span> {record.hora || "—"}</div>
+          <div><span className="font-semibold">Registrado por:</span> {record.autor_nome || "—"}</div>
+          <div><span className="font-semibold">Colaborador:</span> {record.nome_colaborador || "—"}</div>
+          <div><span className="font-semibold">Responsável setor:</span> {record.responsavel_setor || "—"}</div>
+          <div><span className="font-semibold">Responsável registro:</span> {record.responsavel_registro || "—"}</div>
+          <div><span className="font-semibold">Prazo:</span> {record.prazo ? formatarData(record.prazo) : "—"}</div>
+          <div><span className="font-semibold">Criado em:</span> {formatarDataHora(record.criado_em)}</div>
+        </div>
+        <div>
+          <span className="font-semibold">Categorias:</span>{" "}
+          <div className="mt-1 flex flex-wrap gap-1">
+            {(record.categorias ?? []).map((c) => (
+              <Badge key={c} variant={c === "Reconhecimento" ? "default" : "secondary"}>{c}</Badge>
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="font-semibold">Status:</span>{" "}
+          <Badge variant={record.concluido === "SIM" ? "default" : "destructive"}>{record.concluido || "—"}</Badge>
+        </div>
+        <div>
+          <span className="font-semibold">Descrição:</span>
+          <p className="mt-1 whitespace-pre-wrap rounded-md border p-2 text-sm">{record.descricao}</p>
+        </div>
+        {record.sugestao_correcao && (
+          <div>
+            <span className="font-semibold">Sugestão de correção:</span>
+            <p className="mt-1 whitespace-pre-wrap rounded-md border p-2 text-sm">{record.sugestao_correcao}</p>
+          </div>
+        )}
+        {(record.fotos?.length ?? 0) > 0 && (
+          <div>
+            <span className="font-semibold">Fotos:</span>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {record.fotos.map((f) => (
+                <FotoItem key={f.path} path={f.path} name={f.name} />
+              ))}
+            </div>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 export default function RdrRegistros() {
+  const { userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const location = useLocation();
 
-  const [registros, setRegistros] = useState<RdrRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: registros = [], isLoading } = useRdrRecords(organizacaoId);
+  const excluirMut = useExcluirRecord(organizacaoId);
 
-  const [filtroData, setFiltroData] = useState<FiltroData>(() => {
-    const d = searchParams.get("data");
-    return (PERIODOS.some((p) => p.id === d) ? d : "todas") as FiltroData;
-  });
-  const [filtroMes, setFiltroMes] = useState(() => searchParams.get("mes") ?? "");
-  const [filtroCategoria, setFiltroCategoria] = useState<string | null>(() => searchParams.get("categoria"));
-  const [filtroTecnico, setFiltroTecnico] = useState<string | null>(() => searchParams.get("tecnico"));
-  const [filtroConcluido, setFiltroConcluido] = useState<"todos" | "SIM" | "NÃO">(() => {
-    const c = searchParams.get("concluido");
-    return c === "NAO" ? "NÃO" : c === "SIM" ? "SIM" : "todos";
-  });
+  const estadoInicial = (location.state ?? {}) as { status?: string; categoria?: string; busca?: string; mes?: string };
+  const [busca, setBusca] = useState(estadoInicial.busca ?? "");
+  const [status, setStatus] = useState<string | null>(estadoInicial.status ?? null);
+  const [categoria, setCategoria] = useState<string | null>(estadoInicial.categoria ?? null);
+  const [mes, setMes] = useState<string | null>(estadoInicial.mes ?? null);
+  const [detalhe, setDetalhe] = useState<RdrRecord | null>(null);
+  const [gerandoPdfId, setGerandoPdfId] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsub = subscribeRdrRecords((dados) => {
-      setRegistros(dados);
-      setLoading(false);
-    });
-    return () => unsub();
+    window.history.replaceState({}, "");
   }, []);
 
   const hojeKey = new Date().toLocaleDateString("en-CA");
-  const ontemKey = new Date(Date.now() - 86400000).toLocaleDateString("en-CA");
-  const semanaKey = new Date(Date.now() - 7 * 86400000).toLocaleDateString("en-CA");
-  const mesKey = hojeKey.slice(0, 7);
 
-  const tecnicos = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const r of registros) if (r.autorId && r.autorNome) map.set(r.autorId, r.autorNome);
-    return [...map.entries()].map(([value, label]) => ({ value, label })).sort((a, b) => a.label.localeCompare(b.label));
-  }, [registros]);
+  const filtrados = useMemo(() => {
+    return registros.filter((r) => {
+      if (status === "aberto" && r.concluido === "SIM") return false;
+      if (status === "finalizado" && r.concluido !== "SIM") return false;
+      if (status === "vencidos" && (r.concluido === "SIM" || !r.prazo || r.prazo >= hojeKey)) return false;
+      if (mes && r.data_ocorrido?.slice(0, 7) !== mes) return false;
+      if (categoria && !(r.categorias ?? []).includes(categoria)) return false;
+      if (busca) {
+        const q = busca.toLowerCase();
+        const alvo = [r.local, r.autor_nome, r.nome_colaborador, r.descricao, r.responsavel_setor].join(" ").toLowerCase();
+        if (!alvo.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [registros, status, categoria, busca, mes, hojeKey]);
 
-  const filtrados = useMemo(() => registros.filter((r) => {
-    if (filtroTecnico && r.autorId !== filtroTecnico) return false;
-    if (filtroCategoria && !(r.categorias ?? []).includes(filtroCategoria)) return false;
-    if (filtroData === "hoje" && r.dataOcorrido !== hojeKey) return false;
-    if (filtroData === "ontem" && r.dataOcorrido !== ontemKey) return false;
-    if (filtroData === "semana" && (!r.dataOcorrido || r.dataOcorrido < semanaKey)) return false;
-    if (filtroData === "mes" && r.dataOcorrido?.slice(0, 7) !== mesKey) return false;
-    if (filtroData === "mesExato" && filtroMes && r.dataOcorrido?.slice(0, 7) !== filtroMes) return false;
-    if (filtroConcluido !== "todos" && r.concluido !== filtroConcluido) return false;
-    return true;
-  }), [registros, filtroTecnico, filtroCategoria, filtroData, filtroMes, filtroConcluido, hojeKey, ontemKey, semanaKey, mesKey]);
+  const temFiltro = !!status || !!categoria || !!busca || !!mes;
 
   const limparFiltros = () => {
-    setFiltroData("todas");
-    setFiltroMes("");
-    setFiltroCategoria(null);
-    setFiltroTecnico(null);
-    setFiltroConcluido("todos");
+    setBusca("");
+    setStatus(null);
+    setCategoria(null);
+    setMes(null);
   };
 
-  const filtrosAtivos = [filtroData !== "todas", !!filtroCategoria, !!filtroTecnico, filtroConcluido !== "todos"].filter(Boolean).length;
+  const podeExcluir = userProfile?.papel === "edicao";
+
+  const handleExcluir = async (r: RdrRecord) => {
+    if (!window.confirm("Excluir este registro? As fotos também serão removidas.")) return;
+    try {
+      await excluirMut.mutateAsync(r);
+      toast.success("Registro excluído");
+    } catch (e) {
+      toast.error("Falha ao excluir registro");
+      console.error(e);
+    }
+  };
+
+  const handlePdf = async (r: RdrRecord) => {
+    setGerandoPdfId(r.id);
+    try {
+      await gerarPdfRegistro(r);
+    } catch (e) {
+      toast.error("Falha ao gerar PDF");
+      console.error(e);
+    } finally {
+      setGerandoPdfId(null);
+    }
+  };
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground py-8 text-center">Carregando...</p>;
+  }
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard/security/rdr")}>
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-bold">Registros RDR</h1>
-          <p className="text-sm text-muted-foreground">{filtrados.length} de {registros.length} registro(s)</p>
+          <p className="text-sm text-muted-foreground">{filtrados.length} registro(s)</p>
         </div>
+        <Button onClick={() => navigate("/dashboard/seguranca/novo")}>Novo Registro</Button>
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Filtros</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Período</Label>
-            <div className="flex flex-wrap gap-2">
-              {PERIODOS.map((p) => (
-                <button key={p.id} className={chipClass(filtroData === p.id)} onClick={() => setFiltroData(p.id)}>
-                  {p.label}
-                </button>
-              ))}
+        <CardContent className="pt-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Buscar</Label>
+              <div className="relative">
+                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+                <Input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Local, técnico, descrição..." className="pl-8" />
+              </div>
             </div>
-            {filtroData === "mesExato" && (
-              <input
-                type="month"
-                value={filtroMes}
-                onChange={(e) => setFiltroMes(e.target.value)}
-                className="mt-2 w-full max-w-[200px] rounded-md border border-input bg-transparent px-3 py-2 text-sm"
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Combobox
+                options={[
+                  { value: "aberto", label: "Abertos" },
+                  { value: "finalizado", label: "Finalizados" },
+                  { value: "vencidos", label: "Vencidos" },
+                ]}
+                value={status}
+                onChange={setStatus}
+                placeholder="Todos"
               />
-            )}
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-2">
+            </div>
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Categoria</Label>
               <Combobox
-                options={RDR_CATEGORIAS.map((c) => ({ value: c, label: c }))}
-                value={filtroCategoria}
-                onChange={setFiltroCategoria}
+                options={CATEGORIAS.map((c) => ({ value: c, label: c }))}
+                value={categoria}
+                onChange={setCategoria}
                 placeholder="Todas"
               />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">TST / Responsável</Label>
-              <Combobox
-                options={tecnicos}
-                value={filtroTecnico}
-                onChange={setFiltroTecnico}
-                placeholder="Todos"
+              <Label className="text-xs text-muted-foreground">Mês</Label>
+              <Input
+                type="month"
+                value={mes ?? ""}
+                onChange={(e) => setMes(e.target.value || null)}
               />
             </div>
           </div>
-
-          <div className="space-y-1.5">
-            <Label className="text-xs text-muted-foreground">Status</Label>
-            <div className="flex flex-wrap gap-2">
-              <button className={chipClass(filtroConcluido === "todos")} onClick={() => setFiltroConcluido("todos")}>Todos</button>
-              <button className={chipClass(filtroConcluido === "SIM")} onClick={() => setFiltroConcluido("SIM")}>Concluído</button>
-              <button className={chipClass(filtroConcluido === "NÃO")} onClick={() => setFiltroConcluido("NÃO")}>Pendente</button>
+          {temFiltro && (
+            <div className="mt-3">
+              <Button variant="outline" size="sm" onClick={limparFiltros}>Limpar filtros</Button>
             </div>
-          </div>
-
-          {filtrosAtivos > 0 && (
-            <Button variant="outline" size="sm" onClick={limparFiltros}>Limpar filtros</Button>
           )}
         </CardContent>
       </Card>
 
       <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
+        <CardContent className="pt-4">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Data</TableHead>
+                <TableHead>Local</TableHead>
+                <TableHead>Registrado por</TableHead>
+                <TableHead>Categorias</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {filtrados.length === 0 && (
                 <TableRow>
-                  <TableHead>Data</TableHead>
-                  <TableHead>TST</TableHead>
-                  <TableHead>Local</TableHead>
-                  <TableHead>Categorias</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Colaborador</TableHead>
-                  <TableHead>Descrição</TableHead>
+                  <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                    Nenhum registro encontrado.
+                  </TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {loading && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-10"><Loader2 className="mx-auto h-5 w-5 animate-spin text-muted-foreground" /></TableCell></TableRow>
-                )}
-                {!loading && filtrados.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-10 text-muted-foreground">Nenhum registro encontrado</TableCell></TableRow>
-                )}
-                {filtrados.map((r) => (
-                  <TableRow key={r.id}>
-                    <TableCell className="whitespace-nowrap">
-                      {r.dataOcorrido?.split("-").reverse().join("/") ?? "—"}
-                      {r.hora && <div className="text-xs text-muted-foreground">{r.hora}</div>}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{r.autorNome ?? "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.local ?? "—"}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {(r.categorias ?? []).map((c) => <Badge key={c} variant="outline" className="text-[10px]">{c}</Badge>)}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {r.concluido === "SIM" ? (
-                        <Badge className="bg-green-600 hover:bg-green-600">Concluído</Badge>
-                      ) : r.concluido === "NÃO" ? (
-                        <Badge variant="destructive">Pendente</Badge>
-                      ) : (
-                        <Badge variant="outline">—</Badge>
+              )}
+              {filtrados.map((r) => (
+                <TableRow key={r.id}>
+                  <TableCell className="whitespace-nowrap">{formatarData(r.data_ocorrido)}</TableCell>
+                  <TableCell>{r.local || "—"}</TableCell>
+                  <TableCell>{r.autor_nome || "—"}</TableCell>
+                  <TableCell>
+                    <div className="flex max-w-52 flex-wrap gap-1">
+                      {(r.categorias ?? []).map((c) => (
+                        <Badge key={c} variant={c === "Reconhecimento" ? "default" : "secondary"}>{c}</Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={r.concluido === "SIM" ? "default" : "outline"}>{r.concluido || "—"}</Badge>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-1">
+                      <Button variant="ghost" size="icon" title="Visualizar" onClick={() => setDetalhe(r)}>
+                        <Eye size={16} />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        title="Editar"
+                        onClick={() => navigate(`/dashboard/seguranca/registros/${r.id}`)}
+                      >
+                        <Pencil size={16} />
+                      </Button>
+                      <Button variant="ghost" size="icon" title="PDF" onClick={() => handlePdf(r)} disabled={gerandoPdfId === r.id}>
+                        {gerandoPdfId === r.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText size={16} />}
+                      </Button>
+                      {podeExcluir && (
+                        <Button variant="ghost" size="icon" title="Excluir" className="text-destructive" onClick={() => handleExcluir(r)}>
+                          <Trash2 size={16} />
+                        </Button>
                       )}
-                    </TableCell>
-                    <TableCell className="whitespace-nowrap">{r.nomeColaborador ?? "—"}</TableCell>
-                    <TableCell className="min-w-[240px] max-w-[420px] whitespace-normal text-sm text-muted-foreground">{r.descricao ?? "—"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
+
+      {detalhe && <DetalheRecord record={detalhe} onClose={() => setDetalhe(null)} />}
     </div>
   );
 }

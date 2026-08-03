@@ -53,6 +53,12 @@ const ConcretoDashboard = lazy(() => import('@/pages/qualidade/concreto/Dashboar
 const ConcretoImportarHistorico = lazy(() => import('@/pages/qualidade/concreto/ImportarHistorico'))
 const ConcretoConsulta = lazy(() => import('@/pages/qualidade/concreto/Consulta'))
 
+// Segurança / RDR
+const RdrHome = lazy(() => import('@/pages/seguranca/RdrHome'))
+const RdrDashboard = lazy(() => import('@/pages/seguranca/RdrDashboard'))
+const RdrForm = lazy(() => import('@/pages/seguranca/RdrForm'))
+const RdrRegistros = lazy(() => import('@/pages/seguranca/RdrRegistros'))
+
 // Apontamento pages
 const ApontamentoLancamento = lazy(() => import('@/pages/apontamento/Lancamento'))
 const ApontamentoValidacao = lazy(() => import('@/pages/apontamento/Validacao'))
@@ -66,10 +72,6 @@ const ApontamentoEapCronograma = lazy(() => import('@/pages/apontamento/EapCrono
 const ApontamentoImportarXml = lazy(() => import('@/pages/apontamento/ImportarXML'))
 const ApontamentoImportarEap = lazy(() => import('@/pages/apontamento/ImportarEAP'))
 const MapaChuvas = lazy(() => import('@/pages/apontamento/MapaChuvas'))
-
-// Segurança
-const RdrDashboard = lazy(() => import('@/pages/seguranca/RdrDashboard'))
-const RdrRegistros = lazy(() => import('@/pages/seguranca/RdrRegistros'))
 
 function LoadingFallback() {
   return (
@@ -208,8 +210,11 @@ function App() {
                       <Route path="qualidade/concreto/dashboard" element={<RequireModulo modulo="qualidade"><ConcretoDashboard /></RequireModulo>} />
                       <Route path="qualidade/concreto/importar-historico" element={<RequireModulo modulo="qualidade"><ConcretoImportarHistorico /></RequireModulo>} />
                       <Route path="qualidade/concreto/consulta" element={<RequireModulo modulo="qualidade"><ConcretoConsulta /></RequireModulo>} />
-                      <Route path="security/rdr" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
-                      <Route path="security/rdr/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
+                      <Route path="seguranca" element={<RequireModulo modulo="seguranca"><RdrHome /></RequireModulo>} />
+                      <Route path="seguranca/dashboard" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
+                      <Route path="seguranca/novo" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
+                      <Route path="seguranca/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
+                      <Route path="seguranca/registros/:id" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
                       <Route path="admin/users" element={<UserApprovalManagement />} />
                       <Route path="admin/seguranca" element={<SecurityMonitoring />} />
                     </Route>
