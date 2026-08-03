@@ -159,24 +159,26 @@ export default function RdrForm() {
   const { data: subareas = [] } = useSubareas();
 
   const opcoesEap = useMemo(() => {
-    const opcoes: { value: string; label: string; group: string }[] = [];
+    const opcoes: { value: string; label: string; group: string; nivel: "setor" | "area" | "subarea" }[] = [];
     for (const s of setores) {
       const areasDoSetor = areas.filter((a) => a.setor_id === s.id);
       if (areasDoSetor.length === 0) {
-        opcoes.push({ value: s.nome, label: s.nome, group: "" });
+        opcoes.push({ value: s.nome, label: s.nome, group: "", nivel: "setor" });
         continue;
       }
       for (const a of areasDoSetor) {
         const subareasDaArea = subareas.filter((sb) => sb.area_id === a.id);
         if (subareasDaArea.length === 0) {
-          opcoes.push({ value: `${s.nome} > ${a.nome}`, label: a.nome, group: s.nome });
+          opcoes.push({ value: `${s.nome} > ${a.nome}`, label: a.nome, group: s.nome, nivel: "area" });
           continue;
         }
+        opcoes.push({ value: `${s.nome} > ${a.nome}`, label: `${s.nome} > ${a.nome}`, group: s.nome, nivel: "area" });
         for (const sb of subareasDaArea) {
           opcoes.push({
             value: `${s.nome} > ${a.nome} > ${sb.nome}`,
             label: sb.nome,
-            group: `${s.nome} > ${a.nome}`,
+            group: s.nome,
+            nivel: "subarea",
           });
         }
       }
@@ -345,11 +347,12 @@ export default function RdrForm() {
                           {opts.map((o) => (
                             <CommandItem
                               key={o.value}
-                              value={`${o.label} ${o.group}`}
+                              value={o.value}
                               onSelect={() => {
                                 setLocal(o.value);
                                 setAbertoLocal(false);
                               }}
+                              className={o.nivel === "subarea" ? "pl-6" : o.nivel === "area" ? "font-medium" : undefined}
                             >
                               <Check className={local === o.value ? "mr-2 h-4 w-4 opacity-100" : "mr-2 h-4 w-4 opacity-0"} />
                               {o.label}
