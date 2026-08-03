@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X, Send, Trash2, Pencil, Save } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { enviarConviteEmail } from '@/lib/convite-email'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
@@ -8,6 +8,16 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 interface SolicitacaoRow {
   id: string
@@ -78,6 +88,10 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const [conviteEmail, setConviteEmail] = useState('')
   const [convitePapel, setConvitePapel] = useState<PapelUsuario>(papeisDisponiveis[0])
   const [isSendingConvite, setIsSendingConvite] = useState(false)
+
+  const [excluirAlvo, setExcluirAlvo] = useState<SolicitacaoRow | null>(null)
+  const [excluirConfirm, setExcluirConfirm] = useState('')
+  const [isExcluindo, setIsExcluindo] = useState(false)
 
   const load = useCallback(async () => {
     if (!orgAlvo) return
@@ -199,6 +213,23 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
       toast.success(`Convite de ${convite.email} cancelado`)
       setConvites((prev) => prev.filter((c) => c.id !== convite.id))
     }
+  }
+
+  const handleExcluir = async (row: SolicitacaoRow) => {
+    if (!excluirAlvo || excluirConfirm.toLowerCase() !== (excluirAlvo.email ?? '').toLowerCase()) return
+    setIsExcluindo(true)
+    const { error } = await supabase.rpc('excluir_usuario', { usuario_id: row.id })
+
+    if (error) {
+      toast.error(`Não foi possível excluir: ${error.message}`)
+    } else {
+      toast.success(`Conta de ${row.email ?? 'usuário'} excluída`)
+      setRows((prev) => prev.filter((r) => r.id !== row.id))
+      setExcluirAlvo(null)
+      setExcluirConfirm('')
+      onAlterado?.()
+    }
+    setIsExcluindo(false)
   }
 
   const handleRejeitar = async (row: SolicitacaoRow) => {
@@ -482,15 +513,30 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                         </Button>
                       </div>
                     ) : (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={isSelf}
-                        title={isSelf ? 'Não é permitido editar a própria solicitação' : undefined}
-                        onClick={() => startEdit(row)}
-                      >
-                        <Pencil size={14} /> Editar
-                      </Button>
+                      <div className="flex justify-end gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={isSelf}
+                          title={isSelf ? 'Não é permitido editar a própria solicitação' : undefined}
+                          onClick={() => startEdit(row)}
+                        >
+                          <Pencil size={14} /> Editar
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-red-600 hover:text-red-700 hover:border-red-300 disabled:opacity-40"
+                          disabled={isSelf}
+                          title={isSelf ? 'Não é possível excluir a própria conta' : 'Excluir usuário permanentemente'}
+                          onClick={() => {
+                            setExcluirConfirm('')
+                            setExcluirAlvo(row)
+                          }}
+                        >
+                          <Trash2 size={14} /> Excluir
+                        </Button>
+                      </div>
                     )}
                   </TableCell>
                 </TableRow>
@@ -500,6 +546,45 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         </Table>
       </div>
       )}
+
+      <AlertDialog open={!!excluirAlvo} onOpenChange={(o) => !o && setExcluirAlvo(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir usuário?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A conta de <strong>{excluirAlvo?.email}</strong> será excluída definitivamente: login, perfil e
+              permissões. Apontamentos, registros e demais dados de trabalho são preservados, mas o autor
+              fica em branco. Esta ação não pode ser desfeita.
+              <br />
+              <br />
+              Digite o email do usuário para confirmar:
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={excluirConfirm}
+            onChange={(e) => setExcluirConfirm(e.target.value)}
+            placeholder={excluirAlvo?.email ?? ''}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isExcluindo}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={
+                excluirConfirm.toLowerCase() !== (excluirAlvo?.email ?? '').toLowerCase() || isExcluindo
+              }
+              onClick={() => excluirAlvo && handleExcluir(excluirAlvo)}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isExcluindo ? (
+                <>
+                  <Loader2 size={14} className="animate-spin" /> Excluindo...
+                </>
+              ) : (
+                'Excluir permanentemente'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

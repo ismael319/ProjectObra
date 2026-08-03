@@ -27,6 +27,11 @@
 --   FROM pg_constraint WHERE conrelid = 'public.user_profiles'::regclass;
 
 -- ============ 1. FUNÇÃO DEFINITIVA DE SIGNUP ============
+-- IMPORTANTE: NÃO usar `SELECT * INTO <record> ... IF <record> IS NOT NULL`.
+-- Em PL/pgSQL, para tipos record, `IS NOT NULL` só é verdadeiro quando TODOS
+-- os campos são não-nulos. Como convites.usado_em costuma ser NULL, a condição
+-- caía no ELSE e o usuário nascia pendente mesmo com convite ativo.
+-- Usar variáveis escalares e testar convite_id IS NOT NULL.
 
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS trigger
@@ -34,18 +39,22 @@ LANGUAGE plpgsql
 SECURITY DEFINER
 AS $$
 DECLARE
-  convite record;
+  convite_id uuid := NULL;
+  convite_papel text;
+  convite_org uuid;
 BEGIN
   IF to_regclass('public.convites') IS NOT NULL THEN
-    SELECT * INTO convite FROM public.convites
-    WHERE lower(email) = lower(new.email) AND usado_em IS NULL
-    ORDER BY criado_em DESC LIMIT 1;
+    SELECT id, papel_convidado, organizacao_id
+      INTO convite_id, convite_papel, convite_org
+      FROM public.convites
+      WHERE lower(email) = lower(new.email) AND usado_em IS NULL
+      ORDER BY criado_em DESC LIMIT 1;
   END IF;
 
-  IF convite IS NOT NULL THEN
+  IF convite_id IS NOT NULL THEN
     INSERT INTO public.user_profiles (id, email, papel, status_solicitacao, organizacao_id)
-    VALUES (new.id, new.email, convite.papel_convidado, 'aprovado', convite.organizacao_id);
-    UPDATE public.convites SET usado_em = now() WHERE id = convite.id;
+    VALUES (new.id, new.email, convite_papel, 'aprovado', convite_org);
+    UPDATE public.convites SET usado_em = now() WHERE id = convite_id;
   ELSE
     INSERT INTO public.user_profiles (id, email, papel, status_solicitacao, organizacao_id)
     VALUES (new.id, new.email, NULL, 'pendente', NULL);

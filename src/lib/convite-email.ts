@@ -24,7 +24,11 @@ export async function enviarConviteEmail(params: EnviarConviteParams) {
     if (error.context) {
       try {
         const payload = await error.context.clone().json()
-        detail = typeof payload?.error === 'string' ? payload.error : ''
+        detail =
+          (typeof payload?.error === 'string' ? payload.error : '') +
+          (typeof payload?.details?.message === 'string'
+            ? ` (${payload.details.message})`
+            : '')
       } catch {
         /* corpo não-JSON */
       }
