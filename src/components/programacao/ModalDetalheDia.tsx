@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react'
-import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks, Image, Ban, RotateCcw } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks, Image, Ban, RotateCcw, CheckCheck, CalendarClock, History } from 'lucide-react'
 import { toast } from 'sonner'
 import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa } from '@/lib/adherence'
-import { parseISODateStr, formatShortDate } from '@/lib/iso-week'
+import { parseISODateStr, formatShortDate, WEEKDAY_LABELS } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
 import { addSubEtapa, toggleSubEtapa, deleteSubEtapa, computeStatusFromSubetapas } from '@/lib/programacao-db'
 import type { WBSActivity } from '@/lib/xml-parser'
@@ -19,12 +19,28 @@ interface Props {
   onOpenChange: (v: boolean) => void
   date: string | null
   activities: ActivityLike[]
+  /** As 7 datas ISO da semana carregada — usado pelo "Reprogramar" (só oferece dias
+   * dentro dessa semana) e pelo "Adicionar não realizadas". */
+  weekDays: string[]
+  /** TODAS as atividades da semana (não só as do dia aberto) — usado pra achar dias
+   * futuros da mesma tarefa (Finalizar 100%), dias já ocupados por uma tarefa
+   * (Reprogramar) e pendências de dias anteriores (Adicionar não realizadas). */
+  todasAtividadesDaSemana: ActivityLike[]
   weekConsolidated: boolean
   onSetStatus: (id: string, status: ActivityStatus, observation: string | null) => Promise<void>
   /** Inativa/reativa um item pra análise (ex.: não ficou claro por que não foi
    * executado) — sai do PPC/aderência enquanto inativo. Funciona mesmo com a semana
    * bloqueada, igual às sub-etapas. */
   onSetInativa: (id: string, inativa: boolean, motivo: string | null) => Promise<void>
+  /** Marca concluída e remove a atividade dos dias futuros da semana que ainda
+   * tinham a mesma tarefa programada. Funciona mesmo com a semana bloqueada. */
+  onFinalizar: (activity: ActivityLike) => Promise<void>
+  /** Move a atividade pra outro dia da semana carregada. Funciona mesmo com a semana
+   * bloqueada (mas só dentro do intervalo da semana). */
+  onReprogramar: (activityId: string, novaData: string) => Promise<void>
+  /** Traz pra `date` uma ou mais atividades não realizadas de dias anteriores desta
+   * semana (sai do dia original). Funciona mesmo com a semana bloqueada. */
+  onAdicionarNaoRealizadas: (activityIds: string[], data: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
   /** Atualiza a lista de atividades sem mudar status de nenhuma — usado quando a
    * última sub-etapa de um item é excluída (computeStatusFromSubetapas volta a
@@ -116,9 +132,14 @@ export default function ModalDetalheDia({
   onOpenChange,
   date,
   activities,
+  weekDays,
+  todasAtividadesDaSemana,
   weekConsolidated,
   onSetStatus,
   onSetInativa,
+  onFinalizar,
+  onReprogramar,
+  onAdicionarNaoRealizadas,
   onDelete,
   onRefresh,
   onAddExtra,
@@ -128,6 +149,7 @@ export default function ModalDetalheDia({
   getActivityDetail,
 }: Props) {
   const [showExtra, setShowExtra] = useState(false)
+  const [showNaoRealizadas, setShowNaoRealizadas] = useState(false)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
   const groups = useMemo(() => {
@@ -144,6 +166,25 @@ export default function ModalDetalheDia({
       return a.localeCompare(b)
     })
   }, [activities])
+
+  // Uma tarefa por dia anterior (não a lista bruta) — se a mesma tarefa (taskUid)
+  // ficou pendente em vários dias antes de hoje, só a ocorrência mais recente entra
+  // como candidata; trazer mais de uma pra hoje duplicaria a linha do mesmo taskUid.
+  // Também não oferece uma tarefa que já tem linha própria hoje.
+  const naoRealizadasAnteriores = useMemo(() => {
+    if (!date) return []
+    const porTask = new Map<string, ActivityLike>()
+    for (const a of todasAtividadesDaSemana) {
+      if (a.planned_date >= date || a.status === 'concluida' || a.inativa) continue
+      const key = a.taskUid ?? a.id
+      const atual = porTask.get(key)
+      if (!atual || a.planned_date > atual.planned_date) porTask.set(key, a)
+    }
+    const jaHoje = new Set(activities.filter((a) => a.taskUid).map((a) => a.taskUid))
+    return Array.from(porTask.values())
+      .filter((a) => !(a.taskUid && jaHoje.has(a.taskUid)))
+      .sort((x, y) => x.name.localeCompare(y.name, 'pt-BR'))
+  }, [todasAtividadesDaSemana, activities, date])
 
   const toggleGroup = (key: string) => {
     setCollapsedGroups((prev) => {
@@ -252,9 +293,13 @@ export default function ModalDetalheDia({
                             <ActivityRow
                               key={a.id}
                               activity={a}
+                              weekDays={weekDays}
+                              todasAtividadesDaSemana={todasAtividadesDaSemana}
                               weekConsolidated={weekConsolidated}
                               onSetStatus={onSetStatus}
                               onSetInativa={onSetInativa}
+                              onFinalizar={onFinalizar}
+                              onReprogramar={onReprogramar}
                               onDelete={onDelete}
                               onRefresh={onRefresh}
                               detail={getActivityDetail(a)}
@@ -280,6 +325,15 @@ export default function ModalDetalheDia({
                 setShowExtra(false)
               }}
             />
+          ) : showNaoRealizadas && date ? (
+            <NaoRealizadasForm
+              candidatas={naoRealizadasAnteriores}
+              onCancel={() => setShowNaoRealizadas(false)}
+              onSubmit={async (ids) => {
+                await onAdicionarNaoRealizadas(ids, date)
+                setShowNaoRealizadas(false)
+              }}
+            />
           ) : (
             <div className="flex flex-col sm:flex-row gap-2">
               <button
@@ -297,6 +351,14 @@ export default function ModalDetalheDia({
               >
                 <Download size={16} /> Adicionar do cronograma
               </button>
+              <button
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
+                onClick={() => setShowNaoRealizadas(true)}
+                disabled={!date || naoRealizadasAnteriores.length === 0}
+                title="Traz pra hoje atividades ainda não realizadas em dias anteriores desta semana"
+              >
+                <History size={16} /> Não realizadas {naoRealizadasAnteriores.length > 0 ? `(${naoRealizadasAnteriores.length})` : ''}
+              </button>
             </div>
           )}
         </div>
@@ -307,17 +369,25 @@ export default function ModalDetalheDia({
 
 function ActivityRow({
   activity,
+  weekDays,
+  todasAtividadesDaSemana,
   weekConsolidated,
   onSetStatus,
   onSetInativa,
+  onFinalizar,
+  onReprogramar,
   onDelete,
   onRefresh,
   detail,
 }: {
   activity: ActivityLike
+  weekDays: Props['weekDays']
+  todasAtividadesDaSemana: Props['todasAtividadesDaSemana']
   weekConsolidated: boolean
   onSetStatus: Props['onSetStatus']
   onSetInativa: Props['onSetInativa']
+  onFinalizar: Props['onFinalizar']
+  onReprogramar: Props['onReprogramar']
   onDelete: Props['onDelete']
   onRefresh: Props['onRefresh']
   detail: WBSActivity | null
@@ -329,10 +399,18 @@ function ActivityRow({
   const [showInativarForm, setShowInativarForm] = useState(false)
   const [motivoInativar, setMotivoInativar] = useState('')
   const [savingInativa, setSavingInativa] = useState(false)
+  const [showReprogramar, setShowReprogramar] = useState(false)
+  const [finalizando, setFinalizando] = useState(false)
   const canDelete = !weekConsolidated || activity.is_extra
   const delayDays = detail ? computeDelayDays(detail) : 0
   const subetapas = activity.subetapas ?? []
   const temSubetapas = subetapas.length > 0
+  // Dias em que essa mesma tarefa (taskUid) já tem uma linha própria — pra não
+  // oferecer reprogramar pra um dia que geraria uma segunda linha da mesma tarefa.
+  const diasOcupadosPorTask = useMemo(() => {
+    if (!activity.taskUid) return new Set<string>()
+    return new Set(todasAtividadesDaSemana.filter((a) => a.taskUid === activity.taskUid).map((a) => a.planned_date))
+  }, [todasAtividadesDaSemana, activity.taskUid])
 
   async function handleInativar() {
     const motivo = motivoInativar.trim()
@@ -354,6 +432,20 @@ function ActivityRow({
     } finally {
       setSavingInativa(false)
     }
+  }
+
+  async function handleFinalizar() {
+    setFinalizando(true)
+    try {
+      await onFinalizar(activity)
+    } finally {
+      setFinalizando(false)
+    }
+  }
+
+  async function handleReprogramarPara(novaData: string) {
+    await onReprogramar(activity.id, novaData)
+    setShowReprogramar(false)
   }
 
   // Sub-etapas concluídas/não determinam o status da atividade automaticamente —
@@ -456,6 +548,22 @@ function ActivityRow({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {!temSubetapas && activity.taskUid && activity.status !== 'concluida' && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  disabled={finalizando}
+                  onClick={handleFinalizar}
+                  className="p-1.5 rounded-md transition hover:bg-emerald-100 dark:hover:bg-emerald-900/30 disabled:opacity-30 text-emerald-600 dark:text-emerald-400"
+                >
+                  <CheckCheck size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-xs">
+                <span className="font-semibold">Finalizar 100%</span> — marca concluída e remove essa atividade dos dias restantes da semana (ela já não está mais programada pros dias seguintes).
+              </TooltipContent>
+            </Tooltip>
+          )}
           <StatusButton
             active={activity.status === 'concluida'}
             tone="emerald"
@@ -503,6 +611,14 @@ function ActivityRow({
             </button>
           )}
           <button
+            disabled={activity.status === 'concluida'}
+            onClick={() => setShowReprogramar((v) => !v)}
+            title="Reprogramar — mover essa atividade pra outro dia da semana"
+            className="p-1.5 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-md transition disabled:opacity-30 text-gray-500 dark:text-gray-400"
+          >
+            <CalendarClock size={14} />
+          </button>
+          <button
             disabled={!canDelete}
             onClick={() => onDelete(activity.id)}
             title={canDelete ? 'Remover' : 'Semana bloqueada — só atividades extras podem ser removidas'}
@@ -512,6 +628,37 @@ function ActivityRow({
           </button>
         </div>
       </div>
+
+      {showReprogramar && (
+        <div className="mt-2 rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-2">
+          <p className="text-[11px] font-medium text-gray-700 dark:text-gray-300 mb-1.5">Mover pra qual dia?</p>
+          <div className="flex flex-wrap gap-1.5">
+            {weekDays.map((d, i) => {
+              if (d === activity.planned_date) return null
+              const ocupado = !!activity.taskUid && diasOcupadosPorTask.has(d)
+              return (
+                <button
+                  key={d}
+                  disabled={ocupado}
+                  title={ocupado ? 'Essa tarefa já está programada nesse dia' : ''}
+                  onClick={() => handleReprogramarPara(d)}
+                  className="px-2 py-1 text-xs rounded border border-gray-200 dark:border-gray-600 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:border-blue-300 dark:hover:border-blue-700 transition disabled:opacity-30 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                >
+                  {WEEKDAY_LABELS[i]} {formatShortDate(parseISODateStr(d))}
+                </button>
+              )
+            })}
+          </div>
+          <div className="mt-1.5 flex justify-end">
+            <button
+              onClick={() => setShowReprogramar(false)}
+              className="px-2.5 py-1 text-xs font-medium hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
 
       {showInativarForm && !activity.inativa && (
         <div className="mt-2 rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-2">
@@ -606,6 +753,68 @@ function ActivityRow({
         }}
         className="mt-2 w-full min-h-[52px] text-xs px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
       />
+    </div>
+  )
+}
+
+function NaoRealizadasForm({
+  candidatas,
+  onCancel,
+  onSubmit,
+}: {
+  candidatas: ActivityLike[]
+  onCancel: () => void
+  onSubmit: (ids: string[]) => Promise<void>
+}) {
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(() => new Set(candidatas.map((a) => a.id)))
+  const [saving, setSaving] = useState(false)
+
+  const toggle = (id: string) => {
+    setSelecionadas((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div className="rounded-md border border-dashed border-orange-300 dark:border-orange-700 p-3">
+      <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">
+        Atividades não realizadas em dias anteriores desta semana — as marcadas serão movidas pra hoje.
+      </p>
+      {candidatas.length === 0 ? (
+        <p className="py-2 text-xs text-gray-400 dark:text-gray-500">Nenhuma atividade pendente em dias anteriores.</p>
+      ) : (
+        <div className="max-h-48 space-y-1 overflow-y-auto">
+          {candidatas.map((a) => (
+            <label key={a.id} className="flex cursor-pointer items-center gap-2 py-1 text-xs">
+              <input type="checkbox" checked={selecionadas.has(a.id)} onChange={() => toggle(a.id)} className="w-3.5 h-3.5" />
+              <span className="flex-1 text-gray-800 dark:text-gray-200">{a.name}</span>
+              <span className="text-gray-400 dark:text-gray-500">{formatShortDate(parseISODateStr(a.planned_date))}</span>
+            </label>
+          ))}
+        </div>
+      )}
+      <div className="mt-3 flex justify-end gap-2">
+        <button onClick={onCancel} className="px-3 py-1.5 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition">
+          Cancelar
+        </button>
+        <button
+          disabled={selecionadas.size === 0 || saving}
+          onClick={async () => {
+            setSaving(true)
+            try {
+              await onSubmit(Array.from(selecionadas))
+            } finally {
+              setSaving(false)
+            }
+          }}
+          className="px-3 py-1.5 text-sm font-medium bg-orange-600 text-white rounded-md hover:bg-orange-700 transition disabled:opacity-50"
+        >
+          Adicionar{selecionadas.size > 0 ? ` (${selecionadas.size})` : ''}
+        </button>
+      </div>
     </div>
   )
 }

@@ -276,6 +276,30 @@ export async function setActivityInativa(activityId: string, inativa: boolean, m
   if (error) throw new Error(error.message)
 }
 
+// Move uma ou mais atividades já existentes pra outro dia (não cria linha nova) —
+// usado tanto pelo "Reprogramar" (1 id) quanto pelo "Adicionar atividades não
+// realizadas" (vários ids de uma vez, trazendo pendências de dias anteriores da
+// mesma semana pro dia de hoje). Funciona mesmo com a semana bloqueada; quem chama é
+// responsável por só oferecer dias dentro da semana carregada.
+export async function moverAtividadesParaDia(activityIds: string[], novaData: string): Promise<void> {
+  if (activityIds.length === 0) return
+  const { error } = await supabase.from('activities').update({ planned_date: novaData }).in('id', activityIds)
+  if (error) throw new Error(error.message)
+}
+
+// "Finalizado 100%": marca concluída e remove os dias FUTUROS da mesma semana que
+// ainda estavam programados pra essa mesma tarefa do cronograma (mesmo task_uid) —
+// uma atividade concluída antes do previsto não deve continuar aparecendo como
+// pendente nos dias seguintes, inflando a aderência desses dias com um trabalho que
+// já não existe mais. Nunca mexe em dias passados: os ids a remover já vêm
+// calculados pelo chamador (só dias com planned_date > o dia da atividade finalizada).
+export async function finalizarAtividade(activityId: string, idsDiasFuturos: string[], observation?: string | null): Promise<void> {
+  await setActivityStatus(activityId, 'concluida', observation ?? null)
+  if (idsDiasFuturos.length === 0) return
+  const { error } = await supabase.from('activities').delete().in('id', idsDiasFuturos)
+  if (error) throw new Error(error.message)
+}
+
 // ============ Sub-etapas de uma atividade do dia ============
 // Uma atividade (ex.: "Bypass") pode ser composta de frentes menores no mesmo
 // dia (Armação, Concretagem, Bases, Montagem); cada uma é marcada concluída

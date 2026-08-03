@@ -3,7 +3,7 @@ import { Calendar, Loader2 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
 
-import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr } from '@/lib/iso-week'
+import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
 import { computeIndicators, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import {
   getWeek,
@@ -17,6 +17,8 @@ import {
   clearWeekActivities,
   clearDayActivities,
   listEngenheirosArea,
+  moverAtividadesParaDia,
+  finalizarAtividade,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
 import { findActivitiesWithWorkInWeek, listDistinctAreaNames, type WeekActivity } from '@/lib/week-activities'
@@ -362,6 +364,49 @@ export default function DailyProgramming() {
     }
   }
 
+  // "Finalizado 100%": marca concluída e limpa os dias FUTUROS da mesma semana que
+  // ainda tinham essa mesma tarefa (mesmo taskUid) programada — evita ela continuar
+  // aparecendo como pendente depois de já ter sido entregue antes do previsto.
+  const handleFinalizarAtividade = async (activity: ActivityLike) => {
+    const futuras = activity.taskUid
+      ? activities.filter((a) => a.taskUid === activity.taskUid && a.planned_date > activity.planned_date)
+      : []
+    if (futuras.length > 0) {
+      const dias = Array.from(new Set(futuras.map((a) => a.planned_date)))
+        .sort()
+        .map((d) => formatShortDate(parseISODateStr(d)))
+        .join(', ')
+      if (!confirm(`Marcar como concluída e remover essa atividade dos dias restantes da semana (${dias})? Essa ação não pode ser desfeita.`)) return
+    }
+    try {
+      await finalizarAtividade(activity.id, futuras.map((a) => a.id), activity.observation)
+      toast.success(futuras.length > 0 ? `Atividade finalizada e removida de ${futuras.length} dia(s)` : 'Atividade finalizada')
+      fetchData(false)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao finalizar a atividade')
+    }
+  }
+
+  const handleReprogramar = async (activityId: string, novaData: string) => {
+    try {
+      await moverAtividadesParaDia([activityId], novaData)
+      toast.success('Atividade reprogramada')
+      fetchData(false)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao reprogramar')
+    }
+  }
+
+  const handleAdicionarNaoRealizadas = async (activityIds: string[], data: string) => {
+    try {
+      await moverAtividadesParaDia(activityIds, data)
+      toast.success(`${activityIds.length} atividade(s) trazida(s) pra ${formatShortDate(parseISODateStr(data))}`)
+      fetchData(false)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao adicionar atividades')
+    }
+  }
+
   const handleDelete = async (id: string) => {
     try {
       await deleteActivity(id)
@@ -458,9 +503,14 @@ export default function DailyProgramming() {
         onOpenChange={(v) => !v && setOpenDate(null)}
         date={openDate}
         activities={openDate ? (activitiesByDate.get(openDate) ?? []) : []}
+        weekDays={days}
+        todasAtividadesDaSemana={activities}
         weekConsolidated={weekData.week.status === 'consolidado'}
         onSetStatus={handleSetStatus}
         onSetInativa={handleSetInativa}
+        onFinalizar={handleFinalizarAtividade}
+        onReprogramar={handleReprogramar}
+        onAdicionarNaoRealizadas={handleAdicionarNaoRealizadas}
         onDelete={handleDelete}
         onRefresh={() => fetchData(false)}
         onAddExtra={handleAddExtra}

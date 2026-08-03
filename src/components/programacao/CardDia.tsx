@@ -1,6 +1,6 @@
 import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock } from 'lucide-react'
 import { parseISODateStr, WEEKDAY_LABELS, formatShortDate } from '@/lib/iso-week'
-import type { ActivityLike } from '@/lib/adherence'
+import { statusWeight, type ActivityLike } from '@/lib/adherence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface Props {
@@ -23,6 +23,13 @@ export default function CardDia({ date, activities, onOpen }: Props) {
   const extras = activities.filter((a) => a.is_extra).length
   const cronograma = activities.filter((a) => !!a.source).length
 
+  // Mesma fórmula da Aderência do resto do app (computeIndicators/relatorio-visual):
+  // extras fora do denominador, pendentes contam, parcial vale meio crédito.
+  const planejadas = activities.filter((a) => !a.is_extra)
+  const denom = planejadas.length
+  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, 0.5), 0)
+  const aderenciaPct = denom > 0 ? Math.round((weighted / denom) * 100) : null
+
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -36,8 +43,13 @@ export default function CardDia({ date, activities, onOpen }: Props) {
               <span className="mr-1 font-semibold text-gray-900 dark:text-white">{label}</span>
               {short}
             </span>
-            <span className="text-xs text-gray-400 dark:text-gray-500 opacity-0 transition group-hover:opacity-100">
-              Abrir
+            <span className="text-right leading-none">
+              <span className="block text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+                {aderenciaPct != null ? `${aderenciaPct}%` : '—'}
+              </span>
+              <span className="mt-0.5 block text-[9px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                Aderência
+              </span>
             </span>
           </div>
           <div className="mt-4 text-center">
