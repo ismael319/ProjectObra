@@ -69,6 +69,23 @@ function hojeISODate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Extrai o id do usuário (claim "sub") do JWT de autenticação — o token já é
+// validado logo abaixo pela própria consulta ao Supabase (RLS), então dá pra
+// saber quem está chamando sem uma chamada de rede extra.
+function usuarioIdDoToken(authHeader: string): string | null {
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader
+  const partes = token.split('.')
+  if (partes.length < 2) return null
+  try {
+    const b64 = partes[1].replace(/-/g, '+').replace(/_/g, '/')
+    const pad = b64.length % 4
+    const payload = JSON.parse(atob(pad ? b64 + '='.repeat(4 - pad) : b64))
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
 function diasAtraso(finish: string, percentComplete: number): number {
   const fim = new Date(finish)
   const hoje = new Date(hojeISODate())
@@ -294,6 +311,33 @@ export default async function handler(req: Request): Promise<Response> {
   }
   if (!projeto) {
     return new Response(JSON.stringify({ error: 'Projeto não encontrado ou sem permissão de acesso' }), { status: 403 })
+  }
+
+  // Rate limit: consome um "turno" do assistente de forma atômica e bloqueia
+  // quem estourou a janela — protege a cota da Groq de uso abusivo/bots.
+  // Configurável via env (com fallback de 20 mensagens/hora por usuário).
+  const usuarioId = usuarioIdDoToken(authHeader)
+  if (!usuarioId) {
+    return new Response(JSON.stringify({ error: 'Token inválido' }), { status: 401 })
+  }
+  const chatMaxPorJanela = Number(process.env.CHAT_MAX_POR_JANELA ?? 20)
+  const chatJanelaMinutos = Number(process.env.CHAT_JANELA_MINUTOS ?? 60)
+  const { data: chatPermitido, error: erroRateLimit } = await supabaseUser.rpc('consumir_turno_chat', {
+    p_usuario_id: usuarioId,
+    p_max_por_janela: chatMaxPorJanela,
+    p_janela_minutos: chatJanelaMinutos,
+  })
+  if (erroRateLimit) {
+    // Fallback seguro: se a migration ainda não rodou no banco, o chat
+    // continua funcionando — mas o erro fica logado pra dar de perceber.
+    console.error('Erro ao checar rate limit do chat:', erroRateLimit.message)
+  } else if (chatPermitido === false) {
+    return new Response(
+      JSON.stringify({
+        error: `Limite de mensagens atingido (${chatMaxPorJanela} por ${chatJanelaMinutos} min). Tente novamente mais tarde.`,
+      }),
+      { status: 429 },
+    )
   }
 
   const systemPrompt = `Você é o assistente de IA da plataforma de gestão de obras "${projeto.nome}". Responda perguntas sobre o cronograma e as atividades do projeto SEMPRE usando as ferramentas disponíveis para buscar os dados reais — nunca invente datas, percentuais ou status. A busca de atividade aceita nome parcial, incluindo palavras do grupo/frente da EAP (campo "frente" no resultado) — se a primeira busca não achar nada ou achar mais de uma atividade parecida, tente de novo com um termo mais curto (só as palavras principais) antes de desistir, e use o campo "frente" pra confirmar qual atividade é a certa quando houver mais de uma com nome parecido. Se mesmo assim a ferramenta não encontrar nada, diga isso claramente em vez de supor. Responda em português do Brasil, de forma direta e objetiva (poucas frases).`

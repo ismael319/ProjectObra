@@ -36,12 +36,12 @@ function parseNumero(texto: string): number | null {
   return Number.isNaN(n) ? null : n
 }
 
-// Formato longo (uma linha por cargo x semana) em vez de espelhar a grade
-// (uma coluna por semana): mais fácil de reimportar depois, já que o
-// intervalo de semanas do projeto pode mudar — colunas fixas quebrariam a
-// reimportação.
-const CABECALHO = ['Cargo', 'Categoria', 'Semana', 'Planejado (mês)', 'Real (semana)']
-
+// Formato largo — uma semana por coluna, igual à grade da tela (mais fácil
+// de conferir e editar em lote que uma linha por cargo x semana). Cada
+// cargo vira duas linhas (Planejado/Real), igual ao "Lançamento semanal".
+// A reimportação lê as datas do próprio cabeçalho (não assume posição fixa
+// nem que bate com as semanas atuais do projeto), então funciona mesmo se
+// o intervalo de semanas tiver mudado desde a exportação.
 export async function buildHistogramaWorkbook(
   cargos: Cargo[],
   semanas: { iso: string; monthKey: string }[],
@@ -49,20 +49,23 @@ export async function buildHistogramaWorkbook(
   realMap: Map<string, number>,
 ): Promise<WorkBook> {
   const XLSX = await import('xlsx')
-  const linhas: (string | number)[][] = [CABECALHO]
+  const linhas: (string | number)[][] = [['Cargo', 'Categoria', 'Linha', ...semanas.map((s) => formatarDataBR(s.iso))]]
   for (const cargo of cargos) {
-    for (const s of semanas) {
-      linhas.push([
-        cargo.nome,
-        categoriaLabel(cargo.categoria),
-        formatarDataBR(s.iso),
-        planejadoMap.get(`${cargo.id}__${s.monthKey}`) ?? 0,
-        realMap.get(`${cargo.id}__${s.iso}`) ?? '',
-      ])
-    }
+    linhas.push([
+      cargo.nome,
+      categoriaLabel(cargo.categoria),
+      'Planejado',
+      ...semanas.map((s) => planejadoMap.get(`${cargo.id}__${s.monthKey}`) ?? 0),
+    ])
+    linhas.push([
+      cargo.nome,
+      categoriaLabel(cargo.categoria),
+      'Real',
+      ...semanas.map((s) => realMap.get(`${cargo.id}__${s.iso}`) ?? ''),
+    ])
   }
   const ws = XLSX.utils.aoa_to_sheet(linhas)
-  ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 12 }, { wch: 16 }, { wch: 14 }]
+  ws['!cols'] = [{ wch: 24 }, { wch: 16 }, { wch: 12 }, ...semanas.map(() => ({ wch: 10 }))]
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Histograma')
   return wb
@@ -75,7 +78,6 @@ export async function downloadHistogramaWorkbook(wb: WorkBook) {
 }
 
 export interface LinhaImportada {
-  linha: number
   cargoNome: string
   categoria: Categoria | null
   semanaIso: string
@@ -88,38 +90,59 @@ export interface ResultadoParseHistograma {
   problemas: Problema[]
 }
 
-// Espera o mesmo formato de buildHistogramaWorkbook (Cargo/Categoria/Semana/
-// Planejado/Real) — não valida o texto do cabeçalho, só pula a linha 0.
+// Espera o mesmo formato de buildHistogramaWorkbook: cabeçalho com as datas
+// das semanas a partir da 4ª coluna, e duas linhas por cargo (uma
+// "Planejado", uma "Real"). As datas vêm do próprio cabeçalho — não assume
+// que as colunas batem com as semanas atuais do projeto.
 export function parseHistogramaLinhas(linhas: LinhaTabela[]): ResultadoParseHistograma {
   const problemas: Problema[] = []
-  const resultado: LinhaImportada[] = []
-  if (linhas.length === 0) return { linhas: resultado, problemas }
+  if (linhas.length === 0) return { linhas: [], problemas }
+
+  const cabecalho = linhas[0]!
+  const semanasIso = cabecalho.slice(3).map((texto) => parseDataBR(texto))
+  cabecalho.slice(3).forEach((texto, idx) => {
+    if (!semanasIso[idx] && texto.trim() !== '') {
+      problemas.push({ linha: 1, campo: `Coluna ${idx + 4}`, descricao: `Data "${texto}" não reconhecida no cabeçalho (esperado DD/MM/AAAA) — coluna ignorada.` })
+    }
+  })
+
+  const porCargoSemana = new Map<string, LinhaImportada>()
+  let cargoAtual: string | null = null
+  let categoriaAtual: Categoria | null = null
 
   for (let i = 1; i < linhas.length; i++) {
     const linha = linhas[i]!
     if (linha.every((c) => c.trim() === '')) continue
-    const [cargoNome, categoriaTexto, semanaTexto, planejadoTexto, realTexto] = linha
+    const [cargoCol, categoriaCol, linhaTipo, ...valores] = linha
 
-    if (!cargoNome?.trim()) {
-      problemas.push({ linha: i + 1, campo: 'Cargo', descricao: 'Cargo em branco — linha ignorada.' })
+    if (cargoCol?.trim()) {
+      cargoAtual = cargoCol.trim()
+      categoriaAtual = categoriaCol ? categoriaDeTexto(categoriaCol) : null
+    }
+    if (!cargoAtual) {
+      problemas.push({ linha: i + 1, campo: 'Cargo', descricao: 'Linha sem cargo definido — ignorada.' })
       continue
     }
-    const semanaIso = semanaTexto ? parseDataBR(semanaTexto) : null
-    if (!semanaIso) {
-      problemas.push({ linha: i + 1, campo: 'Semana', descricao: `Data "${semanaTexto}" não reconhecida (esperado DD/MM/AAAA) — linha ignorada.` })
+
+    const tipo = linhaTipo?.trim().toLowerCase()
+    if (tipo !== 'planejado' && tipo !== 'real') {
+      problemas.push({ linha: i + 1, campo: 'Linha', descricao: `"${linhaTipo}" não reconhecido (esperado "Planejado" ou "Real") — linha ignorada.` })
       continue
     }
 
-    resultado.push({
-      linha: i + 1,
-      cargoNome: cargoNome.trim(),
-      categoria: categoriaTexto ? categoriaDeTexto(categoriaTexto) : null,
-      semanaIso,
-      planejado: planejadoTexto ? parseNumero(planejadoTexto) : null,
-      real: realTexto ? parseNumero(realTexto) : null,
+    valores.forEach((valorTexto, idx) => {
+      const semanaIso = semanasIso[idx]
+      if (!semanaIso) return
+      const chave = `${cargoAtual}__${semanaIso}`
+      const num = parseNumero(valorTexto ?? '')
+      const atual = porCargoSemana.get(chave) ?? { cargoNome: cargoAtual!, categoria: categoriaAtual, semanaIso, planejado: null, real: null }
+      if (tipo === 'planejado') atual.planejado = num
+      else atual.real = num
+      porCargoSemana.set(chave, atual)
     })
   }
-  return { linhas: resultado, problemas }
+
+  return { linhas: [...porCargoSemana.values()], problemas }
 }
 
 export interface ResumoImportacaoHistograma {
@@ -135,10 +158,11 @@ export interface ResumoImportacaoHistograma {
 export async function importarHistograma(params: {
   projetoId: string
   baselineAtivaId: string | null
+  tipo: Cargo['tipo']
   cargosExistentes: Cargo[]
   linhas: LinhaImportada[]
 }): Promise<ResumoImportacaoHistograma> {
-  const { projetoId, baselineAtivaId, cargosExistentes, linhas } = params
+  const { projetoId, baselineAtivaId, tipo, cargosExistentes, linhas } = params
 
   const cargoPorNome = new Map(cargosExistentes.map((c) => [normalizarNomeCargo(c.nome), c]))
   const nomesNovos = new Map<string, { nome: string; categoria: Categoria | null }>()
@@ -150,7 +174,7 @@ export async function importarHistograma(params: {
   if (nomesNovos.size > 0) {
     const { data, error } = await supabase
       .from('histograma_cargos')
-      .insert([...nomesNovos.values()].map((c) => ({ projeto_id: projetoId, nome: c.nome, categoria: c.categoria, tipo: 'MO' })))
+      .insert([...nomesNovos.values()].map((c) => ({ projeto_id: projetoId, nome: c.nome, categoria: c.categoria, tipo })))
       .select('*')
     if (error) throw new Error(error.message)
     for (const c of data as Cargo[]) cargoPorNome.set(normalizarNomeCargo(c.nome), c)

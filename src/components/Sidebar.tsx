@@ -47,7 +47,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
         { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
         { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-        { icon: LineChart, label: 'Histograma Planejado x Real', path: '/dashboard/histograma-mo' },
+        { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
       ],
     },
     {

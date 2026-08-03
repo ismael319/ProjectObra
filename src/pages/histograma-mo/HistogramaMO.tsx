@@ -14,6 +14,7 @@ import {
 import {
   Plus, CalendarClock, Table2, X, LineChart as LineChartIcon,
   Upload, Download, FileSpreadsheet, Loader2, AlertTriangle, CheckCircle2,
+  Users, Wrench,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjects } from '@/lib/project-store'
@@ -59,6 +60,10 @@ const CATEGORIA_GRUPO_LABEL: Record<'D' | 'I' | 'SEM', string> = {
   I: 'Indireta (MOI)',
   SEM: 'Sem categoria',
 }
+const TIPO_OPCOES: { value: 'MO' | 'EQUIPAMENTO'; label: string; icon: typeof Users }[] = [
+  { value: 'MO', label: 'Pessoas', icon: Users },
+  { value: 'EQUIPAMENTO', label: 'Equipamentos', icon: Wrench },
+]
 
 const DEBOUNCE_MS = 500
 const THURSDAY = 4 // 0=Dom..6=Sáb
@@ -120,6 +125,7 @@ export default function HistogramaMO() {
   const qc = useQueryClient()
   const schedule = useDebouncedSave()
 
+  const [tipoAtivo, setTipoAtivo] = useState<'MO' | 'EQUIPAMENTO'>('MO')
   const [baselineId, setBaselineId] = useState<string | null>(null)
   const [aba, setAba] = useState<'semanal' | 'mensal'>('semanal')
   const [cargoSelecionado, setCargoSelecionado] = useState<string>('__total__')
@@ -160,17 +166,24 @@ export default function HistogramaMO() {
     enabled: !!projetoId,
   })
 
+  const cargosVisiveis = useMemo(() => cargos.filter((c) => c.tipo === tipoAtivo), [cargos, tipoAtivo])
+
+  function handleTrocarTipo(tipo: 'MO' | 'EQUIPAMENTO') {
+    setTipoAtivo(tipo)
+    setCargoSelecionado('__total__')
+  }
+
   const organizacaoId = userProfile?.organizacao_id ?? undefined
   const { data: cadastroPorCargo } = useQuery({
     queryKey: ['histograma-cadastro-ref', projetoId, organizacaoId],
     queryFn: () => contarCadastroAtivoPorCargo(projetoId!, organizacaoId!),
-    enabled: !!projetoId && !!organizacaoId,
+    enabled: !!projetoId && !!organizacaoId && tipoAtivo === 'MO',
   })
 
   const { data: funcoesAdministracao = [] } = useQuery({
     queryKey: ['histograma-funcoes-administracao', organizacaoId],
     queryFn: () => listFuncoesAdministracao(organizacaoId!),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && tipoAtivo === 'MO',
   })
 
   const { data: baselines = [] } = useQuery({
@@ -256,7 +269,7 @@ export default function HistogramaMO() {
   })
 
   const criarCargoMut = useMutation({
-    mutationFn: () => criarCargo(projetoId!, novoCargo.nome.trim(), novoCargo.categoria, 'MO'),
+    mutationFn: () => criarCargo(projetoId!, novoCargo.nome.trim(), novoCargo.categoria, tipoAtivo),
     onSuccess: () => {
       toast.success('Cargo adicionado')
       qc.invalidateQueries({ queryKey: ['histograma-cargos', projetoId] })
@@ -285,7 +298,7 @@ export default function HistogramaMO() {
 
   async function handleExportar() {
     try {
-      const wb = await buildHistogramaWorkbook(cargos, semanas, planejadoMap, realMap)
+      const wb = await buildHistogramaWorkbook(cargosVisiveis, semanas, planejadoMap, realMap)
       await downloadHistogramaWorkbook(wb)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err))
@@ -317,7 +330,8 @@ export default function HistogramaMO() {
       const resumo = await importarHistograma({
         projetoId,
         baselineAtivaId: baselineAtiva?.id ?? null,
-        cargosExistentes: cargos,
+        tipo: tipoAtivo,
+        cargosExistentes: cargosVisiveis,
         linhas: importResultado.linhas,
       })
       setImportResumo(resumo)
@@ -347,7 +361,7 @@ export default function HistogramaMO() {
   // organização) — agregar aqui evita esse risco.
   const mensalPorCargo = useMemo(() => {
     const resultado = new Map<string, { monthKey: string; monthLabel: string; planejado: number; real: number | null; semanasApontadas: number; semanasTotais: number }[]>()
-    for (const cargo of cargos) {
+    for (const cargo of cargosVisiveis) {
       const linhas = meses.map((m) => {
         const planejadoVal = planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
         const semanasDoMes = semanas.filter((s) => s.monthKey === m.key)
@@ -367,13 +381,13 @@ export default function HistogramaMO() {
       resultado.set(cargo.id, linhas)
     }
     return resultado
-  }, [cargos, meses, semanas, planejadoMap, realMap, planejadoEdits, realEdits])
+  }, [cargosVisiveis, meses, semanas, planejadoMap, realMap, planejadoEdits, realEdits])
 
   const cargosPorCategoria = useMemo(() => {
-    const grupos: Record<'D' | 'I' | 'SEM', typeof cargos> = { D: [], I: [], SEM: [] }
-    for (const cargo of cargos) grupos[cargo.categoria ?? 'SEM'].push(cargo)
+    const grupos: Record<'D' | 'I' | 'SEM', typeof cargosVisiveis> = { D: [], I: [], SEM: [] }
+    for (const cargo of cargosVisiveis) grupos[cargo.categoria ?? 'SEM'].push(cargo)
     return (['D', 'I', 'SEM'] as const).map((chave) => ({ chave, cargos: grupos[chave] })).filter((g) => g.cargos.length > 0)
-  }, [cargos])
+  }, [cargosVisiveis])
 
   const dadosGrafico = useMemo(() => {
     if (cargoSelecionado === '__total__') {
@@ -381,7 +395,7 @@ export default function HistogramaMO() {
         let planejado = 0
         let real = 0
         let temReal = false
-        for (const cargo of cargos) {
+        for (const cargo of cargosVisiveis) {
           const linha = mensalPorCargo.get(cargo.id)?.find((l) => l.monthKey === m.key)
           if (!linha) continue
           planejado += linha.planejado
@@ -390,19 +404,19 @@ export default function HistogramaMO() {
             temReal = true
           }
         }
-        return { mes: m.label, Planejado: planejado, Real: temReal ? real : null }
+        return { mes: m.label, Planejado: Math.round(planejado), Real: temReal ? Math.round(real) : null }
       })
     }
     const linhas = mensalPorCargo.get(cargoSelecionado) ?? []
-    return linhas.map((l) => ({ mes: l.monthLabel, Planejado: l.planejado, Real: l.real }))
-  }, [cargoSelecionado, cargos, mensalPorCargo, meses])
+    return linhas.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
+  }, [cargoSelecionado, cargosVisiveis, mensalPorCargo, meses])
 
   const cargoOptions = useMemo(
     () => [
       { value: '__total__', label: 'Total (todos os cargos)' },
-      ...cargos.map((c) => ({ value: c.id, label: c.nome })),
+      ...cargosVisiveis.map((c) => ({ value: c.id, label: c.nome })),
     ],
-    [cargos],
+    [cargosVisiveis],
   )
 
   const baselineOptions = useMemo(
@@ -411,7 +425,7 @@ export default function HistogramaMO() {
   )
 
   if (!currentProject) {
-    return <div className="p-6 text-muted-foreground">Selecione um projeto para ver o Histograma Planejado x Real.</div>
+    return <div className="p-6 text-muted-foreground">Selecione um projeto para ver o Histograma.</div>
   }
 
   return (
@@ -419,9 +433,9 @@ export default function HistogramaMO() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
-            <LineChartIcon className="h-6 w-6 text-primary" /> Histograma Planejado x Real
+            <LineChartIcon className="h-6 w-6 text-primary" /> Histograma
           </h1>
-          <p className="text-sm text-muted-foreground">Mão de obra planejada por baseline e apontamento real semanal.</p>
+          <p className="text-sm text-muted-foreground">Planejado por baseline e apontamento real semanal, por pessoas ou equipamentos.</p>
         </div>
         <div className="flex items-center gap-2">
           <div className="w-64">
@@ -433,6 +447,21 @@ export default function HistogramaMO() {
             </Button>
           )}
         </div>
+      </div>
+
+      <div className="inline-flex rounded-lg border border-input p-1 bg-muted/30">
+        {TIPO_OPCOES.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            onClick={() => handleTrocarTipo(o.value)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              tipoAtivo === o.value ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <o.icon className="h-4 w-4" /> {o.label}
+          </button>
+        ))}
       </div>
 
       {baselineAtiva && (
@@ -463,14 +492,16 @@ export default function HistogramaMO() {
           <p className="text-xs text-muted-foreground">
             Cada cargo tem duas linhas: <span className="text-blue-600 dark:text-blue-400 font-medium">Planejado (mês)</span> — editar
             em qualquer semana atualiza o mês inteiro — e <span className="text-red-600 dark:text-red-400 font-medium">Real (semana)</span> —
-            um valor por semana. Os valores salvam sozinhos ~0,5s depois de parar de digitar. Na semana atual, quando o cargo bate com um
-            cargo do Controle de Funcionários (Administração), aparece "Cadastro: N" com o total de funcionários ativos daquele cargo
-            vinculados a este projeto — clique pra usar esse número no Real. Os cargos são agrupados por categoria — Direta (MOD) e
-            Indireta (MOI) — igual ao Controle de Funcionários.
+            um valor por semana. Os valores salvam sozinhos ~0,5s depois de parar de digitar.
+            {tipoAtivo === 'MO' && (
+              <> Na semana atual, quando o cargo bate com um cargo do Controle de Funcionários (Administração), aparece "Cadastro: N" com
+              o total de funcionários ativos daquele cargo vinculados a este projeto — clique pra usar esse número no Real.</>
+            )}
+            {' '}Os cargos são agrupados por categoria — Direta (MOD) e Indireta (MOI).
           </p>
 
           <div className="flex justify-end gap-2">
-            <Button size="sm" variant="outline" onClick={handleExportar} disabled={cargos.length === 0}>
+            <Button size="sm" variant="outline" onClick={handleExportar} disabled={cargosVisiveis.length === 0}>
               <Download className="h-4 w-4" /> Exportar
             </Button>
             {podeEditarPlano && (
@@ -484,7 +515,7 @@ export default function HistogramaMO() {
             <div className="flex justify-end">
               {novoCargoAberto ? (
                 <div className="flex items-end gap-2 flex-wrap">
-                  {funcoesAdministracao.length > 0 && (
+                  {tipoAtivo === 'MO' && funcoesAdministracao.length > 0 && (
                     <div>
                       <Label className="text-xs">Buscar função (Administração)</Label>
                       <div className="w-48">
@@ -534,8 +565,10 @@ export default function HistogramaMO() {
             </p>
           )}
 
-          {cargos.length === 0 && (
-            <p className="text-sm text-muted-foreground">Nenhum cargo cadastrado ainda para este projeto.</p>
+          {cargosVisiveis.length === 0 && (
+            <p className="text-sm text-muted-foreground">
+              Nenhum {tipoAtivo === 'MO' ? 'cargo de pessoas' : 'equipamento'} cadastrado ainda para este projeto.
+            </p>
           )}
 
           {semanas.length > 0 && cargosPorCategoria.map((grupo) => (
@@ -588,7 +621,7 @@ export default function HistogramaMO() {
                               {semanas.map((s) => {
                                 const key = `${cargo.id}__${s.iso}`
                                 const valor = realEdits[key] ?? realMap.get(key) ?? ''
-                                const referencia = s.iso === semanaAtualIso ? cadastroPorCargo?.get(normalizarNomeCargo(cargo.nome)) : undefined
+                                const referencia = tipoAtivo === 'MO' && s.iso === semanaAtualIso ? cadastroPorCargo?.get(normalizarNomeCargo(cargo.nome)) : undefined
                                 return (
                                   <td key={s.iso} className="px-1 py-1">
                                     <input
@@ -727,8 +760,9 @@ export default function HistogramaMO() {
           </DialogHeader>
           <div className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Envie uma planilha XLSX/CSV no mesmo formato do "Exportar" (Cargo, Categoria, Semana, Planejado (mês), Real (semana)).
-              Cargos citados que ainda não existem no projeto são criados automaticamente; reimportar atualiza os valores já existentes.
+              Envie uma planilha XLSX/CSV no mesmo formato do "Exportar" (Cargo, Categoria, Linha "Planejado"/"Real" e uma coluna por semana).
+              Vale pra {tipoAtivo === 'MO' ? 'Pessoas' : 'Equipamentos'} — cargos citados que ainda não existem no projeto são criados
+              automaticamente; reimportar atualiza os valores já existentes.
             </p>
             <input
               ref={importFileRef}

@@ -13,15 +13,15 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <!-- Carrega a fonte sem bloquear a primeira renderização: o navegador baixa o
-         CSS em paralelo (media="print" não é bloqueante) e só aplica quando pronto,
-         via onload. Sem isso, a tela ficava esperando a resposta de
-         fonts.googleapis.com (uma origem externa) antes de mostrar qualquer coisa —
-         pesado em internet de canteiro de obra. noscript cobre quem desabilita JS. -->
+         CSS em paralelo (media="print" não é bloqueante) e só aplica quando pronto
+         (main.tsx troca media pra 'all' no evento load). Sem isso, a tela ficava
+         esperando a resposta de fonts.googleapis.com (uma origem externa) antes de
+         mostrar qualquer coisa — pesado em internet de canteiro de obra. noscript
+         cobre quem desabilita JS. Sem onload inline por causa da Content-Security-Policy. -->
     <link
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
       rel="stylesheet"
       media="print"
-      onload="this.media='all'"
     />
     <noscript>
       <link
@@ -34,14 +34,5 @@
   <body>
     <div id="root" class="notranslate" translate="no"></div>
     <script type="module" src="/src/main.tsx"></script>
-    <script>
-      if ('serviceWorker' in navigator && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-        window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw.js').catch(() => {})
-        })
-      } else if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister()))
-      }
-    </script>
   </body>
 </html>

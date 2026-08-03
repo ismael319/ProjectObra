@@ -12,6 +12,7 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
+    "strict": true,
     "jsx": "react-jsx",
     "noUnusedLocals": false,
     "noUnusedParameters": false,
@@ -23,3 +24,4 @@
   },
   "include": ["src"]
 }
+

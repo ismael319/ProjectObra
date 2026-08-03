@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS public.security_events (
 ALTER TABLE public.security_events ENABLE ROW LEVEL SECURITY;
 
 -- Políticas: apenas super admins visualizam
+DROP POLICY IF EXISTS "Super admins read security events" ON public.security_events;
 CREATE POLICY "Super admins read security events" ON public.security_events
   FOR SELECT TO authenticated
   USING (public.is_super_admin());
@@ -197,3 +198,47 @@ ORDER BY created_at DESC;
 -- ============ 7. GRANTS PARA VIEWS ============
 
 GRANT SELECT ON public.security_alerts TO authenticated;
+
+-- ============ 8. RATE LIMIT DO CHAT (assistente de IA) ============
+
+-- Índice composto pro count do rate limit do chat (event_type + usuario + data).
+CREATE INDEX IF NOT EXISTS idx_security_events_chat_rate
+  ON public.security_events (usuario_id, created_at DESC)
+  WHERE event_type = 'chat_message';
+
+-- Consome um "turno" do assistente de IA de forma atômica (conta + insere numa
+-- única chamada): retorna false e NÃO registra quando o usuário já estourou a
+-- janela. A Edge Function /api/chat chama isso antes de gastar a cota da Groq.
+-- SECURITY DEFINER pra inserir em security_events (que só aceita escrita via
+-- service_role) usando o próprio usuário autenticado.
+CREATE OR REPLACE FUNCTION public.consumir_turno_chat(
+  p_usuario_id uuid,
+  p_max_por_janela int DEFAULT 20,
+  p_janela_minutos int DEFAULT 60
+)
+RETURNS boolean
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  v_count int;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM public.security_events
+  WHERE event_type = 'chat_message'
+    AND usuario_id = p_usuario_id
+    AND created_at > now() - (p_janela_minutos || ' minutes')::interval;
+
+  IF v_count >= p_max_por_janela THEN
+    RETURN false;
+  END IF;
+
+  INSERT INTO public.security_events (event_type, severity, usuario_id, metadata)
+  VALUES ('chat_message', 'info', p_usuario_id,
+    jsonb_build_object('janela_minutos', p_janela_minutos, 'max_por_janela', p_max_por_janela));
+
+  RETURN true;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.consumir_turno_chat TO authenticated;
