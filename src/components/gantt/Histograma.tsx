@@ -1,9 +1,11 @@
-import { useMemo, useRef, useEffect, useState } from 'react';
-import { Ban, Users, Wrench, Download, ChevronDown, ChevronRight } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { Ban, Users, Wrench, Download, ChevronDown, ChevronRight, Filter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
 import { columnWidthFor, addDays, toISODate, startOfWeek, startOfMonth, formatDayMonth, formatMonthYear, isoWeek } from '@/lib/gantt/dates';
+import type { Atividade } from '@/lib/gantt/supabase';
+import { MultiCombobox } from '@/components/ui/combobox';
 import {
   calcularHistograma,
   getFuncoes,
@@ -23,7 +25,10 @@ type Props = {
   granularidade: Granularidade;
   dataInicio: Date;
   dataFim: Date;
-  scrollLeft: number;
+  // Ref pro contêiner de scroll, controlado pela página (GanttChart.tsx) — ela
+  // escreve o scrollLeft direto no DOM pra sincronizar com o Gantt acima sem
+  // passar por um round-trip de estado do React (que causava atraso visível).
+  scrollRef: React.RefObject<HTMLDivElement>;
   onScrollSync: (left: number) => void;
   // Mesma largura da coluna de rótulos do Gantt Livre acima — senão as
   // colunas de data dos dois painéis desalinham quando o Gantt é redimensionado.
@@ -36,13 +41,16 @@ const ROW_HEIGHT = 28;
 const BAR_MAX_HEIGHT = 60;
 const DATE_ROW_HEIGHT = 22;
 
-export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onScrollSync, labelWidth }: Props) {
+export function Histograma({ granularidade, dataInicio, dataFim, scrollRef, onScrollSync, labelWidth }: Props) {
   const { atividades, equipes, activeScenarioId, paradas } = useGanttStore();
   const [modo, setModo] = useState<ModoHistograma>('pessoas');
   // TOTAL GERAL/TOTAL POR DIA continuam sempre visíveis mesmo recolhido — só
   // as linhas de detalhe por função/equipamento (que ocupam mais espaço) somem.
   const [detalhesVisiveis, setDetalhesVisiveis] = useState(true);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // Vazio = histograma do projeto inteiro. Preenchido = só essas atividades
+  // (e as subatividades delas, se tiverem) entram no cálculo — ver
+  // atividadesFiltradas.
+  const [filtroAtividadeIds, setFiltroAtividadeIds] = useState<string[]>([]);
   const colWidth = columnWidthFor(granularidade);
 
   const scenarioAtividades = atividades.filter((a) => a.scenario_id === activeScenarioId);
@@ -50,17 +58,68 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
   const scenarioParadas = paradas.filter((p) => p.scenario_id === activeScenarioId);
   const paradaSet = new Set(scenarioParadas.map((p) => p.data));
 
+  // Some o filtro ao trocar de cenário — senão o histograma podia ficar vazio
+  // silenciosamente (filtro apontando pra uma atividade que não existe mais
+  // no cenário atual).
+  useEffect(() => {
+    setFiltroAtividadeIds([]);
+  }, [activeScenarioId]);
+
+  // Lista pro seletor de atividade, em ordem de árvore (pai antes do filho)
+  // com indentação — mesma lógica de flattenTree da página, só que local
+  // porque a página não exporta essa função.
+  const atividadeOptions = useMemo(() => {
+    const byParent = new Map<string | null, Atividade[]>();
+    for (const a of scenarioAtividades) {
+      const key = a.parent_id ?? null;
+      const arr = byParent.get(key) ?? [];
+      arr.push(a);
+      byParent.set(key, arr);
+    }
+    for (const arr of byParent.values()) arr.sort((x, y) => x.ordem - y.ordem);
+    const options: { value: string; label: string }[] = [];
+    const walk = (parentId: string | null, depth: number) => {
+      for (const a of byParent.get(parentId) ?? []) {
+        options.push({ value: a.id, label: `${'—'.repeat(depth)}${depth > 0 ? ' ' : ''}${a.nome}` });
+        walk(a.id, depth + 1);
+      }
+    };
+    walk(null, 0);
+    return options;
+  }, [scenarioAtividades]);
+
+  // Atividades escolhidas + todas as subatividades delas (recursivo) — sem
+  // isso, filtrar por um item "pai" (ex.: um prédio) mostraria histograma
+  // vazio, já que quem tem equipe/data de verdade normalmente são as folhas.
+  const atividadesFiltradas = useMemo(() => {
+    if (filtroAtividadeIds.length === 0) return scenarioAtividades;
+    const porPai = new Map<string, Atividade[]>();
+    for (const a of scenarioAtividades) {
+      if (!a.parent_id) continue;
+      const arr = porPai.get(a.parent_id) ?? [];
+      arr.push(a);
+      porPai.set(a.parent_id, arr);
+    }
+    const idsIncluidos = new Set<string>();
+    const coletar = (id: string) => {
+      idsIncluidos.add(id);
+      (porPai.get(id) ?? []).forEach((filho) => coletar(filho.id));
+    };
+    filtroAtividadeIds.forEach(coletar);
+    return scenarioAtividades.filter((a) => idsIncluidos.has(a.id));
+  }, [scenarioAtividades, filtroAtividadeIds]);
+
   const funcoes = useMemo(() => getFuncoes(scenarioEquipes), [scenarioEquipes]);
   const equipamentos = useMemo(() => getEquipamentos(scenarioEquipes), [scenarioEquipes]);
   const labels = modo === 'pessoas' ? funcoes : equipamentos;
 
   const histPessoas = useMemo(
-    () => calcularHistograma(scenarioAtividades, scenarioEquipes, dataInicio, dataFim),
-    [scenarioAtividades, scenarioEquipes, dataInicio, dataFim]
+    () => calcularHistograma(atividadesFiltradas, scenarioEquipes, dataInicio, dataFim),
+    [atividadesFiltradas, scenarioEquipes, dataInicio, dataFim]
   );
   const histEquip = useMemo(
-    () => calcularHistogramaEquipamentos(scenarioAtividades, scenarioEquipes, dataInicio, dataFim),
-    [scenarioAtividades, scenarioEquipes, dataInicio, dataFim]
+    () => calcularHistogramaEquipamentos(atividadesFiltradas, scenarioEquipes, dataInicio, dataFim),
+    [atividadesFiltradas, scenarioEquipes, dataInicio, dataFim]
   );
 
   const { colData, colCount } = useMemo(() => {
@@ -134,12 +193,6 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
     });
   }, [colData, histPessoas, histEquip, labels, granularidade, dataFim, modo]);
 
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollLeft = scrollLeft;
-    }
-  }, [scrollLeft]);
-
   const maxTotal = Math.max(...colValues.map((c) => c.total), 1);
 
   const handleScroll = () => {
@@ -197,6 +250,17 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollLeft, onS
           >
             <Wrench size={12} /> Equipamentos
           </button>
+        </div>
+        <div className="flex items-center gap-1 ml-2">
+          <Filter size={12} className="text-gray-400 dark:text-slate-500 shrink-0" />
+          <MultiCombobox
+            options={atividadeOptions}
+            value={filtroAtividadeIds}
+            onChange={setFiltroAtividadeIds}
+            placeholder="Todas as atividades"
+            emptyText="Nenhuma atividade encontrada"
+            className="h-7 text-[11px] w-60"
+          />
         </div>
         <span className="flex items-center gap-1 text-[11px] text-gray-400 dark:text-slate-400 ml-2">
           <Ban size={12} className="text-red-500 dark:text-red-400" /> Dias com parada destacados em vermelho

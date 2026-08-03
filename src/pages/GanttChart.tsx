@@ -50,13 +50,19 @@ function excelToISODate(v: unknown): string | null {
 
 export default function GanttChartPage() {
   const { loading, error, loadAll, atividades, equipes, activeScenarioId, updateAtividade } = useGanttStore();
-  const [granularidade, setGranularidade] = useState<Granularidade>('dia');
-  const [scrollLeft, setScrollLeft] = useState(0);
+  const [granularidade, setGranularidade] = useState<Granularidade>('semana');
   const [showImportModal, setShowImportModal] = useState(false);
   const [equipesOpen, setEquipesOpen] = useState(true);
   const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
   const { presentationMode, setPresentationMode } = usePresentationMode();
   const ganttScrollRef = useRef<HTMLDivElement>(null);
+  const histogramaScrollRef = useRef<HTMLDivElement>(null);
+  // Trava contra eco: quando um painel escreve o scrollLeft do outro via ref,
+  // isso dispara o evento nativo "scroll" do painel escrito, que chamaria essa
+  // mesma sincronização de volta — sem essa trava os dois painéis ficavam
+  // "conversando" entre si por vários frames depois do usuário já ter parado
+  // de rolar (o scroll continuava se movendo sozinho).
+  const syncGuardRef = useRef<'gantt' | 'histograma' | null>(null);
   const excelFileRef = useRef<HTMLInputElement>(null);
 
   // Modo apresentação = tela cheia de verdade (igual F11/F10), não só
@@ -122,8 +128,33 @@ export default function GanttChartPage() {
     setDataFim(paddedEnd);
   }, [scenarioAtividades]);
 
-  const onScrollSync = useCallback((left: number) => {
-    setScrollLeft(left);
+  // Sincronização direta via DOM (ref.current.scrollLeft), não via estado do
+  // React — ir por setState+render+effect adiciona um atraso perceptível
+  // durante uma rolagem rápida (roda do mouse/trackpad dispara muitos eventos
+  // de scroll por segundo). Escrever direto no elemento é síncrono e some o
+  // atraso entre os dois painéis.
+  const onGanttScroll = useCallback((left: number) => {
+    if (syncGuardRef.current === 'gantt') {
+      syncGuardRef.current = null;
+      return;
+    }
+    const el = histogramaScrollRef.current;
+    if (el && el.scrollLeft !== left) {
+      syncGuardRef.current = 'histograma';
+      el.scrollLeft = left;
+    }
+  }, []);
+
+  const onHistogramaScroll = useCallback((left: number) => {
+    if (syncGuardRef.current === 'histograma') {
+      syncGuardRef.current = null;
+      return;
+    }
+    const el = ganttScrollRef.current;
+    if (el && el.scrollLeft !== left) {
+      syncGuardRef.current = 'gantt';
+      el.scrollLeft = left;
+    }
   }, []);
 
   const onDateRangeChange = useCallback((inicio: Date, fim: Date) => {
@@ -288,7 +319,7 @@ export default function GanttChartPage() {
                   dataInicio={dataInicio}
                   dataFim={dataFim}
                   scrollRef={ganttScrollRef}
-                  onScrollSync={onScrollSync}
+                  onScrollSync={onGanttScroll}
                   onDateRangeChange={onDateRangeChange}
                   labelWidth={labelWidth}
                   onLabelWidthChange={setLabelWidth}
@@ -298,8 +329,8 @@ export default function GanttChartPage() {
                 granularidade={granularidade}
                 dataInicio={dataInicio}
                 dataFim={dataFim}
-                scrollLeft={scrollLeft}
-                onScrollSync={onScrollSync}
+                scrollRef={histogramaScrollRef}
+                onScrollSync={onHistogramaScroll}
                 labelWidth={labelWidth}
               />
             </div>

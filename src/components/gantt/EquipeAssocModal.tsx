@@ -18,7 +18,9 @@ export function EquipeAssocModal({ atividade, onClose }: Props) {
   const [novaEquipeOpen, setNovaEquipeOpen] = useState(false);
 
   if (!atividade) return null;
-  const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
+  const scenarioEquipes = equipes
+    .filter((e) => e.scenario_id === activeScenarioId)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const alocadas = new Set(atividade.equipes_alocadas);
 
   const toggle = (equipeId: string) => {

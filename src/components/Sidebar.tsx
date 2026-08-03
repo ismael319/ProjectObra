@@ -56,7 +56,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
         { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
         { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
-        { icon: BarChart, label: 'Resumo Diário', path: '/dashboard/people/resumo' },
+        { icon: BarChart, label: 'Resumo', path: '/dashboard/people/resumo' },
         { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
         { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
         { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },

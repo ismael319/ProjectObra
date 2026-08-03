@@ -18,6 +18,7 @@ import {
 } from '@/lib/gantt/dates';
 import type { Granularidade } from '@/lib/gantt/histograma';
 import { ContextMenu } from './ContextMenu';
+import { ColorPicker } from './ColorPicker';
 import { EquipeAssocModal } from './EquipeAssocModal';
 
 type Props = {
@@ -35,7 +36,10 @@ type Props = {
 
 const ROW_HEIGHT = 40;
 const HEADER_HEIGHT = 64;
-export const DEFAULT_LABEL_WIDTH = 176;
+// Largura generosa o bastante pra mostrar o nome das atividades sem cortar de
+// cara (ex.: "SISTEMA DE AERAÇÃO INTERNO") — antes começava em 176px e quase
+// tudo aparecia truncado até o usuário arrastar a borda manualmente.
+export const DEFAULT_LABEL_WIDTH = 400;
 const MIN_LABEL_WIDTH = 120;
 const MAX_LABEL_WIDTH = 520;
 // Mesmo template pro cabeçalho e pra cada linha — trava o alinhamento tipo
@@ -49,12 +53,17 @@ const COLORS = ['#2F6FE4', '#E07B2F', '#2FAE54', '#B23FE0', '#E0B23F', '#E03F5F'
 const WEEKDAY_LABELS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onScrollSync, onDateRangeChange, labelWidth, onLabelWidthChange }: Props) {
-  const { atividades, equipes, activeScenarioId, addAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
+  const { atividades, equipes, activeScenarioId, addAtividade, addAtividadeAcima, moverAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
   const [adding, setAdding] = useState(false);
+  // Quando setado, o submit do formulário "Nova atividade" insere na posição
+  // dessa atividade (empurrando ela pra baixo) em vez de no fim da lista de
+  // irmãos — ver handleStartAddAcima, disparado pelo menu de contexto.
+  const [insertAboveId, setInsertAboveId] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null as string | null, percentualConcluido: 0 });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
+  const [colorMenu, setColorMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
   const [selectingFor, setSelectingFor] = useState<{ mode: 'predecessora' | 'sucessora'; sourceId: string; targetId?: string; lag: number } | null>(null);
   const [equipeAssocAtvId, setEquipeAssocAtvId] = useState<string | null>(null);
   const [estruturaMenuOpen, setEstruturaMenuOpen] = useState(false);
@@ -62,6 +71,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const [paradaWeekdays, setParadaWeekdays] = useState<Set<number>>(new Set());
   const labelResizeState = useRef<{ startX: number; startWidth: number } | null>(null);
   const labelScrollRef = useRef<HTMLDivElement>(null);
+  // Só centraliza uma vez — sem essa trava, toda vez que a coluna de hoje
+  // mudasse de índice (ex.: o range de datas se ajusta depois que o
+  // cronograma carrega) o scroll voltaria a pular pro meio, brigando com uma
+  // rolagem manual que o usuário já tenha feito.
+  const jaCentralizouHoje = useRef(false);
   const dragState = useRef<{
     id: string;
     type: 'move' | 'resize-l' | 'resize-r';
@@ -73,7 +87,9 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const scenarioAtividades = atividades
     .filter((a) => a.scenario_id === activeScenarioId)
     .sort((a, b) => a.ordem - b.ordem);
-  const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
+  const scenarioEquipes = equipes
+    .filter((e) => e.scenario_id === activeScenarioId)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   const scenarioParadas = paradas.filter((p) => p.scenario_id === activeScenarioId);
   const paradaSet = new Set(scenarioParadas.map((p) => p.data));
   // Achata a árvore (pai/filho via parent_id) em ordem visual — respeitando
@@ -88,6 +104,19 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   // pra destacar no cabeçalho e nas linhas. -1 se hoje estiver fora do range
   // visível (ex.: cronograma todo no passado ou no futuro).
   const todayIdx = findColumnIndex(startOfDay(new Date()), columns, granularidade);
+
+  // Centraliza o scroll horizontal na coluna de hoje assim que ela existir de
+  // verdade (só depois que o range de datas termina de se ajustar ao
+  // cronograma carregado — antes disso todayIdx pode estar fora do range
+  // provisório e o efeito simplesmente não faz nada até recalcular).
+  useEffect(() => {
+    if (jaCentralizouHoje.current || todayIdx < 0) return;
+    const container = scrollRef.current;
+    if (!container) return;
+    jaCentralizouHoje.current = true;
+    const alvo = todayIdx * colWidth + colWidth / 2 - container.clientWidth / 2;
+    container.scrollLeft = Math.max(0, alvo);
+  }, [todayIdx, colWidth, scrollRef]);
 
   const handleScroll = useCallback(
     (e: WheelEvent<HTMLDivElement>) => {
@@ -212,19 +241,49 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const handleAddAtividade = async () => {
     if (!form.nome.trim()) {
       setAdding(false);
+      setInsertAboveId(null);
       return;
     }
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
     const end = form.dataFim ? parseDate(form.dataFim) : addDays(start, (form.duracao || 1) - 1);
-    const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
-    await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId, Math.max(0, Math.min(100, form.percentualConcluido)));
+    // A cor da equipe manda; sem equipe, mantém a cor já escolhida (manual ou
+    // o padrão inicial do form) em vez de sempre resetar pra COLORS[0].
+    const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || form.cor || COLORS[0];
+    const percentual = Math.max(0, Math.min(100, form.percentualConcluido));
+    if (insertAboveId) {
+      await addAtividadeAcima(insertAboveId, form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, percentual);
+    } else {
+      await addAtividade(form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, form.parentId, percentual);
+    }
     setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null, percentualConcluido: 0 });
     setAdding(false);
+    setInsertAboveId(null);
   };
 
   const handleStartAddSubitem = (parentId: string) => {
     setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId, percentualConcluido: 0 });
     setEditing(null);
+    setInsertAboveId(null);
+    setAdding(true);
+  };
+
+  // Abre o seletor de cor no lugar do menu de contexto (mesma posição x/y) —
+  // ver ColorPicker.tsx. A cor só tem efeito visual de fato quando a
+  // atividade não tem equipe vinculada (a cor da equipe sempre prevalece).
+  const handleStartChangeColor = (atvId: string, x: number, y: number) => {
+    setCtxMenu(null);
+    setColorMenu({ x, y, atvId });
+  };
+
+  // Menu de contexto "Adicionar tarefa acima" — abre o mesmo formulário de
+  // Nova atividade, já com o pai certo (o mesmo da atividade clicada), mas
+  // marcando pra inserir na posição dela em vez de no fim da lista.
+  const handleStartAddAcima = (atvId: string) => {
+    const atv = scenarioAtividades.find((a) => a.id === atvId);
+    if (!atv) return;
+    setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: atv.parent_id, percentualConcluido: 0 });
+    setEditing(null);
+    setInsertAboveId(atvId);
     setAdding(true);
   };
 
@@ -287,6 +346,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     });
     setEditing(atvId);
     setAdding(false);
+    setInsertAboveId(null);
   };
 
   const handleSaveEdit = async () => {
@@ -296,7 +356,9 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     }
     const start = form.dataInicio ? parseDate(form.dataInicio) : dataInicio;
     const end = form.dataFim ? parseDate(form.dataFim) : addDays(start, (form.duracao || 1) - 1);
-    const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || COLORS[0];
+    // A cor da equipe manda; sem equipe, mantém a cor já escolhida (manual ou
+    // o padrão inicial do form) em vez de sempre resetar pra COLORS[0].
+    const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || form.cor || COLORS[0];
     await updateAtividade(editing, {
       nome: form.nome.trim(),
       data_inicio: toISODate(start),
@@ -434,6 +496,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               Sub-item de: {scenarioAtividades.find((a) => a.id === form.parentId)?.nome ?? '—'}
             </span>
           )}
+          {insertAboveId && (
+            <span className="text-[11px] text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 px-2 py-1 rounded-md shrink-0">
+              Inserindo acima de: {scenarioAtividades.find((a) => a.id === insertAboveId)?.nome ?? '—'}
+            </span>
+          )}
           <input
             autoFocus
             placeholder="Nome da atividade"
@@ -520,7 +587,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             >
               {editing ? 'Salvar' : 'Adicionar'}
             </button>
-            <button onClick={() => { setAdding(false); setEditing(null); }} className="bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white text-xs px-4 py-2 rounded-lg transition-colors">
+            <button onClick={() => { setAdding(false); setEditing(null); setInsertAboveId(null); }} className="bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white text-xs px-4 py-2 rounded-lg transition-colors">
               Cancelar
             </button>
           </div>
@@ -889,19 +956,46 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         </div>
       </div>
 
-      {ctxMenu && (
-        <ContextMenu
-          x={ctxMenu.x}
-          y={ctxMenu.y}
-          atividadeNome={scenarioAtividades.find((a) => a.id === ctxMenu.atvId)?.nome || ''}
-          predecessoras={scenarioAtividades.find((a) => a.id === ctxMenu.atvId)?.predecessoras ?? []}
-          outrasAtividades={scenarioAtividades.map((a) => ({ id: a.id, nome: a.nome }))}
-          onClose={() => setCtxMenu(null)}
-          onEdit={() => handleStartEdit(ctxMenu.atvId)}
-          onManageEquipes={() => setEquipeAssocAtvId(ctxMenu.atvId)}
-          onStartSetPredecessora={() => setSelectingFor({ mode: 'predecessora', sourceId: ctxMenu.atvId, lag: 0 })}
-          onStartSetSucessora={() => setSelectingFor({ mode: 'sucessora', sourceId: ctxMenu.atvId, lag: 0 })}
-          onRemoveDependencia={handleRemoveDependencia}
+      {ctxMenu && (() => {
+        const atvCtx = scenarioAtividades.find((a) => a.id === ctxMenu.atvId);
+        // Irmãos (mesmo pai) em ordem — pra saber se dá pra mover pra
+        // cima/baixo (primeiro/último da lista não tem vizinho naquele lado).
+        const irmaosCtx = atvCtx
+          ? scenarioAtividades
+              .filter((a) => (a.parent_id ?? null) === (atvCtx.parent_id ?? null))
+              .sort((a, b) => a.ordem - b.ordem)
+          : [];
+        const idxCtx = atvCtx ? irmaosCtx.findIndex((a) => a.id === atvCtx.id) : -1;
+        return (
+          <ContextMenu
+            x={ctxMenu.x}
+            y={ctxMenu.y}
+            atividadeNome={atvCtx?.nome || ''}
+            predecessoras={atvCtx?.predecessoras ?? []}
+            outrasAtividades={scenarioAtividades.map((a) => ({ id: a.id, nome: a.nome }))}
+            podeSubir={idxCtx > 0}
+            podeDescer={idxCtx >= 0 && idxCtx < irmaosCtx.length - 1}
+            onClose={() => setCtxMenu(null)}
+            onEdit={() => handleStartEdit(ctxMenu.atvId)}
+            onManageEquipes={() => setEquipeAssocAtvId(ctxMenu.atvId)}
+            onChangeColor={() => handleStartChangeColor(ctxMenu.atvId, ctxMenu.x, ctxMenu.y)}
+            onAddAcima={() => handleStartAddAcima(ctxMenu.atvId)}
+            onMoverCima={() => moverAtividade(ctxMenu.atvId, 'cima')}
+            onMoverBaixo={() => moverAtividade(ctxMenu.atvId, 'baixo')}
+            onStartSetPredecessora={() => setSelectingFor({ mode: 'predecessora', sourceId: ctxMenu.atvId, lag: 0 })}
+            onStartSetSucessora={() => setSelectingFor({ mode: 'sucessora', sourceId: ctxMenu.atvId, lag: 0 })}
+            onRemoveDependencia={handleRemoveDependencia}
+          />
+        );
+      })()}
+
+      {colorMenu && (
+        <ColorPicker
+          x={colorMenu.x}
+          y={colorMenu.y}
+          corAtual={scenarioAtividades.find((a) => a.id === colorMenu.atvId)?.cor ?? COLORS[0]}
+          onClose={() => setColorMenu(null)}
+          onSelect={(cor) => updateAtividade(colorMenu.atvId, { cor })}
         />
       )}
 

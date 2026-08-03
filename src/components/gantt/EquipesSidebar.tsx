@@ -13,7 +13,9 @@ export function EquipesSidebar({ onCollapse }: Props) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEquipe, setEditingEquipe] = useState<Equipe | null>(null);
 
-  const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
+  const scenarioEquipes = equipes
+    .filter((e) => e.scenario_id === activeScenarioId)
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
   const openNew = () => {
     setEditingEquipe(null);

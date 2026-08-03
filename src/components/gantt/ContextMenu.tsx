@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { ArrowRight, GitBranch, Link2Off, Pencil, Users } from 'lucide-react';
+import { ArrowRight, ArrowUp, GitBranch, Link2Off, MoveDown, MoveUp, Palette, Pencil, Users } from 'lucide-react';
 import type { Dependencia } from '@/lib/gantt/supabase';
 
 type Props = {
@@ -8,9 +8,15 @@ type Props = {
   atividadeNome: string;
   predecessoras: Dependencia[];
   outrasAtividades: { id: string; nome: string }[];
+  podeSubir: boolean;
+  podeDescer: boolean;
   onClose: () => void;
   onEdit: () => void;
   onManageEquipes: () => void;
+  onChangeColor: () => void;
+  onAddAcima: () => void;
+  onMoverCima: () => void;
+  onMoverBaixo: () => void;
   onStartSetPredecessora: () => void;
   onStartSetSucessora: () => void;
   onRemoveDependencia: (predId: string) => void;
@@ -22,9 +28,15 @@ export function ContextMenu({
   atividadeNome,
   predecessoras,
   outrasAtividades,
+  podeSubir,
+  podeDescer,
   onClose,
   onEdit,
   onManageEquipes,
+  onChangeColor,
+  onAddAcima,
+  onMoverCima,
+  onMoverBaixo,
   onStartSetPredecessora,
   onStartSetSucessora,
   onRemoveDependencia,
@@ -71,6 +83,40 @@ export function ContextMenu({
       >
         <Users size={14} className="text-purple-500 dark:text-purple-400" />
         Equipes...
+      </button>
+
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left"
+        onClick={onChangeColor}
+      >
+        <Palette size={14} className="text-pink-500 dark:text-pink-400" />
+        Mudar cor
+      </button>
+
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left"
+        onClick={() => { onAddAcima(); onClose(); }}
+      >
+        <ArrowUp size={14} className="text-teal-500 dark:text-teal-400" />
+        Adicionar tarefa acima
+      </button>
+
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
+        onClick={() => { onMoverCima(); onClose(); }}
+        disabled={!podeSubir}
+      >
+        <MoveUp size={14} className="text-indigo-500 dark:text-indigo-400" />
+        Mover para cima
+      </button>
+
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left disabled:opacity-40 disabled:cursor-not-allowed"
+        onClick={() => { onMoverBaixo(); onClose(); }}
+        disabled={!podeDescer}
+      >
+        <MoveDown size={14} className="text-indigo-500 dark:text-indigo-400" />
+        Mover para baixo
       </button>
 
       <div className="border-t border-gray-100 dark:border-slate-700 my-1" />

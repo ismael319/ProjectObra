@@ -29,6 +29,18 @@ type State = {
   updateEquipe: (id: string, patch: Partial<Equipe>) => Promise<void>;
   deleteEquipe: (id: string) => Promise<void>;
   addAtividade: (nome: string, dataInicio: string, dataFim: string, equipesAlocadas: string[], cor: string, parentId?: string | null, percentualConcluido?: number) => Promise<void>;
+  // Insere uma atividade nova exatamente na posição da atividade de referência
+  // (mesmo pai dela), empurrando ela e as demais abaixo uma posição pra baixo —
+  // usado pelo "Adicionar tarefa acima" do menu de contexto da lista.
+  addAtividadeAcima: (
+    referenciaId: string,
+    nome: string,
+    dataInicio: string,
+    dataFim: string,
+    equipesAlocadas: string[],
+    cor: string,
+    percentualConcluido?: number,
+  ) => Promise<void>;
   // Insere várias atividades de uma vez preservando hierarquia (ex.: import do
   // cronograma) — `items` já vem em ordem pai-antes-do-filho, referenciando o pai
   // pelo tempId de outro item da mesma leva (ou null = raiz).
@@ -43,6 +55,10 @@ type State = {
     percentualConcluido?: number;
   }[]) => Promise<void>;
   updateAtividade: (id: string, patch: Partial<Atividade>) => Promise<void>;
+  // Troca a posição da atividade com a irmã (mesmo pai) imediatamente acima
+  // ou abaixo dela na lista — usado pelo "Mover para cima/baixo" do menu de
+  // contexto.
+  moverAtividade: (id: string, direcao: 'cima' | 'baixo') => Promise<void>;
   deleteAtividade: (id: string) => Promise<void>;
   toggleParada: (data: string) => Promise<void>;
 };
@@ -345,6 +361,53 @@ export const useGanttStore = create<State>((set, get) => ({
     }));
   },
 
+  addAtividadeAcima: async (referenciaId, nome, dataInicio, dataFim, equipesAlocadas, cor, percentualConcluido = 0) => {
+    const sid = get().activeScenarioId;
+    if (!sid) return;
+    const ref = get().atividades.find((a) => a.id === referenciaId);
+    if (!ref) return;
+    const parentId = ref.parent_id ?? null;
+    // Empurra a referência e todos os irmãos abaixo dela uma posição pra
+    // baixo, abrindo espaço pra nova atividade entrar exatamente no lugar dela.
+    const irmaosAbaixo = get().atividades.filter(
+      (a) => a.scenario_id === sid && (a.parent_id ?? null) === parentId && a.ordem >= ref.ordem,
+    );
+    const shiftResults = await Promise.all(
+      irmaosAbaixo.map((a) => supabase.from('gantt_atividades').update({ ordem: a.ordem + 1 }).eq('id', a.id)),
+    );
+    const shiftError = shiftResults.find((r) => r.error)?.error ?? null;
+    if (reportError('reordenar atividades', shiftError)) return;
+
+    const id = genId('atv');
+    const predecessoras: Dependencia[] = [];
+    const { error } = await supabase.from('gantt_atividades').insert({
+      id,
+      scenario_id: sid,
+      nome,
+      data_inicio: dataInicio,
+      data_fim: dataFim,
+      equipes_alocadas: equipesAlocadas,
+      cor,
+      ordem: ref.ordem,
+      predecessoras,
+      parent_id: parentId,
+      percentual_concluido: percentualConcluido,
+    });
+    if (reportError('criar atividade', error)) return;
+
+    const irmaosAbaixoIds = new Set(irmaosAbaixo.map((a) => a.id));
+    set((s) => ({
+      atividades: [
+        ...s.atividades.map((a) => (irmaosAbaixoIds.has(a.id) ? { ...a, ordem: a.ordem + 1 } : a)),
+        {
+          id, scenario_id: sid, nome, data_inicio: dataInicio, data_fim: dataFim,
+          equipes_alocadas: equipesAlocadas, cor, ordem: ref.ordem, predecessoras, parent_id: parentId,
+          percentual_concluido: percentualConcluido,
+        },
+      ],
+    }));
+  },
+
   addAtividadesBulk: async (items) => {
     const sid = get().activeScenarioId;
     if (!sid) return;
@@ -399,6 +462,35 @@ export const useGanttStore = create<State>((set, get) => ({
     if (reportError('atualizar atividade', error)) return;
     set((s) => ({
       atividades: s.atividades.map((a) => (a.id === id ? { ...a, ...patch } : a)),
+    }));
+  },
+
+  moverAtividade: async (id, direcao) => {
+    const sid = get().activeScenarioId;
+    if (!sid) return;
+    const atual = get().atividades.find((a) => a.id === id);
+    if (!atual) return;
+    const parentId = atual.parent_id ?? null;
+    const irmaos = get()
+      .atividades.filter((a) => a.scenario_id === sid && (a.parent_id ?? null) === parentId)
+      .sort((a, b) => a.ordem - b.ordem);
+    const idx = irmaos.findIndex((a) => a.id === id);
+    const idxVizinho = direcao === 'cima' ? idx - 1 : idx + 1;
+    if (idx === -1 || idxVizinho < 0 || idxVizinho >= irmaos.length) return;
+    const vizinho = irmaos[idxVizinho];
+
+    const [r1, r2] = await Promise.all([
+      supabase.from('gantt_atividades').update({ ordem: vizinho.ordem }).eq('id', atual.id),
+      supabase.from('gantt_atividades').update({ ordem: atual.ordem }).eq('id', vizinho.id),
+    ]);
+    if (reportError('mover atividade', r1.error ?? r2.error)) return;
+
+    set((s) => ({
+      atividades: s.atividades.map((a) => {
+        if (a.id === atual.id) return { ...a, ordem: vizinho.ordem };
+        if (a.id === vizinho.id) return { ...a, ordem: atual.ordem };
+        return a;
+      }),
     }));
   },
 

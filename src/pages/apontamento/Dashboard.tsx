@@ -16,12 +16,26 @@ import {
 } from "@/components/ui/tooltip";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { toast } from "sonner";
-import { Download, Loader2 } from "lucide-react";
+import { Download, Loader2, CalendarDays, LineChart as LineChartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { downloadPdf } from "./lib/pdf-export";
 import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+
+function formatDiaMes(iso: string): string {
+  const [, m, d] = iso.split("-");
+  return `${d}/${m}`;
+}
+
+function isoDaysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
 function ResumoTable({
   titulo, coluna, rows, tooltipFor,
@@ -91,7 +105,46 @@ function ResumoTable({
   );
 }
 
+type Aba = "resumo" | "linha-do-tempo";
+
 export default function DashboardPage() {
+  const [aba, setAba] = useState<Aba>("resumo");
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Resumo</h1>
+          <p className="text-sm text-muted-foreground">Distribuição de efetivo — apontamentos de mão de obra.</p>
+        </div>
+        <div className="flex items-center gap-1 bg-muted rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setAba("resumo")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+              aba === "resumo" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarDays className="h-3.5 w-3.5" /> Resumo diário
+          </button>
+          <button
+            onClick={() => setAba("linha-do-tempo")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md transition-colors ${
+              aba === "linha-do-tempo" ? "bg-background shadow-sm font-medium" : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <LineChartIcon className="h-3.5 w-3.5" /> Linha do tempo
+          </button>
+        </div>
+      </div>
+
+      {aba === "resumo" ? <ResumoDiarioTab /> : <LinhaDoTempoTab />}
+    </div>
+  );
+}
+
+// Página 1 — mesmo conteúdo que já existia (visão de um único dia, com
+// gráficos e tabelas por empresa/função/encarregado/área).
+function ResumoDiarioTab() {
   const [data, setData] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
   const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
@@ -200,10 +253,7 @@ export default function DashboardPage() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">Resumo Diário</h1>
-          <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra em {formatBR(data)}.</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra em {formatBR(data)}.</p>
         <Button onClick={handleDownloadPdf} disabled={isLoading}>
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           Exportar PDF
@@ -332,6 +382,164 @@ export default function DashboardPage() {
           }}
         />
       </div>
+    </div>
+  );
+}
+
+// Página 2 — evolução do efetivo dia a dia num período (não só um dia único),
+// com o mesmo conjunto de filtros (empresa/liderança/setor/área/etapa/
+// atividade) da página de Resumo diário, reaproveitando apontamentos_diarios.
+function LinhaDoTempoTab() {
+  const [dataInicio, setDataInicio] = useState(() => isoDaysAgo(29));
+  const [dataFim, setDataFim] = useState(todayISO());
+  const [empresaIds, setEmpresaIds] = useState<string[]>([]);
+  const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
+  const [setorIds, setSetorIds] = useState<string[]>([]);
+  const [areaIds, setAreaIds] = useState<string[]>([]);
+  const [subareaIds, setSubareaIds] = useState<string[]>([]);
+  const [atividadeIds, setAtividadeIds] = useState<string[]>([]);
+
+  const { data: empresas = [] } = useEmpresas(false);
+  const { data: liderancas = [] } = useLiderancas(false);
+  const { data: setores = [] } = useSetores(false);
+  const { data: areas = [] } = useAreas(null, false);
+  const { data: subareas = [] } = useSubareas(null, false);
+  const { data: atividades = [] } = useAtividades(false);
+
+  const { data: apontamentos = [], isLoading } = useQuery({
+    queryKey: ["linha-do-tempo", dataInicio, dataFim, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
+    queryFn: async () => {
+      let q = supabase
+        .from("apontamentos_diarios")
+        .select("*")
+        .gte("data", dataInicio)
+        .lte("data", dataFim)
+        .order("data", { ascending: true });
+      if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
+      if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
+      if (setorIds.length > 0) q = q.in("setor_id", setorIds);
+      if (areaIds.length > 0) q = q.in("area_id", areaIds);
+      if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
+      if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
+      const { data: rows, error } = await q;
+      if (error) throw error;
+      return (rows ?? []) as Apontamento[];
+    },
+  });
+
+  // Um ponto na linha do tempo por dia — soma pedreiro/servente/carpinteiro/
+  // outros de todos os apontamentos daquele dia já filtrados acima.
+  const porDia = useMemo(() => {
+    const map = new Map<string, { data: string; pedreiro: number; servente: number; carpinteiro: number; qntdd_funcao: number; total: number }>();
+    for (const a of apontamentos) {
+      const k = a.data;
+      if (!map.has(k)) map.set(k, { data: k, pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, total: 0 });
+      const g = map.get(k)!;
+      g.pedreiro += a.pedreiro;
+      g.servente += a.servente;
+      g.carpinteiro += a.carpinteiro;
+      g.qntdd_funcao += a.qntdd_funcao;
+      g.total += a.total;
+    }
+    return [...map.values()]
+      .sort((x, y) => x.data.localeCompare(y.data))
+      .map((d) => ({ ...d, label: formatDiaMes(d.data) }));
+  }, [apontamentos]);
+
+  const resumoPeriodo = useMemo(() => {
+    const diasComApontamento = porDia.length;
+    const totalPessoasDia = porDia.reduce((s, d) => s + d.total, 0);
+    const pico = porDia.reduce((max, d) => (d.total > max.total ? d : max), { data: "", total: 0 });
+    return {
+      diasComApontamento,
+      totalPessoasDia,
+      mediaDiaria: diasComApontamento > 0 ? Math.round(totalPessoasDia / diasComApontamento) : 0,
+      pico,
+    };
+  }, [porDia]);
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-muted-foreground">Evolução do efetivo dia a dia no período selecionado.</p>
+
+      <Card>
+        <CardContent className="pt-6">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="space-y-1.5">
+              <Label>Data início</Label>
+              <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Data fim</Label>
+              <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Empresa</Label>
+              <MultiCombobox options={empresas.map((e) => ({ value: e.id, label: e.nome }))} value={empresaIds} onChange={setEmpresaIds} placeholder="Todas" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Encarregado</Label>
+              <MultiCombobox options={liderancas.map((l) => ({ value: l.id, label: l.nome, group: l.tipo }))} value={liderancaIds} onChange={setLiderancaIds} placeholder="Todos" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Setor</Label>
+              <MultiCombobox options={setores.map((s) => ({ value: s.id, label: s.nome }))} value={setorIds} onChange={setSetorIds} placeholder="Todos" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Área</Label>
+              <MultiCombobox options={areas.map((a) => ({ value: a.id, label: a.nome }))} value={areaIds} onChange={setAreaIds} placeholder="Todas" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Etapa</Label>
+              <MultiCombobox options={subareas.map((s) => ({ value: s.id, label: s.nome }))} value={subareaIds} onChange={setSubareaIds} placeholder="Todas" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Atividade</Label>
+              <MultiCombobox options={atividades.map((a) => ({ value: a.id, label: a.nome }))} value={atividadeIds} onChange={setAtividadeIds} placeholder="Todas" />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Dias com apontamento</div><div className="mt-1 text-3xl font-bold">{resumoPeriodo.diasComApontamento}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Total pessoas-dia</div><div className="mt-1 text-3xl font-bold">{resumoPeriodo.totalPessoasDia}</div></CardContent></Card>
+        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Média diária</div><div className="mt-1 text-3xl font-bold">{resumoPeriodo.mediaDiaria}</div></CardContent></Card>
+        <Card>
+          <CardContent className="pt-6">
+            <div className="text-sm text-muted-foreground">Pico</div>
+            <div className="mt-1 text-3xl font-bold">{resumoPeriodo.pico.total}</div>
+            {resumoPeriodo.pico.data && <div className="text-xs text-muted-foreground">{formatBR(resumoPeriodo.pico.data)}</div>}
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader><CardTitle className="text-base">Efetivo por dia</CardTitle></CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-24 text-muted-foreground">
+              <Loader2 className="h-5 w-5 animate-spin" />
+            </div>
+          ) : porDia.length === 0 ? (
+            <div className="py-24 text-center text-sm text-muted-foreground">Nenhum apontamento no período/filtro selecionado.</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart data={porDia}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="pedreiro" name="Pedreiro" stackId="efetivo" fill={COLORS[0]} />
+                <Bar dataKey="servente" name="Servente" stackId="efetivo" fill={COLORS[1]} />
+                <Bar dataKey="carpinteiro" name="Carpinteiro" stackId="efetivo" fill={COLORS[2]} />
+                <Bar dataKey="qntdd_funcao" name="Outros" stackId="efetivo" fill={COLORS[3]} radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }
