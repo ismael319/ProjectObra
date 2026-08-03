@@ -307,7 +307,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         <button
           onClick={() => setTab('pendentes')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition ${
-            tab === 'pendentes' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500'
+            tab === 'pendentes' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
           }`}
         >
           Pendentes
@@ -315,7 +315,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         <button
           onClick={() => setTab('historico')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition ${
-            tab === 'historico' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500'
+            tab === 'historico' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
           }`}
         >
           Histórico
@@ -323,7 +323,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         <button
           onClick={() => setTab('convidar')}
           className={`px-4 py-2 text-sm font-medium rounded-md transition ${
-            tab === 'convidar' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500'
+            tab === 'convidar' ? 'bg-white dark:bg-gray-700 shadow text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'
           }`}
         >
           Convidar
@@ -350,7 +350,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
               <select
                 value={convitePapel}
                 onChange={(e) => setConvitePapel(e.target.value as PapelUsuario)}
-                className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-3 py-2 text-sm"
+                className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg px-3 py-2 text-sm"
               >
                 {papeisDisponiveis.map((papel) => (
                   <option key={papel} value={papel}>
@@ -377,12 +377,12 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
               <TableBody>
                 {isLoadingConvites && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-400 py-6">Carregando...</TableCell>
+                    <TableCell colSpan={4} className="text-center text-gray-400 dark:text-gray-500 py-6">Carregando...</TableCell>
                   </TableRow>
                 )}
                 {!isLoadingConvites && convites.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={4} className="text-center text-gray-400 py-6">Nenhum convite pendente.</TableCell>
+                    <TableCell colSpan={4} className="text-center text-gray-400 dark:text-gray-500 py-6">Nenhum convite pendente.</TableCell>
                   </TableRow>
                 )}
                 {convites.map((convite) => (
@@ -416,14 +416,14 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
           <TableBody>
             {isLoading && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-400 py-6">
+                <TableCell colSpan={5} className="text-center text-gray-400 dark:text-gray-500 py-6">
                   Carregando...
                 </TableCell>
               </TableRow>
             )}
             {!isLoading && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={5} className="text-center text-gray-400 py-6">
+                <TableCell colSpan={5} className="text-center text-gray-400 dark:text-gray-500 py-6">
                   Nenhuma solicitação {tab === 'pendentes' ? 'pendente' : 'no histórico'}.
                 </TableCell>
               </TableRow>
@@ -443,7 +443,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                       <select
                         value={editStatus}
                         onChange={(e) => setEditStatus(e.target.value as 'aprovado' | 'rejeitado')}
-                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg px-2 py-1.5 text-sm"
                       >
                         <option value="aprovado">Aprovado</option>
                         <option value="rejeitado">Rejeitado (revoga acesso)</option>
@@ -459,7 +459,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                         onChange={(e) =>
                           setSelectedPapel((prev) => ({ ...prev, [row.id]: e.target.value as PapelUsuario }))
                         }
-                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg px-2 py-1.5 text-sm"
                       >
                         {papeisDisponiveis.map((papel) => (
                           <option key={papel} value={papel}>
@@ -471,7 +471,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                       <select
                         value={editPapel}
                         onChange={(e) => setEditPapel(e.target.value as PapelUsuario)}
-                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 rounded-lg px-2 py-1.5 text-sm"
+                        className="border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-900 dark:text-white rounded-lg px-2 py-1.5 text-sm"
                       >
                         {papeisDisponiveis.map((papel) => (
                           <option key={papel} value={papel}>
@@ -480,7 +480,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                         ))}
                       </select>
                     ) : (
-                      row.papel && <span className="text-xs text-gray-500">{PAPEL_LABELS[row.papel]}</span>
+                      row.papel && <span className="text-xs text-gray-500 dark:text-gray-400">{PAPEL_LABELS[row.papel]}</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">

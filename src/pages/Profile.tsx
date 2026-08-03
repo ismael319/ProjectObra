@@ -77,7 +77,7 @@ export default function Profile() {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Nome</label>
             <div className="flex items-center bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5">
-              <User size={18} className="text-gray-400" />
+              <User size={18} className="text-gray-400 dark:text-gray-500" />
               <input
                 type="text"
                 value={nome}
@@ -90,7 +90,7 @@ export default function Profile() {
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Email</label>
             <div className="flex items-center bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5">
-              <Mail size={18} className="text-gray-400" />
+              <Mail size={18} className="text-gray-400 dark:text-gray-500" />
               <span className="ml-2 text-sm text-gray-500 dark:text-gray-400">{user?.email}</span>
             </div>
           </div>
@@ -103,7 +103,7 @@ export default function Profile() {
             </p>
             <div className="flex gap-2">
               <div className="flex-1 flex items-center bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl px-4 py-2.5">
-                <Briefcase size={18} className="text-gray-400" />
+                <Briefcase size={18} className="text-gray-400 dark:text-gray-500" />
                 <input
                   type="text"
                   placeholder="Ex.: Engenheiro Civil"
@@ -169,7 +169,7 @@ export default function Profile() {
             className="h-12 rounded-xl"
             style={{ backgroundColor: customColor }}
           />
-          <p className="text-xs text-gray-400 mt-1 text-center">Prévia da sidebar</p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mt-1 text-center">Prévia da sidebar</p>
         </div>
 
         <div className="flex gap-3 pt-2">
@@ -201,13 +201,13 @@ export default function Profile() {
             className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
           >
             <div className="flex items-center gap-3">
-              <Download size={18} className="text-gray-400 group-hover:text-blue-500 transition" />
+              <Download size={18} className="text-gray-400 dark:text-gray-500 group-hover:text-blue-500 transition" />
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Exportar dados</p>
-                <p className="text-xs text-gray-500">Baixe todos os seus dados pessoais</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Baixe todos os seus dados pessoais</p>
               </div>
             </div>
-            <ArrowLeft size={16} className="text-gray-400 rotate-180" />
+            <ArrowLeft size={16} className="text-gray-400 dark:text-gray-500 rotate-180" />
           </Link>
 
           <Link
@@ -215,13 +215,13 @@ export default function Profile() {
             className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 transition group"
           >
             <div className="flex items-center gap-3">
-              <Trash2 size={18} className="text-gray-400 group-hover:text-red-500 transition" />
+              <Trash2 size={18} className="text-gray-400 dark:text-gray-500 group-hover:text-red-500 transition" />
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-gray-100">Excluir conta</p>
-                <p className="text-xs text-gray-500">Solicite a remoção dos seus dados</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Solicite a remoção dos seus dados</p>
               </div>
             </div>
-            <ArrowLeft size={16} className="text-gray-400 rotate-180" />
+            <ArrowLeft size={16} className="text-gray-400 dark:text-gray-500 rotate-180" />
           </Link>
         </div>
       </div>

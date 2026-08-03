@@ -88,8 +88,8 @@ export default function ExportarPage() {
       <Card>
         <CardContent className="pt-6">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="space-y-1.5"><Label>Data início</Label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
-            <div className="space-y-1.5"><Label>Data fim</Label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full border rounded px-3 py-2 text-sm" /></div>
+            <div className="space-y-1.5"><Label>Data início</Label><input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} className="w-full border rounded px-3 py-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" /></div>
+            <div className="space-y-1.5"><Label>Data fim</Label><input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="w-full border rounded px-3 py-2 text-sm dark:bg-gray-700 dark:text-white dark:border-gray-600" /></div>
             <div className="space-y-1.5"><Label>Empresa</Label><MultiCombobox options={empresas.map((e) => ({ value: e.id, label: e.nome }))} value={empresaIds} onChange={setEmpresaIds} placeholder="Todas" /></div>
             <div className="space-y-1.5"><Label>Liderança</Label><MultiCombobox options={liderancas.map((l) => ({ value: l.id, label: l.nome, group: l.tipo }))} value={liderancaIds} onChange={setLiderancaIds} placeholder="Todas" /></div>
             <div className="space-y-1.5"><Label>Setor</Label><MultiCombobox options={setores.map((s) => ({ value: s.id, label: s.nome }))} value={setorIds} onChange={setSetorIds} placeholder="Todos" /></div>

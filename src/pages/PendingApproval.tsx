@@ -38,14 +38,14 @@ export default function PendingApproval() {
           <p className="text-blue-200/60 text-sm mt-1">Plataforma Corporativa</p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] ring-1 ring-black/5 p-8 text-center">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-[0_20px_50px_-12px_rgba(0,0,0,0.5)] ring-1 ring-black/5 p-8 text-center">
           {isRejected ? (
             <>
               <div className="inline-flex items-center justify-center w-14 h-14 bg-red-50 rounded-full mb-4">
                 <XCircle className="text-red-500" size={28} />
               </div>
-              <h2 className="text-xl font-bold text-gray-900">Solicitação recusada</h2>
-              <p className="text-gray-500 text-sm mt-2">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Solicitação recusada</h2>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mt-2">
                 Seu pedido de acesso para <span className="font-medium">{user?.email}</span> foi recusado.
                 Entre em contato com um administrador do sistema se acredita que isso é um engano.
               </p>
@@ -55,8 +55,8 @@ export default function PendingApproval() {
               <div className="inline-flex items-center justify-center w-14 h-14 bg-blue-50 rounded-full mb-4">
                 <Clock className="text-blue-600" size={28} />
               </div>
-              <h2 className="text-xl font-bold text-gray-900">Aguardando aprovação</h2>
-              <p className="text-gray-500 text-sm mt-2">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Aguardando aprovação</h2>
+              <p className="text-gray-500 dark:text-gray-400 text-sm mt-2">
                 Sua conta <span className="font-medium">{user?.email}</span> foi criada com sucesso. Um gestor
                 precisa definir seu perfil de acesso antes que você possa entrar no sistema.
               </p>
@@ -76,7 +76,7 @@ export default function PendingApproval() {
             )}
             <button
               onClick={() => { signOut(); navigate('/login') }}
-              className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium py-3 px-4 rounded-lg transition"
+              className="w-full flex items-center justify-center gap-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50 font-medium py-3 px-4 rounded-lg transition"
             >
               <LogOut size={18} />
               Sair da conta

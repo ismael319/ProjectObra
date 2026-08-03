@@ -86,7 +86,7 @@ export function ApontamentosTabela({
             Itens do Cronograma ({items.length})
           </CardTitle>
           <div className="flex gap-2">
-            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} className="text-sm border rounded px-2 py-1">
+            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} className="text-sm border rounded px-2 py-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
               <option value="none">Sem agrupamento</option>
               <option value="status">Agrupar por status</option>
               <option value="nivel">Agrupar por nível</option>
@@ -143,7 +143,7 @@ export function ApontamentosTabela({
                             <select
                               value={item.atividade_id ?? ""}
                               onChange={(e) => onMapAtividade(item.id, e.target.value || null)}
-                              className="text-xs border rounded px-1 py-0.5"
+                              className="text-xs border rounded px-1 py-0.5 dark:bg-gray-700 dark:text-white dark:border-gray-600"
                             >
                               <option value="">—</option>
                               {atividades.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}

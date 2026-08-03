@@ -872,7 +872,7 @@ export default function EapPage() {
       </div>
 
       {mergeMode && (
-        <Card className="border-blue-300 bg-blue-50/50 dark:bg-blue-950/20">
+        <Card className="border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
           <CardContent className="p-3 space-y-3">
             <p className="text-sm">
               {mergeSelected.size === 0
@@ -939,7 +939,7 @@ export default function EapPage() {
       )}
 
       {bulkMoveMode && (
-        <Card className="border-blue-300 bg-blue-50/50 dark:bg-blue-950/20">
+        <Card className="border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
           <CardContent className="p-3 space-y-3">
             <p className="text-sm">
               {bulkMoveSelected.size === 0

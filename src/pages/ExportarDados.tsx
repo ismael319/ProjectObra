@@ -40,27 +40,27 @@ export default function ExportarDados() {
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
+    <div className="max-w-2xl mx-auto p-6 dark:bg-gray-950">
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">Exportar Dados</h1>
-        <p className="text-gray-500 mt-1">
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Exportar Dados</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-1">
           Baixe todos os seus dados pessoais armazenados na plataforma
         </p>
       </div>
 
       <div className="space-y-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Seus dados</h2>
+        <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Seus dados</h2>
           <div className="space-y-3">
-            <div className="flex items-center gap-3 text-sm text-gray-600">
+            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
               <User size={18} className="text-blue-500" />
               <span>Perfil do usuário (nome, email, cargo, permissões)</span>
             </div>
-            <div className="flex items-center gap-3 text-sm text-gray-600">
+            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
               <Building2 size={18} className="text-blue-500" />
               <span>Dados da organização (empresa, módulos contratados)</span>
             </div>
-            <div className="flex items-center gap-3 text-sm text-gray-600">
+            <div className="flex items-center gap-3 text-sm text-gray-600 dark:text-gray-300">
               <Archive size={18} className="text-blue-500" />
               <span>Registros de acesso e auditoria</span>
             </div>

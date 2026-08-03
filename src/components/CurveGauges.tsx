@@ -235,7 +235,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
                   <div className="text-[10px] text-gray-400 dark:text-gray-500">{fmtVal(row.value, unit)}</div>
                 </td>
                 <td className="text-right py-0.5">
-                  <span className={`inline-flex items-center gap-0.5 ${deltaPP > 0 ? 'text-green-600' : deltaPP < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+                  <span className={`inline-flex items-center gap-0.5 ${deltaPP > 0 ? 'text-green-600 dark:text-green-400' : deltaPP < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
                     {deltaPP > 0 ? <ArrowUp size={10} /> : deltaPP < 0 ? <ArrowDown size={10} /> : <Minus size={10} />}
                     {deltaPP > 0 ? '+' : ''}{deltaPP.toFixed(1)}pp
                   </span>
@@ -249,7 +249,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
       {desvioVsBase !== null && (
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
           <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Desvio vs Base</span>
-          <span className={`text-sm font-bold inline-flex items-center gap-1 ${desvioVsBase > 0 ? 'text-green-600' : desvioVsBase < 0 ? 'text-red-600' : 'text-gray-400'}`}>
+          <span className={`text-sm font-bold inline-flex items-center gap-1 ${desvioVsBase > 0 ? 'text-green-600 dark:text-green-400' : desvioVsBase < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
             {desvioVsBase > 0 ? <ArrowUp size={12} /> : desvioVsBase < 0 ? <ArrowDown size={12} /> : <Minus size={12} />}
             {desvioVsBase > 0 ? '+' : ''}{desvioVsBase.toFixed(1)}%
           </span>

@@ -45,9 +45,9 @@ export default function ChatWidget() {
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
             <div className="min-w-0">
               <p className="text-[13px] font-semibold truncate">Assistente do Projeto</p>
-              <p className="text-[11px] text-gray-400">Consulta dados em tempo real</p>
+              <p className="text-[11px] text-gray-400 dark:text-gray-500">Consulta dados em tempo real</p>
             </div>
-            <button onClick={() => setOpen(false)} className="ml-auto text-gray-400 hover:text-white shrink-0">
+            <button onClick={() => setOpen(false)} className="ml-auto text-gray-400 dark:text-gray-500 hover:text-white shrink-0">
               <X size={16} />
             </button>
           </div>

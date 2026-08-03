@@ -44,19 +44,19 @@ export default function Subprocessors() {
           Voltar para o login
         </Link>
 
-        <div className="bg-white rounded-2xl shadow-2xl p-8 md:p-12">
+        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 md:p-12">
           <div className="flex items-center gap-3 mb-6">
             <div className="inline-flex items-center justify-center w-10 h-10 bg-blue-600 rounded-xl p-2">
               <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Sub-processadores</h1>
-              <p className="text-sm text-gray-500">Versão 1.0 — vigente desde 29/07/2026</p>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sub-processadores</h1>
+              <p className="text-sm text-gray-500 dark:text-gray-400">Versão 1.0 — vigente desde 29/07/2026</p>
             </div>
           </div>
 
           <div className="prose prose-gray max-w-none">
-            <p className="text-gray-600 mb-6">
+            <p className="text-gray-600 dark:text-gray-300 mb-6">
               Esta página lista os sub-processadores contratados pela <strong>FGI Decision</strong> para viabilizar o
               funcionamento da plataforma. O uso destes parceiros pode configurar transferência internacional de dados,
               em conformidade com o art. 33 da LGPD.
@@ -65,16 +65,16 @@ export default function Subprocessors() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="bg-gray-100">
-                    <th className="text-left p-3 font-semibold text-gray-900 border">Sub-processador</th>
-                    <th className="text-left p-3 font-semibold text-gray-900 border">Finalidade</th>
-                    <th className="text-left p-3 font-semibold text-gray-900 border">Localização</th>
+                  <tr className="bg-gray-100 dark:bg-gray-900">
+                    <th className="text-left p-3 font-semibold text-gray-900 dark:text-white border">Sub-processador</th>
+                    <th className="text-left p-3 font-semibold text-gray-900 dark:text-white border">Finalidade</th>
+                    <th className="text-left p-3 font-semibold text-gray-900 dark:text-white border">Localização</th>
                   </tr>
                 </thead>
                 <tbody>
                   {subprocessors.map((sp) => (
                     <tr key={sp.name}>
-                      <td className="p-3 border text-gray-900 font-medium">
+                      <td className="p-3 border text-gray-900 dark:text-white font-medium">
                         {sp.website ? (
                           <a href={sp.website} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
                             {sp.name}
@@ -83,23 +83,23 @@ export default function Subprocessors() {
                           sp.name
                         )}
                       </td>
-                      <td className="p-3 border text-gray-600">{sp.purpose}</td>
-                      <td className="p-3 border text-gray-600">{sp.location}</td>
+                      <td className="p-3 border text-gray-600 dark:text-gray-300">{sp.purpose}</td>
+                      <td className="p-3 border text-gray-600 dark:text-gray-300">{sp.location}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
-            <h2 className="text-xl font-bold text-gray-900 mt-8 mb-4">Notificação de Alterações</h2>
-            <p className="text-gray-600">
+            <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-4">Notificação de Alterações</h2>
+            <p className="text-gray-600 dark:text-gray-300">
               Caso a FGI Decision contrate novo sub-processador ou substitua um existente, esta página será atualizada
               com antecedência mínima de 30 dias. Clientes que desejarem ser notificados ativamente podem solicitar
               inclusão na lista via{' '}
               <a href="mailto:dpo@fgidecision.com.br" className="text-blue-600 hover:underline">dpo@fgidecision.com.br</a>.
             </p>
 
-            <div className="mt-8 pt-6 border-t border-gray-200">
+            <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
               <div className="flex gap-4">
                 <Link to="/legal/privacy" className="text-sm text-blue-600 hover:underline">Política de Privacidade</Link>
                 <Link to="/legal/terms" className="text-sm text-blue-600 hover:underline">Termos de Uso</Link>

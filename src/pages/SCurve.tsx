@@ -738,7 +738,7 @@ export default function SCurve() {
 
                 {selectedCronogramasData.length > 1 && (
                   <div className="flex items-center gap-2 mb-2 pt-3 border-t border-gray-100 dark:border-gray-700">
-                    <Filter size={14} className="text-gray-400" />
+                    <Filter size={14} className="text-gray-400 dark:text-gray-500" />
                     <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Filtros por Atividade</span>
                   </div>
                 )}

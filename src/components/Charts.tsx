@@ -15,6 +15,7 @@ import {
 } from 'recharts'
 import { useProjects } from '@/lib/project-store'
 import { buildCurveFromRawPoints, consolidateCurves } from '@/lib/curve-utils'
+import { useTheme } from '@/lib/theme-context'
 
 const projectStatusData = [
   { name: 'Em andamento', value: 18, color: '#3b82f6' },
@@ -32,15 +33,21 @@ const monthlyData = [
   { month: 'Jun', projetos: 24, concluidos: 6 },
 ]
 
-const tooltipStyle = {
-  borderRadius: 10,
-  border: '1px solid rgb(229 231 235)',
-  boxShadow: '0 4px 12px -2px rgb(15 23 42 / 0.08)',
-  fontSize: 13,
-  fontFamily: 'var(--font-sans)',
+function useTooltipStyle() {
+  const { isDark } = useTheme()
+  return useMemo(() => ({
+    borderRadius: 10,
+    border: isDark ? '1px solid rgb(55 65 81)' : '1px solid rgb(229 231 235)',
+    background: isDark ? '#1f2937' : '#ffffff',
+    color: isDark ? '#e5e7eb' : '#111827',
+    boxShadow: isDark ? '0 4px 12px -2px rgb(0 0 0 / 0.4)' : '0 4px 12px -2px rgb(15 23 42 / 0.08)',
+    fontSize: 13,
+    fontFamily: 'var(--font-sans)',
+  }), [isDark])
 }
 
 export function StatusPieChart() {
+  const tooltipStyle = useTooltipStyle()
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Status dos Projetos</h3>
@@ -81,6 +88,7 @@ export function StatusPieChart() {
 }
 
 export function MonthlyBarChart() {
+  const tooltipStyle = useTooltipStyle()
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Projetos por Mês</h3>
@@ -105,6 +113,7 @@ export function MonthlyBarChart() {
 // Previsto em %, sem barras de período, baselines ou legenda interativa.
 export function ProgressAreaChart() {
   const { currentProject } = useProjects()
+  const tooltipStyle = useTooltipStyle()
 
   const chartData = useMemo(() => {
     const cronogramas = (currentProject?.cronogramas || []).filter((c) => c.ativo)

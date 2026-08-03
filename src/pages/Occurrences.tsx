@@ -53,8 +53,8 @@ export default function Occurrences() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Ocorrências</h1>
-          <p className="text-sm text-gray-500 mt-1">{project?.name || 'Nenhum projeto carregado'}</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Ocorrências</h1>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{project?.name || 'Nenhum projeto carregado'}</p>
         </div>
         <button
           onClick={() => setShowForm(true)}
@@ -67,24 +67,24 @@ export default function Occurrences() {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Total de Ocorrências</p>
-          <p className="text-2xl font-bold text-gray-900">{occurrences.length}</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Total de Ocorrências</p>
+          <p className="text-2xl font-bold text-gray-900 dark:text-white">{occurrences.length}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Abertas</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Abertas</p>
           <p className="text-2xl font-bold text-red-600">{openCount}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Dias de Impacto</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Dias de Impacto</p>
           <p className="text-2xl font-bold text-red-600">{totalImpactDays}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Alto Impacto (Curva S)</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Alto Impacto (Curva S)</p>
           <p className="text-2xl font-bold text-orange-600">{highImpactCount}</p>
         </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm border border-gray-100">
-          <p className="text-xs text-gray-500">Segurança</p>
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm border border-gray-100 dark:border-gray-700">
+          <p className="text-xs text-gray-500 dark:text-gray-400">Segurança</p>
           <p className="text-2xl font-bold text-red-600">
             {occurrences.filter((o) => o.type === 'seguranca').length}
           </p>
@@ -93,31 +93,31 @@ export default function Occurrences() {
 
       {/* New Occurrence Form */}
       {showForm && (
-        <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+        <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">Registrar Ocorrência</h3>
-            <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+            <h3 className="font-semibold text-gray-900 dark:text-white">Registrar Ocorrência</h3>
+            <button onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600 dark:text-gray-300">
               <X size={20} />
             </button>
           </div>
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Data</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Data</label>
                 <input
                   type="date"
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Categoria</label>
                 <select
                   value={formData.type}
                   onChange={(e) => setFormData({ ...formData, type: e.target.value as OccurrenceCategory })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   {OCCURRENCE_CATEGORIES.map((c) => (
                     <option key={c.value} value={c.value}>{c.label}</option>
@@ -125,14 +125,14 @@ export default function Occurrences() {
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Gravidade
                   <span className="text-xs text-gray-400 font-normal ml-1">(alta/crítica vira ponto de atenção na Curva S)</span>
                 </label>
                 <select
                   value={formData.severity}
                   onChange={(e) => setFormData({ ...formData, severity: e.target.value as OccurrenceSeverity })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   {OCCURRENCE_SEVERITIES.map((s) => (
                     <option key={s.value} value={s.value}>{s.label}</option>
@@ -141,11 +141,11 @@ export default function Occurrences() {
               </div>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Descrição</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Descrição</label>
               <textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 rows={3}
                 placeholder="Descreva a ocorrência..."
                 required
@@ -153,21 +153,21 @@ export default function Occurrences() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Dias de Impacto</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dias de Impacto</label>
                 <input
                   type="number"
                   value={formData.impactDays}
                   onChange={(e) => setFormData({ ...formData, impactDays: parseInt(e.target.value) || 0 })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   min="0"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Atividade Afetada (opcional)</label>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Atividade Afetada (opcional)</label>
                 <select
                   value={formData.activityUid || ''}
                   onChange={(e) => setFormData({ ...formData, activityUid: parseInt(e.target.value) || undefined })}
-                  className="w-full px-4 py-2.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                 >
                   <option value="">Nenhuma</option>
                   {activities.filter((a) => !a.isSummary).map((a, index) => (
@@ -180,7 +180,7 @@ export default function Occurrences() {
               <button
                 type="button"
                 onClick={() => setShowForm(false)}
-                className="px-4 py-2.5 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition"
+                className="px-4 py-2.5 border border-gray-300 dark:border-gray-600 dark:bg-gray-700 text-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-600 transition"
               >
                 Cancelar
               </button>
@@ -196,14 +196,14 @@ export default function Occurrences() {
       )}
 
       {/* Occurrences List */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+      <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
         {occurrences.length === 0 ? (
           <div className="p-12 text-center">
-            <AlertTriangle className="mx-auto text-gray-300 mb-3" size={48} />
-            <p className="text-gray-500">Nenhuma ocorrência registrada</p>
+            <AlertTriangle className="mx-auto text-gray-300 dark:text-gray-600 mb-3" size={48} />
+            <p className="text-gray-500 dark:text-gray-400">Nenhuma ocorrência registrada</p>
           </div>
         ) : (
-          <div className="divide-y divide-gray-100">
+          <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {occurrences
               .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
               .map((occ) => {
@@ -215,7 +215,7 @@ export default function Occurrences() {
                 const isOpen = occ.status === 'aberta'
 
                 return (
-                  <div key={occ.id} className={`p-4 hover:bg-gray-50 transition ${!isOpen ? 'opacity-60' : ''}`}>
+                  <div key={occ.id} className={`p-4 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition ${!isOpen ? 'opacity-60' : ''}`}>
                     <div className="flex items-start gap-4">
                       <div
                         className="p-2 rounded-lg"
@@ -225,7 +225,7 @@ export default function Occurrences() {
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-sm font-medium text-gray-900">{categoryDef.label}</span>
+                          <span className="text-sm font-medium text-gray-900 dark:text-white">{categoryDef.label}</span>
                           <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusDef.badgeClass}`}>
                             {statusDef.label}
                           </span>
@@ -237,7 +237,7 @@ export default function Occurrences() {
                               ⚠ Curva S
                             </span>
                           )}
-                          <span className="text-xs text-gray-500">
+                          <span className="text-xs text-gray-500 dark:text-gray-400">
                             {new Date(occ.date).toLocaleDateString('pt-BR')}
                           </span>
                           {occ.impactDays > 0 && (
@@ -246,9 +246,9 @@ export default function Occurrences() {
                             </span>
                           )}
                         </div>
-                        <p className="text-sm text-gray-600">{occ.description}</p>
+                        <p className="text-sm text-gray-600 dark:text-gray-300">{occ.description}</p>
                         {activity && (
-                          <p className="text-xs text-gray-500 mt-1">
+                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
                             Atividade: {activity.wbs} - {activity.name}
                           </p>
                         )}
