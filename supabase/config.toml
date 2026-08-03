@@ -4,6 +4,12 @@
 # working directory name when running `supabase init`.
 project_id = "ProjectObra-main"
 
+[functions.enviar-convite]
+# A função valida o JWT do usuário manualmente (auth.getUser), por isso a
+# checagem de JWT do gateway fica desligada (senão chaves novas/publishable
+# e tokens de usuário legacy seriam rejeitados com 401/403).
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

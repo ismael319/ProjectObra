@@ -1,6 +1,8 @@
-import { withSupabase } from 'npm:@supabase/server@^1'
+import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
+const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
 
 const PAPEL_LABELS: Record<string, string> = {
   edicao: 'Edição',
@@ -8,25 +10,57 @@ const PAPEL_LABELS: Record<string, string> = {
   insercao_pontual: 'Inserção Pontual',
 }
 
-const handler = async (request: Request): Promise<Response> => {
+function json(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: {
+      'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    },
+  })
+}
+
+Deno.serve(async (request: Request) => {
+  if (request.method === 'OPTIONS') {
+    return new Response('ok', { status: 204 })
+  }
+
   if (request.method !== 'POST') {
-    return Response.json({ error: 'Método não permitido' }, { status: 405 })
+    return json({ error: 'Método não permitido' }, 405)
+  }
+
+  const authHeader = request.headers.get('Authorization') ?? ''
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : ''
+
+  if (!token || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+    return json({ error: 'Não autenticado' }, 401)
+  }
+
+  const authClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  })
+  const { data: authData, error: authError } = await authClient.auth.getUser()
+
+  if (authError || !authData?.user) {
+    return json({ error: 'Sessão inválida ou expirada' }, 401)
   }
 
   let body: { email?: string; papel?: string; organizacao_nome?: string; site_url?: string }
   try {
     body = await request.json()
   } catch {
-    return Response.json({ error: 'JSON inválido' }, { status: 400 })
+    return json({ error: 'JSON inválido' }, 400)
   }
 
   const { email, papel, organizacao_nome, site_url } = body ?? {}
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return Response.json({ error: 'Email inválido' }, { status: 400 })
+    return json({ error: 'Email inválido' }, 400)
   }
   if (!RESEND_API_KEY) {
-    return Response.json({ error: 'RESEND_API_KEY não configurada' }, { status: 500 })
+    return json({ error: 'RESEND_API_KEY não configurada' }, 500)
   }
 
   const baseUrl = (site_url ?? '').replace(/\/+$/, '')
@@ -86,11 +120,9 @@ const handler = async (request: Request): Promise<Response> => {
   const data = await res.json()
 
   if (!res.ok) {
-    console.error('Falha ao enviar email via Resend:', data)
-    return Response.json({ error: 'Falha ao enviar o email', details: data }, { status: res.status })
+    console.error('Falha ao enviar email via Resend:', JSON.stringify(data))
+    return json({ error: 'Falha ao enviar o email', details: data }, res.status)
   }
 
-  return Response.json(data)
-}
-
-export default { fetch: withSupabase({ auth: ['user', 'secret'] }, handler) }
+  return json(data)
+})

@@ -8,6 +8,7 @@ export interface EnviarConviteParams {
 }
 
 export async function enviarConviteEmail(params: EnviarConviteParams) {
+  await supabase.auth.getSession()
   const { data, error } = await supabase.functions.invoke('enviar-convite', {
     body: {
       email: params.email,
