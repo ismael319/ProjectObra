@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Camera, ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, Camera, Check, ImagePlus, Loader2, MapPin, Plus, Trash2 } from "lucide-react";
+import {
+  Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList,
+} from "@/components/ui/command";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -124,6 +128,7 @@ export default function RdrForm() {
   const [existentes, setExistentes] = useState<RdrFoto[]>([]);
   const [novasFotos, setNovasFotos] = useState<FotoUpload[]>([]);
   const [salvando, setSalvando] = useState(false);
+  const [abertoLocal, setAbertoLocal] = useState(false);
 
   useEffect(() => {
     if (record) {
@@ -153,13 +158,41 @@ export default function RdrForm() {
   const { data: areas = [] } = useAreas();
   const { data: subareas = [] } = useSubareas();
 
-  const locaisEap = useMemo(() => {
-    const nomes = new Set<string>();
-    for (const s of setores) nomes.add(s.nome);
-    for (const a of areas) nomes.add(a.nome);
-    for (const s of subareas) nomes.add(s.nome);
-    return [...nomes].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const opcoesEap = useMemo(() => {
+    const opcoes: { value: string; label: string; group: string }[] = [];
+    for (const s of setores) {
+      const areasDoSetor = areas.filter((a) => a.setor_id === s.id);
+      if (areasDoSetor.length === 0) {
+        opcoes.push({ value: s.nome, label: s.nome, group: "" });
+        continue;
+      }
+      for (const a of areasDoSetor) {
+        const subareasDaArea = subareas.filter((sb) => sb.area_id === a.id);
+        if (subareasDaArea.length === 0) {
+          opcoes.push({ value: `${s.nome} > ${a.nome}`, label: a.nome, group: s.nome });
+          continue;
+        }
+        for (const sb of subareasDaArea) {
+          opcoes.push({
+            value: `${s.nome} > ${a.nome} > ${sb.nome}`,
+            label: sb.nome,
+            group: `${s.nome} > ${a.nome}`,
+          });
+        }
+      }
+    }
+    return opcoes;
   }, [setores, areas, subareas]);
+
+  const gruposEap = useMemo(() => {
+    const map = new Map<string, typeof opcoesEap>();
+    for (const o of opcoesEap) {
+      const key = o.group;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(o);
+    }
+    return [...map.entries()];
+  }, [opcoesEap]);
 
   const ehReconhecimento = tipo === "Reconhecimento";
 
@@ -285,17 +318,53 @@ export default function RdrForm() {
           </div>
           <div className="space-y-1.5">
             <Label>Local</Label>
-            <Input
-              list="rdr-locais"
-              value={local}
-              onChange={(e) => setLocal(e.target.value)}
-              placeholder="Ex.: Pátio de formas"
-            />
-            <datalist id="rdr-locais">
-              {locaisEap.map((l) => (
-                <option key={l} value={l} />
-              ))}
-            </datalist>
+            <div className="flex gap-2">
+              <Input
+                value={local}
+                onChange={(e) => setLocal(e.target.value)}
+                placeholder="Ex.: Pátio de formas"
+                className="flex-1"
+              />
+              <Dialog open={abertoLocal} onOpenChange={setAbertoLocal}>
+                <DialogTrigger asChild>
+                  <Button type="button" variant="outline" size="icon" title="Selecionar da EAP">
+                    <MapPin className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-xl">
+                  <DialogHeader>
+                    <DialogTitle>Selecionar local da EAP</DialogTitle>
+                    <DialogDescription>Digite para filtrar setor, área ou subárea.</DialogDescription>
+                  </DialogHeader>
+                  <Command>
+                    <CommandInput placeholder="Buscar local..." autoFocus />
+                    <CommandList>
+                      <CommandEmpty>Nenhum local encontrado</CommandEmpty>
+                      {gruposEap.map(([grupo, opts]) => (
+                        <CommandGroup key={grupo} heading={grupo || undefined}>
+                          {opts.map((o) => (
+                            <CommandItem
+                              key={o.value}
+                              value={`${o.label} ${o.group}`}
+                              onSelect={() => {
+                                setLocal(o.value);
+                                setAbertoLocal(false);
+                              }}
+                            >
+                              <Check className={local === o.value ? "mr-2 h-4 w-4 opacity-100" : "mr-2 h-4 w-4 opacity-0"} />
+                              {o.label}
+                            </CommandItem>
+                          ))}
+                        </CommandGroup>
+                      ))}
+                    </CommandList>
+                  </Command>
+                </DialogContent>
+              </Dialog>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Clique no ícone de mapa para buscar o local na EAP, ou digite manualmente.
+            </p>
           </div>
           <div className="space-y-1.5 sm:col-span-2">
             <Label>Registrado por</Label>
