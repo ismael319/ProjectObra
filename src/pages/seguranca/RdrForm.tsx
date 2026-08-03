@@ -13,7 +13,7 @@ import {
 } from "@/lib/rdr/rdr-db";
 import { CATEGORIAS, MAX_FOTOS } from "@/lib/rdr/constants";
 import { ehDesvio, type RdrFoto } from "@/lib/rdr/mappers";
-import { useSetores, useAreas, useSubareas } from "@/pages/apontamento/lib/catalog";
+import { useSetores, useAreas } from "@/pages/apontamento/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -156,35 +156,21 @@ export default function RdrForm() {
 
   const { data: setores = [] } = useSetores();
   const { data: areas = [] } = useAreas();
-  const { data: subareas = [] } = useSubareas();
 
   const opcoesEap = useMemo(() => {
-    const opcoes: { value: string; label: string; group: string; nivel: "setor" | "area" | "subarea" }[] = [];
+    const opcoes: { value: string; label: string; group: string }[] = [];
     for (const s of setores) {
       const areasDoSetor = areas.filter((a) => a.setor_id === s.id);
       if (areasDoSetor.length === 0) {
-        opcoes.push({ value: s.nome, label: s.nome, group: "", nivel: "setor" });
+        opcoes.push({ value: s.nome, label: s.nome, group: "" });
         continue;
       }
       for (const a of areasDoSetor) {
-        const subareasDaArea = subareas.filter((sb) => sb.area_id === a.id);
-        if (subareasDaArea.length === 0) {
-          opcoes.push({ value: `${s.nome} > ${a.nome}`, label: a.nome, group: s.nome, nivel: "area" });
-          continue;
-        }
-        opcoes.push({ value: `${s.nome} > ${a.nome}`, label: `${s.nome} > ${a.nome}`, group: s.nome, nivel: "area" });
-        for (const sb of subareasDaArea) {
-          opcoes.push({
-            value: `${s.nome} > ${a.nome} > ${sb.nome}`,
-            label: sb.nome,
-            group: s.nome,
-            nivel: "subarea",
-          });
-        }
+        opcoes.push({ value: `${s.nome} > ${a.nome}`, label: `${s.nome} > ${a.nome}`, group: s.nome });
       }
     }
     return opcoes;
-  }, [setores, areas, subareas]);
+  }, [setores, areas]);
 
   const gruposEap = useMemo(() => {
     const map = new Map<string, typeof opcoesEap>();
@@ -352,7 +338,6 @@ export default function RdrForm() {
                                 setLocal(o.value);
                                 setAbertoLocal(false);
                               }}
-                              className={o.nivel === "subarea" ? "pl-6" : o.nivel === "area" ? "font-medium" : undefined}
                             >
                               <Check className={local === o.value ? "mr-2 h-4 w-4 opacity-100" : "mr-2 h-4 w-4 opacity-0"} />
                               {o.label}
