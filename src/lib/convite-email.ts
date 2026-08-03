@@ -19,7 +19,17 @@ export async function enviarConviteEmail(params: EnviarConviteParams) {
   })
 
   if (error) {
-    throw new Error(error.message)
+    const status = error.context?.status ?? 0
+    let detail = ''
+    if (error.context) {
+      try {
+        const payload = await error.context.clone().json()
+        detail = typeof payload?.error === 'string' ? payload.error : ''
+      } catch {
+        /* corpo não-JSON */
+      }
+    }
+    throw new Error(`${status} ${detail}`.trim() || error.message)
   }
 
   return data
