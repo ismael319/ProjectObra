@@ -10,21 +10,26 @@ const PAPEL_LABELS: Record<string, string> = {
   insercao_pontual: 'Inserção Pontual',
 }
 
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Max-Age': '86400',
+}
+
 function json(data: unknown, status = 200): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
-      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+      ...CORS_HEADERS,
     },
   })
 }
 
 Deno.serve(async (request: Request) => {
   if (request.method === 'OPTIONS') {
-    return new Response('ok', { status: 204 })
+    return new Response('ok', { status: 200, headers: CORS_HEADERS })
   }
 
   if (request.method !== 'POST') {
