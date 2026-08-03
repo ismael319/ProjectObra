@@ -28,9 +28,10 @@ CREATE POLICY "Leitura config dashboard da propria empresa" ON public.dashboard_
   FOR SELECT TO authenticated
   USING (public.is_super_admin() OR organizacao_id = public.user_organizacao());
 
--- Escrita restrita: só admin/gestor da própria empresa, ou super admin.
+-- Escrita restrita: só papel 'edicao' da própria empresa (ou super admin).
+-- ('admin'/'gestor' não existem mais desde acesso-3-niveis-migration.sql.)
 DROP POLICY IF EXISTS "Admin ou gestor edita config dashboard" ON public.dashboard_visao_geral_config;
 CREATE POLICY "Admin ou gestor edita config dashboard" ON public.dashboard_visao_geral_config
   FOR ALL TO authenticated
-  USING (public.is_super_admin() OR (organizacao_id = public.user_organizacao() AND public.user_papel() IN ('admin', 'gestor')))
-  WITH CHECK (public.is_super_admin() OR (organizacao_id = public.user_organizacao() AND public.user_papel() IN ('admin', 'gestor')));
+  USING (public.is_super_admin() OR (organizacao_id = public.user_organizacao() AND public.user_papel() = 'edicao'))
+  WITH CHECK (public.is_super_admin() OR (organizacao_id = public.user_organizacao() AND public.user_papel() = 'edicao'));

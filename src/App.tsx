@@ -9,6 +9,7 @@ import { ThemeProvider } from '@/lib/theme-context'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
 import RequireModulo from '@/components/RequireModulo'
+import RequirePapel from '@/components/RequirePapel'
 
 const queryClient = new QueryClient()
 
@@ -21,10 +22,9 @@ const DashboardLayout = lazy(() => import('@/pages/DashboardLayout'))
 const DashboardHome = lazy(() => import('@/pages/DashboardHome'))
 const SCurve = lazy(() => import('@/pages/SCurve'))
 const GanttChart = lazy(() => import('@/pages/GanttChart'))
-const ResourceHistogram = lazy(() => import('@/pages/ResourceHistogram'))
+const HistogramaMO = lazy(() => import('@/pages/histograma-mo/HistogramaMO'))
 const DailyProgramming = lazy(() => import('@/pages/DailyProgramming'))
 const Occurrences = lazy(() => import('@/pages/Occurrences'))
-const LaborTracking = lazy(() => import('@/pages/LaborTracking'))
 const ProjectSelection = lazy(() => import('@/pages/ProjectSelection'))
 const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
@@ -184,10 +184,9 @@ function App() {
                       <Route path="activities" element={<Activities />} />
                       <Route path="planning" element={<RequireModulo modulo="engenharia"><SCurve /></RequireModulo>} />
                       <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />
-                      <Route path="resources" element={<RequireModulo modulo="engenharia"><ResourceHistogram /></RequireModulo>} />
+                      <Route path="histograma-mo" element={<RequireModulo modulo="engenharia"><HistogramaMO /></RequireModulo>} />
                       <Route path="daily" element={<RequireModulo modulo="engenharia"><DailyProgramming /></RequireModulo>} />
                       <Route path="occurrences" element={<RequireModulo modulo="engenharia"><Occurrences /></RequireModulo>} />
-                      <Route path="labor" element={<RequireModulo modulo="engenharia"><LaborTracking /></RequireModulo>} />
                       <Route path="people" element={<RequireModulo modulo="engenharia"><ApontamentoDashboard /></RequireModulo>} />
                       <Route path="people/lancamento" element={<RequireModulo modulo="engenharia"><ApontamentoLancamento /></RequireModulo>} />
                       <Route path="people/validacao" element={<RequireModulo modulo="engenharia"><ApontamentoValidacao /></RequireModulo>} />
@@ -215,7 +214,7 @@ function App() {
                       <Route path="seguranca/novo" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
                       <Route path="seguranca/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="seguranca/registros/:id" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
-                      <Route path="admin/users" element={<UserApprovalManagement />} />
+                      <Route path="admin/users" element={<RequirePapel papeis={['edicao']}><UserApprovalManagement /></RequirePapel>} />
                       <Route path="admin/seguranca" element={<SecurityMonitoring />} />
                     </Route>
 

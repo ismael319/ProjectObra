@@ -61,11 +61,15 @@ export default function ExportarPage() {
     return acc;
   }, [apontamentos]);
 
-  const handleExport = () => {
+  const handleExport = async () => {
     if (apontamentos.length === 0) { toast.warning("Nenhum registro para exportar"); return; }
-    const wb = buildWorkbook(apontamentos);
-    downloadWorkbook(wb, exportFilename(dataInicio, dataFim));
-    toast.success("Excel exportado");
+    try {
+      const wb = await buildWorkbook(apontamentos);
+      await downloadWorkbook(wb, exportFilename(dataInicio, dataFim));
+      toast.success("Excel exportado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Falha ao exportar Excel");
+    }
   };
 
   return (

@@ -945,13 +945,13 @@ export default function SCurve() {
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
               <div className="absolute top-full left-0 mt-1 w-60 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-2 space-y-1">
                 <button
-                   onClick={() => { exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances ? { statusDate: advances.statusDate, statusDateFormatted: advances.statusDateFormatted, real: advances.real, baselines: advanceBaselines } : undefined, periodColLabel); setOpenPanel(null) }}
+                   onClick={async () => { await exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances ? { statusDate: advances.statusDate, statusDateFormatted: advances.statusDateFormatted, real: advances.real, baselines: advanceBaselines } : undefined, periodColLabel); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                 >
                   <BarChart3 size={16} className="text-blue-600" /> Curva S Excel
                 </button>
                 <button
-                  onClick={() => { exportToExcel(activities, resources, assignments, project.nome); setOpenPanel(null) }}
+                  onClick={async () => { await exportToExcel(activities, resources, assignments, project.nome); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                 >
                   <Download size={16} className="text-green-600" /> Excel

@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import type { WorkBook } from "xlsx";
 import { formatBR } from "./date-utils";
 
 export type Apontamento = {
@@ -103,7 +103,8 @@ function groupSumExt(arr: Apontamento[], keyFn: (a: Apontamento) => string, extr
   return [...map.values()].map((g) => ({ ...g, dias: g._dates.size }));
 }
 
-export function buildWorkbook(apontamentos: Apontamento[]): XLSX.WorkBook {
+export async function buildWorkbook(apontamentos: Apontamento[]): Promise<WorkBook> {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
 
   const dataRows: (string | number)[][] = [HEADERS];
@@ -174,7 +175,8 @@ export function buildWorkbook(apontamentos: Apontamento[]): XLSX.WorkBook {
   return wb;
 }
 
-export function downloadWorkbook(wb: XLSX.WorkBook, filename: string) {
+export async function downloadWorkbook(wb: WorkBook, filename: string) {
+  const XLSX = await import("xlsx");
   XLSX.writeFile(wb, filename);
 }
 

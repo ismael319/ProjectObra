@@ -70,7 +70,7 @@ export default function DashboardHome() {
     [currentProject]
   )
 
-  const podeEditarDashboard = userProfile?.papel === 'edicao'
+  const podeEditarDashboard = userProfile?.papel === 'edicao' || userProfile?.is_super_admin === true
   const [savedWidgets, setSavedWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS)
   const [isEditing, setIsEditing] = useState(false)
   const [draftWidgets, setDraftWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS)

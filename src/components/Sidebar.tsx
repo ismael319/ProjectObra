@@ -2,14 +2,14 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BarChart3, GanttChart,
-  Users, Calendar, AlertTriangle, Clock, PieChart,
+  Calendar, AlertTriangle, PieChart,
   Award, Menu, X, ChevronDown, ChevronRight,
   PanelLeftClose, PanelLeftOpen, TrendingUp,
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog, FileText,
-  Truck, Upload,
+  Truck, Upload, LineChart,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -47,7 +47,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
         { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
         { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-        { icon: Users, label: 'Histograma MO', path: '/dashboard/resources' },
+        { icon: LineChart, label: 'Histograma Planejado x Real', path: '/dashboard/histograma-mo' },
       ],
     },
     {
@@ -64,7 +64,6 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
     },
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
     { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
-    { icon: Clock, label: 'Mão de Obra', path: '/dashboard/labor' },
   ] : []
 
   const qualidadeItems: NavItem[] = temQualidade ? [

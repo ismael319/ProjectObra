@@ -60,7 +60,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   // empresa. E solicitações "órfãs" (sem organizacao_id, de antes do convite
   // por email existir) só aparecem pra quem administra a empresa piloto.
   const orgPiloto = organizacaoId !== undefined ? (organizacaoPiloto ?? false) : (userProfile?.organizacao_piloto ?? false)
-  const podeGerenciar = organizacaoId !== undefined ? true : userProfile?.papel === 'edicao'
+  const podeGerenciar = organizacaoId !== undefined ? true : userProfile?.papel === 'edicao' || userProfile?.is_super_admin === true
   const papeisBase: PapelUsuario[] = ['edicao', 'visualizacao', 'insercao_pontual']
   const papeisDisponiveis = orgPiloto ? papeisBase : papeisBase.filter((p) => p !== 'insercao_pontual')
 

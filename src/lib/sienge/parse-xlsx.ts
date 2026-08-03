@@ -1,8 +1,8 @@
-import * as XLSX from 'xlsx'
+import type { WorkBook } from 'xlsx'
 import type { SiengeItem, TipoRelatorio } from './types'
 import { limparCelula, parseGenerico, type LinhaTabela } from './parse-base'
 
-export function planilhaParaLinhas(workbook: XLSX.WorkBook): LinhaTabela[] {
+export function planilhaParaLinhas(workbook: WorkBook, XLSX: typeof import('xlsx')): LinhaTabela[] {
   const nomeAba = workbook.SheetNames[0]
   if (!nomeAba) return []
   const planilha = workbook.Sheets[nomeAba]!
@@ -11,8 +11,9 @@ export function planilhaParaLinhas(workbook: XLSX.WorkBook): LinhaTabela[] {
 }
 
 export async function parseXlsx(file: File): Promise<{ tipo: TipoRelatorio; itens: SiengeItem[] } | null> {
+  const XLSX = await import('xlsx')
   const buf = await file.arrayBuffer()
   const workbook = XLSX.read(buf, { type: 'array' })
-  const linhas = planilhaParaLinhas(workbook)
+  const linhas = planilhaParaLinhas(workbook, XLSX)
   return parseGenerico(linhas)
 }

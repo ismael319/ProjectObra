@@ -6,7 +6,6 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Layers, RefreshCw, Download, Upload, ChevronDown, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
-import * as XLSX from "xlsx";
 import type { CronogramaItem, Atividade } from "../lib/catalog";
 
 interface ApontamentosTabelaProps {
@@ -46,7 +45,8 @@ function sumField(items: CronogramaItem[], field: keyof CronogramaItem): number 
   return items.reduce((s, i) => s + ((i[field] as unknown as number) ?? 0), 0);
 }
 
-function buildExcel(items: CronogramaItem[], atividades: Atividade[]) {
+async function buildExcel(items: CronogramaItem[], atividades: Atividade[]) {
+  const XLSX = await import("xlsx");
   const wb = XLSX.utils.book_new();
   const atvMap = new Map(atividades.map((a) => [a.id, a.nome]));
   const headers = [["ÍNDICE", "NOME", "NÍVEL", "HH TOTAL", "HH GANHO", "HH CONSUMIDO", "STATUS", "PRODUTIVIDADE", "ADERÊNCIA", "PROJEÇÃO HH", "ATIVIDADE", "ATIVO"]];
@@ -93,7 +93,7 @@ export function ApontamentosTabela({
               <option value="indice">Agrupar por índice</option>
             </select>
             {onReload && <Button size="sm" variant="outline" onClick={onReload}><RefreshCw className="h-3.5 w-3.5" /></Button>}
-            <Button size="sm" variant="outline" onClick={() => buildExcel(items, atividades)}><Download className="h-3.5 w-3.5" /></Button>
+            <Button size="sm" variant="outline" onClick={() => { void buildExcel(items, atividades) }}><Download className="h-3.5 w-3.5" /></Button>
           </div>
         </div>
         <div className="flex gap-4 text-xs text-muted-foreground mt-2">

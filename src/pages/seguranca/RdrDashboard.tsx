@@ -357,9 +357,9 @@ export default function RdrDashboard() {
     }
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     try {
-      exportarExcelRdr(dadosFiltrados, dadosExport);
+      await exportarExcelRdr(dadosFiltrados, dadosExport);
     } catch (e) {
       toast.error("Falha ao gerar Excel");
       console.error(e);

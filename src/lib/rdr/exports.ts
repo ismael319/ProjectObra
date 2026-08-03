@@ -1,5 +1,4 @@
 import { jsPDF } from "jspdf"
-import * as XLSX from "xlsx"
 import { obterFotoUrl } from "./rdr-db"
 import { MESES_PT_SHORT } from "./constants"
 import type { RdrRecord } from "./mappers"
@@ -276,7 +275,8 @@ export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
   doc.save(`RDR-Relatorio-${new Date().toISOString().slice(0, 10)}.pdf`)
 }
 
-export function exportarExcelRdr(records: RdrRecord[], dados?: DashboardDados): void {
+export async function exportarExcelRdr(records: RdrRecord[], dados?: DashboardDados): Promise<void> {
+  const XLSX = await import("xlsx")
   const wb = XLSX.utils.book_new()
 
   const detalhamento = records.map((r, i) => ({

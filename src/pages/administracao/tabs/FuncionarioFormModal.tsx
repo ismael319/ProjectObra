@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
+import { useProjects } from "@/lib/project-store";
 import { useRhCargos, useRhSetores, useRhEncarregados, useRhGrupos } from "@/lib/administracao/catalog";
 import {
   salvarFuncionario,
@@ -118,6 +119,7 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
   const { data: setores = [], refetch: refetchSetores } = useRhSetores(organizacaoId);
   const { data: encarregados = [], refetch: refetchEncarregados } = useRhEncarregados(organizacaoId);
   const { data: grupos = [], refetch: refetchGrupos } = useRhGrupos(organizacaoId);
+  const { projects } = useProjects();
 
   const [form, setForm] = useState<FuncionarioInput>(() => ({
     id: funcionario?.id,
@@ -130,6 +132,7 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
     indicacao: funcionario?.indicacao ?? null,
     dataAdmissao: funcionario?.data_admissao ?? "",
     obraCodigo: funcionario?.obra_codigo ?? null,
+    projetoId: funcionario?.projeto_id ?? null,
     local: funcionario?.local ?? null,
     statusBdr: funcionario?.status_bdr ?? "aguardando_documentacao",
     statusFs: funcionario?.status_fs ?? "bloqueado",
@@ -256,6 +259,15 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
           <div className="space-y-1.5">
             <Label>Obra</Label>
             <Input value={form.obraCodigo ?? ""} onChange={(e) => set("obraCodigo", e.target.value || null)} />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Projeto</Label>
+            <Combobox
+              options={projects.map((p) => ({ value: p.id, label: p.nome }))}
+              value={form.projetoId}
+              onChange={(v) => set("projetoId", v)}
+              placeholder="Selecione o projeto"
+            />
           </div>
 
           <div className="space-y-1.5">

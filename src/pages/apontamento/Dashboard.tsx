@@ -14,7 +14,7 @@ import {
   Tooltip as InfoTooltip, TooltipContent as InfoTooltipContent,
   TooltipProvider as InfoTooltipProvider, TooltipTrigger as InfoTooltipTrigger,
 } from "@/components/ui/tooltip";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { toast } from "sonner";
 import { Download, Loader2, CalendarDays, LineChart as LineChartIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -386,6 +386,35 @@ function ResumoDiarioTab() {
   );
 }
 
+type PontoEfetivo = {
+  data: string;
+  pedreiro: number;
+  servente: number;
+  carpinteiro: number;
+  qntdd_funcao: number;
+  total: number;
+  label: string;
+};
+
+// Balão do gráfico de linha: a linha em si só mostra o Total, mas passar o
+// mouse revela a quebra por função daquele dia.
+function EfetivoTooltip({ active, payload }: { active?: boolean; payload?: { payload: PontoEfetivo }[] }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <div className="rounded-lg border bg-background p-3 shadow-md text-xs space-y-1.5 min-w-[160px]">
+      <p className="font-semibold">{formatBR(d.data)}</p>
+      <p className="text-sm font-bold text-primary">Total: {d.total}</p>
+      <div className="pt-1.5 border-t space-y-0.5 text-muted-foreground">
+        <p>Pedreiro: <span className="font-medium text-foreground">{d.pedreiro}</span></p>
+        <p>Servente: <span className="font-medium text-foreground">{d.servente}</span></p>
+        <p>Carpinteiro: <span className="font-medium text-foreground">{d.carpinteiro}</span></p>
+        <p>Outros: <span className="font-medium text-foreground">{d.qntdd_funcao}</span></p>
+      </div>
+    </div>
+  );
+}
+
 // Página 2 — evolução do efetivo dia a dia num período (não só um dia único),
 // com o mesmo conjunto de filtros (empresa/liderança/setor/área/etapa/
 // atividade) da página de Resumo diário, reaproveitando apontamentos_diarios.
@@ -525,17 +554,22 @@ function LinhaDoTempoTab() {
             <div className="py-24 text-center text-sm text-muted-foreground">Nenhum apontamento no período/filtro selecionado.</div>
           ) : (
             <ResponsiveContainer width="100%" height={360}>
-              <BarChart data={porDia}>
+              <LineChart data={porDia} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="pedreiro" name="Pedreiro" stackId="efetivo" fill={COLORS[0]} />
-                <Bar dataKey="servente" name="Servente" stackId="efetivo" fill={COLORS[1]} />
-                <Bar dataKey="carpinteiro" name="Carpinteiro" stackId="efetivo" fill={COLORS[2]} />
-                <Bar dataKey="qntdd_funcao" name="Outros" stackId="efetivo" fill={COLORS[3]} radius={[4, 4, 0, 0]} />
-              </BarChart>
+                <YAxis allowDecimals={false} />
+                <Tooltip content={<EfetivoTooltip />} />
+                <Line
+                  type="monotone"
+                  dataKey="total"
+                  name="Total"
+                  stroke={COLORS[0]}
+                  strokeWidth={2}
+                  dot={{ r: 3, fill: COLORS[0] }}
+                  activeDot={{ r: 5 }}
+                  label={{ position: "top", fontSize: 11, fill: COLORS[0] }}
+                />
+              </LineChart>
             </ResponsiveContainer>
           )}
         </CardContent>

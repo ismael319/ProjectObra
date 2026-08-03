@@ -115,8 +115,8 @@ export default function Consulta() {
       if (error) throw error;
       const rows = (data ?? []) as Apontamento[];
       if (rows.length === 0) { toast.warning("Nenhum registro no filtro atual"); return; }
-      const wb = buildWorkbook(rows);
-      downloadWorkbook(wb, exportFilename(filters.data_inicio, filters.data_fim));
+      const wb = await buildWorkbook(rows);
+      await downloadWorkbook(wb, exportFilename(filters.data_inicio, filters.data_fim));
     } catch (e) {
       toast.error((e as Error).message);
     } finally {

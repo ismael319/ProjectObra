@@ -4,16 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useAuth } from "@/lib/auth-context";
 import { useFuncionarios, useRhCargos, useRhSetores, useRhGrupos, useAlertasDocumentos } from "@/lib/administracao/catalog";
+import { funcaoBase } from "@/lib/administracao/cargo-nivel";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
-
-// Junta variações de nível da mesma função ("Pedreiro I/II/III", "Eletricista
-// Jr/Pl/Sr") num só grupo — sem isso, a contagem por função fica espalhada em
-// dezenas de linhas quase idênticas em vez de mostrar o quadro real de mão de
-// obra por função.
-function funcaoBase(nome: string): string {
-  return nome.replace(/\s+(I{1,3}|IV|Jr\.?|Pl\.?|Sr\.?)$/i, "").trim() || nome;
-}
 
 function contar<T>(itens: T[], chave: (item: T) => string): { nome: string; total: number }[] {
   const map = new Map<string, number>();

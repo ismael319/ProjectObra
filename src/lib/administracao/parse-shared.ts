@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import type { WorkBook } from "xlsx";
 
 export type LinhaTabela = string[];
 
@@ -13,16 +13,16 @@ function limparCelula(valor: unknown): string {
   return String(valor).replace(/\r?\n/g, " ").trim();
 }
 
-function abaParaLinhas(workbook: XLSX.WorkBook, nomeAba: string): LinhaTabela[] {
+function abaParaLinhas(workbook: WorkBook, nomeAba: string, XLSX: typeof import("xlsx")): LinhaTabela[] {
   const planilha = workbook.Sheets[nomeAba]!;
   const linhasBrutas = XLSX.utils.sheet_to_json<unknown[]>(planilha, { header: 1, raw: false, defval: "" });
   return linhasBrutas.map((linha) => linha.map(limparCelula));
 }
 
-function planilhaParaLinhas(workbook: XLSX.WorkBook): LinhaTabela[] {
+function planilhaParaLinhas(workbook: WorkBook, XLSX: typeof import("xlsx")): LinhaTabela[] {
   const nomeAba = workbook.SheetNames[0];
   if (!nomeAba) return [];
-  return abaParaLinhas(workbook, nomeAba);
+  return abaParaLinhas(workbook, nomeAba, XLSX);
 }
 
 // CSVs exportados de sistemas legados (ex.: relatório do Secullum) às vezes
@@ -42,7 +42,7 @@ async function lerTextoComFallbackDeEncoding(file: File): Promise<string> {
 // arredondamento de fuso — "07/12/2021" virava "7/11/21". Com raw:true a
 // célula fica exatamente como está escrita no arquivo; parseDataCelula (em
 // cima do texto original) já sabe interpretar DD/MM/AAAA e serial do Excel.
-async function lerWorkbook(file: File): Promise<XLSX.WorkBook> {
+async function lerWorkbook(file: File, XLSX: typeof import("xlsx")): Promise<WorkBook> {
   const nomeLower = file.name.toLowerCase();
   if (nomeLower.endsWith(".csv")) {
     const texto = await lerTextoComFallbackDeEncoding(file);
@@ -53,7 +53,8 @@ async function lerWorkbook(file: File): Promise<XLSX.WorkBook> {
 }
 
 export async function lerArquivoComoLinhas(file: File): Promise<LinhaTabela[]> {
-  return planilhaParaLinhas(await lerWorkbook(file));
+  const XLSX = await import("xlsx");
+  return planilhaParaLinhas(await lerWorkbook(file, XLSX), XLSX);
 }
 
 // Lê TODAS as abas do arquivo (não só a primeira) — a planilha de Controle de
@@ -61,8 +62,9 @@ export async function lerArquivoComoLinhas(file: File): Promise<LinhaTabela[]> {
 // ordem das abas no arquivo não é garantida. O chamador tenta cada uma até
 // achar a que tem o cabeçalho esperado (ver parseEfetivo).
 export async function lerAbasComoLinhas(file: File): Promise<{ nome: string; linhas: LinhaTabela[] }[]> {
-  const workbook = await lerWorkbook(file);
-  return workbook.SheetNames.map((nome) => ({ nome, linhas: abaParaLinhas(workbook, nome) }));
+  const XLSX = await import("xlsx");
+  const workbook = await lerWorkbook(file, XLSX);
+  return workbook.SheetNames.map((nome) => ({ nome, linhas: abaParaLinhas(workbook, nome, XLSX) }));
 }
 
 // Faixa Unicode das marcas diacríticas combinantes (U+0300-U+036F) que

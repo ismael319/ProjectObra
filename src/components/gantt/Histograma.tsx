@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Ban, Users, Wrench, Download, ChevronDown, ChevronRight, Filter } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
 import { columnWidthFor, addDays, toISODate, startOfWeek, startOfMonth, formatDayMonth, formatMonthYear, isoWeek } from '@/lib/gantt/dates';
@@ -211,7 +210,8 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const MAX_CONTENT_HEIGHT = 239;
   const panelContentHeight = Math.min(contentHeight, MAX_CONTENT_HEIGHT);
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const XLSX = await import('xlsx');
     const header = [modo === 'pessoas' ? 'Função' : 'Equipamento', ...colData.map((c) => colLabel(c.date, granularidade))];
     const rows = labels.map((f) => [f, ...colValues.map((cv) => cv.values[f] || 0)]);
     rows.push(['TOTAL GERAL', ...colValues.map((cv) => cv.total)]);

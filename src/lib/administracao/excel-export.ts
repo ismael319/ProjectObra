@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import type { WorkBook } from "xlsx";
 import type { FuncionarioRow, Local, StatusBdr, StatusFs } from "./db";
 
 const LOCAL_LABEL: Record<Local, string> = {
@@ -44,7 +44,8 @@ function autoSizeFromRows(rows: (string | number)[][]) {
   });
 }
 
-export function buildFuncionariosWorkbook(funcionarios: FuncionarioRow[], nomes: Nomes): XLSX.WorkBook {
+export async function buildFuncionariosWorkbook(funcionarios: FuncionarioRow[], nomes: Nomes): Promise<WorkBook> {
+  const XLSX = await import("xlsx");
   const linhas: (string | number)[][] = [HEADERS];
   for (const f of funcionarios) {
     linhas.push([
@@ -71,7 +72,8 @@ export function buildFuncionariosWorkbook(funcionarios: FuncionarioRow[], nomes:
   return wb;
 }
 
-export function downloadFuncionariosWorkbook(wb: XLSX.WorkBook) {
+export async function downloadFuncionariosWorkbook(wb: WorkBook) {
+  const XLSX = await import("xlsx");
   const hoje = new Date().toISOString().slice(0, 10).split("-").reverse().join("");
   XLSX.writeFile(wb, `Controle_de_Efetivo_${hoje}.xlsx`);
 }

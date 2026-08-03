@@ -40,7 +40,16 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // O papel "insercao_pontual" só existe na tela de lançamento, que ainda não
   // é isolada por empresa (ver RequireModulo) — então essa regra só vale pra
   // empresa piloto, senão vira loop de redirecionamento.
-  if (userProfile.papel === 'insercao_pontual' && userProfile.organizacao_piloto && location.pathname !== LANCAMENTO_HOME) {
+  // O check extra de módulo evita outro loop: se esse usuário não tem o módulo
+  // "engenharia" liberado (restrição por usuário via user_modulos_visiveis),
+  // o RequireModulo da rota de lançamento o jogaria de volta pra /dashboard —
+  // que o redirect abaixo mandaria de novo pra lançamento, infinitamente.
+  if (
+    userProfile.papel === 'insercao_pontual' &&
+    userProfile.organizacao_piloto &&
+    userProfile.modulos.includes('engenharia') &&
+    location.pathname !== LANCAMENTO_HOME
+  ) {
     return <Navigate to={LANCAMENTO_HOME} replace />
   }
 

@@ -1,16 +1,16 @@
-import * as XLSX from 'xlsx'
 import { saveAs } from 'file-saver'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import type { WBSActivity, WBSResource, WBSAssignment } from './xml-parser'
 import type { ProjectIndices } from './project-calculations'
 
-export function exportToExcel(
+export async function exportToExcel(
   activities: WBSActivity[],
   resources: WBSResource[],
   assignments: WBSAssignment[],
   projectName: string
 ) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
 
   // Sheet de Atividades
@@ -76,7 +76,7 @@ export function exportToExcel(
   saveAs(blob, `${projectName.replace(/\s+/g, '_')}_cronograma.xlsx`)
 }
 
-export function exportSCurveToExcel(
+export async function exportSCurveToExcel(
   curveData: Array<{
     date: string
     label: string
@@ -100,6 +100,7 @@ export function exportSCurveToExcel(
   },
   periodLabel: string = 'Sem.',
 ) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
 
   // Sheet: Avanço Atual
@@ -189,12 +190,13 @@ export function exportSCurveToExcel(
 }
 
 /** Exporta a tabela larga da Curva S (SCurveWideTable) com os valores absolutos em H/R$ — a tela mostra em %, o export mantém os números originais pra quem precisa avaliá-los. */
-export function exportWideTableToExcel(
+export async function exportWideTableToExcel(
   title: string,
   rows: { metric: string; total: number; values: number[] }[],
   periodLabels: string[],
   unitSuffix: string,
 ) {
+  const XLSX = await import('xlsx')
   const wb = XLSX.utils.book_new()
   const round2 = (v: number) => Math.round(v * 100) / 100
   const headers = ['Métrica', `Total (${unitSuffix})`, ...periodLabels]

@@ -376,6 +376,7 @@ export type FuncionarioRow = {
   indicacao: string | null;
   data_admissao: string;
   obra_codigo: string | null;
+  projeto_id: string | null;
   local: Local | null;
   status_bdr: StatusBdr;
   status_fs: StatusFs;
@@ -453,6 +454,7 @@ export type FuncionarioInput = {
   indicacao: string | null;
   dataAdmissao: string;
   obraCodigo: string | null;
+  projetoId: string | null;
   local: Local | null;
   statusBdr: StatusBdr;
   statusFs: StatusFs;
@@ -476,6 +478,7 @@ export async function salvarFuncionario(params: {
     indicacao: input.indicacao,
     data_admissao: input.dataAdmissao,
     obra_codigo: input.obraCodigo,
+    projeto_id: input.projetoId,
     local: input.local,
     status_bdr: input.statusBdr,
     status_fs: input.statusFs,

@@ -83,7 +83,7 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
           )}
         </button>
         <button
-          onClick={() => exportWideTableToExcel(title, rows, curveData.map((p) => p.label), unitSuffix)}
+          onClick={async () => { await exportWideTableToExcel(title, rows, curveData.map((p) => p.label), unitSuffix) }}
           title={`Exportar valores em ${unitSuffix}`}
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition shrink-0"
         >

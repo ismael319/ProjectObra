@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Loader2, PanelLeftOpen, Presentation, X } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
 import { usePresentationMode } from '@/lib/presentation-mode';
@@ -38,7 +37,7 @@ function flattenTree(list: Atividade[]): { atv: Atividade; depth: number }[] {
   return result;
 }
 
-function excelToISODate(v: unknown): string | null {
+function excelToISODate(v: unknown, XLSX: typeof import('xlsx')): string | null {
   if (v == null || v === '') return null;
   if (v instanceof Date) return toISODate(v);
   if (typeof v === 'number') {
@@ -166,7 +165,8 @@ export default function GanttChartPage() {
     window.print();
   };
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
+    const XLSX = await import('xlsx');
     const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
     const rows = flattenTree(scenarioAtividades).map(({ atv: a, depth }) => ({
       ID: a.id,
@@ -203,6 +203,7 @@ export default function GanttChartPage() {
   // Não cria atividade nova: linhas com ID vazio/desconhecido são ignoradas.
   const handleImportExcel = async (file: File) => {
     try {
+      const XLSX = await import('xlsx');
       const scenarioEquipes = equipes.filter((e) => e.scenario_id === activeScenarioId);
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf, { cellDates: true });
@@ -219,9 +220,9 @@ export default function GanttChartPage() {
         const patch: Partial<Atividade> = {};
         // trim: a exportação prefixa espaços pra indentar a hierarquia visualmente.
         if (row.Atividade != null) patch.nome = String(row.Atividade).trim();
-        const novoInicio = excelToISODate(row['Data Início']);
+        const novoInicio = excelToISODate(row['Data Início'], XLSX);
         if (novoInicio) patch.data_inicio = novoInicio;
-        const novoFim = excelToISODate(row['Data Fim']);
+        const novoFim = excelToISODate(row['Data Fim'], XLSX);
         if (novoFim) patch.data_fim = novoFim;
         if (row['% Concluído'] != null) {
           patch.percentual_concluido = Math.max(0, Math.min(100, Number(row['% Concluído']) || 0));

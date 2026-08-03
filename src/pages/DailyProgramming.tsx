@@ -1,6 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from 'react'
 import { Calendar, Loader2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
@@ -247,8 +246,9 @@ export default function DailyProgramming() {
     goto(p.year, p.week)
   }
 
-  const handleExportExcel = () => {
+  const handleExportExcel = async () => {
     if (!weekData) return
+    const XLSX = await import('xlsx')
     const statusLabel: Record<string, string> = {
       pendente: 'Pendente',
       concluida: 'Concluída',
@@ -280,6 +280,7 @@ export default function DailyProgramming() {
   const handleImportExcel = async (file: File) => {
     if (!weekData?.week) return
     try {
+      const XLSX = await import('xlsx')
       const buf = await file.arrayBuffer()
       const wb = XLSX.read(buf)
       const ws = wb.Sheets[wb.SheetNames[0]]

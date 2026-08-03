@@ -16,6 +16,7 @@ import {
   useUltimaImportacaoEfetivo,
 } from "@/lib/administracao/catalog";
 import { reativarFuncionario, type FuncionarioRow, type Local, type StatusBdr, type StatusFs } from "@/lib/administracao/db";
+import { nivelDoCargo } from "@/lib/administracao/cargo-nivel";
 import { buildFuncionariosWorkbook, downloadFuncionariosWorkbook } from "@/lib/administracao/excel-export";
 import { StatusBdrPill, StatusFsPill } from "../status-pills";
 import FuncionarioFormModal from "./FuncionarioFormModal";
@@ -125,18 +126,22 @@ export default function Funcionarios() {
     }
   }
 
-  function handleExportar() {
+  async function handleExportar() {
     if (filtrados.length === 0) {
       toast.warning("Nenhum funcionário no filtro atual.");
       return;
     }
-    const wb = buildFuncionariosWorkbook(filtrados, {
-      cargo: cargoNomePorId,
-      setor: setorNomePorId,
-      encarregado: encarregadoNomePorId,
-      grupo: grupoNomePorId,
-    });
-    downloadFuncionariosWorkbook(wb);
+    try {
+      const wb = await buildFuncionariosWorkbook(filtrados, {
+        cargo: cargoNomePorId,
+        setor: setorNomePorId,
+        encarregado: encarregadoNomePorId,
+        grupo: grupoNomePorId,
+      });
+      await downloadFuncionariosWorkbook(wb);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    }
   }
 
   return (
@@ -239,6 +244,7 @@ export default function Funcionarios() {
                   <TableHead>Mat.</TableHead>
                   <TableHead>Nome</TableHead>
                   <TableHead>Cargo</TableHead>
+                  <TableHead>Nível</TableHead>
                   <TableHead>Setor</TableHead>
                   <TableHead>Local</TableHead>
                   <TableHead>Status BDR</TableHead>
@@ -248,13 +254,16 @@ export default function Funcionarios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
-                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
-                {pagina.map((f) => (
+                {isLoading && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
+                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
+                {pagina.map((f) => {
+                  const cargoNome = f.cargo_id ? cargoNomePorId.get(f.cargo_id) : undefined;
+                  return (
                   <TableRow key={f.id} className={!f.ativo ? "opacity-60" : ""}>
                     <TableCell className="font-mono text-xs">{f.matricula}</TableCell>
                     <TableCell className="font-medium">{f.nome}</TableCell>
-                    <TableCell>{f.cargo_id ? cargoNomePorId.get(f.cargo_id) ?? "—" : "—"}</TableCell>
+                    <TableCell>{cargoNome ?? "—"}</TableCell>
+                    <TableCell className="text-muted-foreground">{cargoNome ? nivelDoCargo(cargoNome) ?? "—" : "—"}</TableCell>
                     <TableCell>{f.setor_id ? setorNomePorId.get(f.setor_id) ?? "—" : "—"}</TableCell>
                     <TableCell>{f.local ? LOCAL_LABEL[f.local] : "—"}</TableCell>
                     <TableCell><StatusBdrPill status={f.status_bdr} /></TableCell>
@@ -268,7 +277,8 @@ export default function Funcionarios() {
                       </Button>
                     </TableCell>
                   </TableRow>
-                ))}
+                  );
+                })}
               </TableBody>
             </Table>
           </div>
