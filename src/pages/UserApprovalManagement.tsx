@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
 import { UserCog, Check, X, Send, Trash2, Pencil, Save } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { enviarConviteEmail } from '@/lib/convite-email'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
@@ -162,11 +163,31 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
 
     if (error) {
       toast.error(`Não foi possível criar o convite: ${error.message}`)
-    } else {
-      toast.success(`Convite criado para ${conviteEmail.trim()}. Avise a pessoa para criar conta em /signup com esse mesmo email.`)
-      setConviteEmail('')
-      load()
+      setIsSendingConvite(false)
+      return
     }
+
+    const { data: org } = await supabase
+      .from('organizacoes')
+      .select('nome')
+      .eq('id', orgAlvo)
+      .maybeSingle()
+
+    try {
+      await enviarConviteEmail({
+        email: conviteEmail.trim(),
+        papel: convitePapel,
+        organizacao_nome: org?.nome,
+      })
+      toast.success(`Convite enviado para ${conviteEmail.trim()}.`)
+    } catch (emailError) {
+      toast.warning(
+        `Convite criado, mas o email não pôde ser enviado agora: ${(emailError as Error).message}`,
+      )
+    }
+
+    setConviteEmail('')
+    load()
     setIsSendingConvite(false)
   }
 
@@ -282,9 +303,10 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         <div className="space-y-6">
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 space-y-4">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Convide alguém da sua equipe por email. A pessoa entra automaticamente aprovada, já no papel
-              escolhido, assim que criar a conta em <span className="font-mono">/signup</span> usando exatamente
-              esse email — sem precisar de aprovação manual depois.
+              Convide alguém da sua equipe por email. Um email com o convite chega no endereço informado, e a
+              pessoa entra automaticamente aprovada, já no papel escolhido, assim que criar a conta em
+              <span className="font-mono">/signup</span> usando exatamente esse email — sem precisar de aprovação
+              manual depois.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <Input
