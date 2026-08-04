@@ -161,16 +161,18 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    // Provém de um cronograma de verdade ou é avulsa? Decide o significado da
-    // coluna `area` (WBS area/subárea vs. texto livre digitado à mão). Usa
-    // source_cronograma (não task_uid) como discriminador: task_uid só existe
-    // pra atividades importadas DEPOIS que esse campo foi criado — importações
-    // antigas têm source_cronograma preenchido mas task_uid null, e usar
-    // task_uid aqui zerava a área/subárea delas (ex.: "Edificações
-    // complementares" sumia da mensagem de WhatsApp). Independente de
-    // is_extra, que hoje é só o status "não estava planejada pro dia" (ver
-    // addActivitiesBulk).
-    area: a.source_cronograma ? null : a.area,
+    // `area` (a coluna crua do banco) serve dois papéis — texto livre digitado à
+    // mão numa atividade avulsa, ou "Nível2 / Nível3" da EDT numa importada — e já
+    // tentamos duas vezes adivinhar qual é qual por uma flag (is_extra, depois
+    // task_uid/source_cronograma) pra decidir se ecoa em `area` (chip de exibição)
+    // ou em `areaPath` (usado pro agrupamento por área/subárea). Toda vez sobrava
+    // alguma atividade antiga sem a flag esperada e a área/subárea sumia de novo
+    // (ex.: "Edificações complementares" na mensagem de WhatsApp). Mais robusto:
+    // não adivinhar — repassa o valor bruto pros dois, sempre. O único efeito
+    // colateral é a atividade real também mostrar o chip "Área: Nível2 / Nível3"
+    // redundante com a linha da EDT, cosmético, contra o risco de perder a
+    // área/subárea de vez.
+    area: a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -179,7 +181,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     is_extra: a.is_extra,
     observation: a.observation,
     source: a.source_cronograma ?? undefined,
-    areaPath: a.source_cronograma ? a.area : null,
+    areaPath: a.area,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
@@ -222,16 +224,18 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    // Provém de um cronograma de verdade ou é avulsa? Decide o significado da
-    // coluna `area` (WBS area/subárea vs. texto livre digitado à mão). Usa
-    // source_cronograma (não task_uid) como discriminador: task_uid só existe
-    // pra atividades importadas DEPOIS que esse campo foi criado — importações
-    // antigas têm source_cronograma preenchido mas task_uid null, e usar
-    // task_uid aqui zerava a área/subárea delas (ex.: "Edificações
-    // complementares" sumia da mensagem de WhatsApp). Independente de
-    // is_extra, que hoje é só o status "não estava planejada pro dia" (ver
-    // addActivitiesBulk).
-    area: a.source_cronograma ? null : a.area,
+    // `area` (a coluna crua do banco) serve dois papéis — texto livre digitado à
+    // mão numa atividade avulsa, ou "Nível2 / Nível3" da EDT numa importada — e já
+    // tentamos duas vezes adivinhar qual é qual por uma flag (is_extra, depois
+    // task_uid/source_cronograma) pra decidir se ecoa em `area` (chip de exibição)
+    // ou em `areaPath` (usado pro agrupamento por área/subárea). Toda vez sobrava
+    // alguma atividade antiga sem a flag esperada e a área/subárea sumia de novo
+    // (ex.: "Edificações complementares" na mensagem de WhatsApp). Mais robusto:
+    // não adivinhar — repassa o valor bruto pros dois, sempre. O único efeito
+    // colateral é a atividade real também mostrar o chip "Área: Nível2 / Nível3"
+    // redundante com a linha da EDT, cosmético, contra o risco de perder a
+    // área/subárea de vez.
+    area: a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -240,7 +244,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     is_extra: a.is_extra,
     observation: a.observation,
     source: a.source_cronograma ?? undefined,
-    areaPath: a.source_cronograma ? a.area : null,
+    areaPath: a.area,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,

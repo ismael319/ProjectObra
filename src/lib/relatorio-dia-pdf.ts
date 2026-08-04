@@ -79,7 +79,7 @@ export async function downloadRelatorioDiaPdf(params: {
   for (const area of relatorio.areas) {
     body.push([{ content: area.nome, colSpan: 2, styles: { fillColor: COR.gray100, textColor: COR.gray800, fontStyle: "bold", fontSize: 8 } }]);
     for (const item of area.itens) {
-      const nomeComSubarea = item.subarea ? `${item.subarea} — ${item.nome}` : item.nome;
+      const nomeComSubarea = item.subarea ? `${item.nome} — ${item.subarea}` : item.nome;
       body.push([item.isExtra ? "extra" : item.status, `${nomeComSubarea}${item.isExtra ? "  (extra)" : ""}`]);
       for (const sub of item.subetapas) {
         body.push([sub.status, `    • ${sub.nome}`]);

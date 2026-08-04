@@ -54,6 +54,17 @@ describe("buildTextoRelatorioVisual", () => {
     expect(texto).toContain("➕ Retrabalho _(extra)_");
   });
 
+  it("em Edificações Complementares (nome em qualquer caixa), acrescenta a subárea depois do nome da atividade", () => {
+    const relatorio = buildRelatorioVisual([
+      act({ name: "Alvenaria estrutural", areaPath: "EDIFICAÇÕES COMPLEMENTARES / Portaria/Faturamento", status: "concluida" }),
+      act({ name: "Alvenaria estrutural", areaPath: "EDIFICAÇÕES COMPLEMENTARES / Portaria Secundária", status: "concluida" }),
+    ]);
+    const texto = buildTextoRelatorioVisual({ ...cabecalho, relatorio });
+
+    expect(texto).toContain("✅ Alvenaria estrutural — Portaria/Faturamento");
+    expect(texto).toContain("✅ Alvenaria estrutural — Portaria Secundária");
+  });
+
   it("sem atividades, mostra mensagem de período vazio", () => {
     const texto = buildTextoRelatorioVisual({ ...cabecalho, relatorio: buildRelatorioVisual([]) });
     expect(texto).toContain("Nenhuma atividade programada para este período.");

@@ -70,8 +70,17 @@ export function buildRelatorioVisual(activities: ActivityLike[], partialWeight =
       subarea: subareaDe(a),
     });
   }
+  // Primeiro por subárea (nível 3 da EDT), depois por nome da atividade — sem
+  // isso, atividades de mesmo nome em subáreas diferentes (ex.: "Alvenaria
+  // estrutural" na Portaria/Faturamento e na Portaria Secundária) ficavam
+  // misturadas em ordem alfabética pura, sem nenhuma pista visual de que eram
+  // lugares diferentes.
   for (const itens of map.values()) {
-    itens.sort((x, y) => x.nome.localeCompare(y.nome, "pt-BR"));
+    itens.sort((x, y) => {
+      const porSubarea = x.subarea.localeCompare(y.subarea, "pt-BR");
+      if (porSubarea !== 0) return porSubarea;
+      return x.nome.localeCompare(y.nome, "pt-BR");
+    });
   }
   const areas = Array.from(map.entries())
     .sort(([a], [b]) => {

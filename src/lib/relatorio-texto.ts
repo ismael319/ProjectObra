@@ -44,15 +44,15 @@ export function buildTextoRelatorioVisual(params: {
 
     for (const area of relatorio.areas) {
       linhas.push(`*${area.nome}*`);
-      // Só em "Edificações complementares" o resumo de cada item usa o nível 3 da EDT
-      // (a subárea, ex.: "Portaria/Faturamento", "Portaria Secundária") em vez do
-      // nome da atividade — nas demais áreas continua nome da atividade, como sempre
-      // foi. Cai pro nome normal se a atividade não tiver subárea (EDT com menos de
-      // 3 níveis).
-      const usaSubareaComoResumo = area.nome === "Edificações complementares";
+      // Só em "Edificações complementares" o resumo de cada item ganha o nível 3 da
+      // EDT (a subárea, ex.: "Portaria/Faturamento", "Portaria Secundária") depois
+      // do nome — nas demais áreas continua só o nome da atividade, como sempre foi.
+      // Cai pro nome sozinho se a atividade não tiver subárea (EDT com menos de 3
+      // níveis).
+      const usaSubareaComoResumo = area.nome.toUpperCase() === "EDIFICAÇÕES COMPLEMENTARES";
       for (const item of area.itens) {
         const emoji = item.isExtra ? "➕" : emojiStatus(item.status);
-        const resumo = usaSubareaComoResumo && item.subarea ? item.subarea : item.nome;
+        const resumo = usaSubareaComoResumo && item.subarea ? `${item.nome} — ${item.subarea}` : item.nome;
         linhas.push(`${emoji} ${resumo}${item.isExtra ? " _(extra)_" : ""}`);
         for (const sub of item.subetapas) {
           linhas.push(`      ${emojiStatus(sub.status)} ${sub.nome}`);
