@@ -1,0 +1,114 @@
+import type { WorkBook } from "xlsx";
+import { supabase } from "@/lib/supabase";
+
+export type DestinoRow = {
+  quantidade_m3_aplicada: number;
+  observacao: string | null;
+  areas: { nome: string } | null;
+  subareas: { nome: string } | null;
+};
+
+export type CargaRow = {
+  id: string;
+  data: string;
+  numero_carga: string | null;
+  quantidade_m3: number;
+  tipo_origem: "propria" | "externa";
+  peso_balanca_kg: number | null;
+  preco_total: number | null;
+  validado: boolean;
+  criado_por_nome: string | null;
+  fornecedores_concreto: { nome: string } | null;
+  tracos_concreto: { nome: string; fck_mpa: number } | null;
+  destinos_carga: DestinoRow[];
+};
+
+const CARGA_SELECT = `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
+  fornecedores_concreto(nome),
+  tracos_concreto(nome, fck_mpa),
+  destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), subareas(nome))`;
+
+// Busca TODAS as cargas da organização, sem filtro nem paginação — usada só pelo
+// botão "Exportar tudo" (o banco completo, não o recorte filtrado da tela). Pagina
+// internamente em lotes de 1000 (limite padrão do Supabase por chamada).
+export async function listarTodasCargasConcreto(organizacaoId: string): Promise<CargaRow[]> {
+  const PAGE_SIZE = 1000;
+  const rows: CargaRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("cargas_concreto")
+      .select(CARGA_SELECT)
+      .eq("organizacao_id", organizacaoId)
+      .order("data", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as unknown as CargaRow[]));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+function formatBR(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+function destinosTexto(destinos: DestinoRow[]): string {
+  if (destinos.length === 0) return "";
+  return destinos
+    .map((d) => {
+      const local = `${d.areas?.nome ?? "Sem área"}${d.subareas?.nome ? ` / ${d.subareas.nome}` : ""}`;
+      return `${local} — ${d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³`;
+    })
+    .join("; ");
+}
+
+const HEADERS = [
+  "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
+  "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "VALIDADO", "LANÇADO POR",
+];
+
+function autoSizeFromRows(rows: (string | number)[][]) {
+  if (rows.length === 0) return [];
+  return rows[0]!.map((_, idx) => {
+    let max = 8;
+    for (const r of rows) {
+      const v = r[idx];
+      const s = v == null ? "" : String(v);
+      if (s.length > max) max = s.length;
+    }
+    return { wch: Math.min(max + 2, 60) };
+  });
+}
+
+export async function buildCargasConcretoWorkbook(rows: CargaRow[]): Promise<WorkBook> {
+  const XLSX = await import("xlsx");
+  const linhas: (string | number)[][] = [HEADERS];
+  for (const r of rows) {
+    linhas.push([
+      formatBR(r.data),
+      r.fornecedores_concreto?.nome ?? "",
+      r.tipo_origem === "propria" ? "Própria" : "Externa",
+      r.numero_carga ?? "",
+      r.tracos_concreto?.nome ?? "",
+      r.tracos_concreto?.fck_mpa ?? "",
+      r.quantidade_m3,
+      r.peso_balanca_kg ?? "",
+      r.preco_total ?? "",
+      destinosTexto(r.destinos_carga),
+      r.validado ? "Sim" : "Não",
+      r.criado_por_nome ?? "",
+    ]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws["!cols"] = autoSizeFromRows(linhas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Cargas de Concreto");
+  return wb;
+}
+
+export async function downloadCargasConcretoWorkbook(wb: WorkBook): Promise<void> {
+  const XLSX = await import("xlsx");
+  const hoje = new Date().toISOString().slice(0, 10).split("-").reverse().join("");
+  XLSX.writeFile(wb, `Concreto_Banco_Completo_${hoje}.xlsx`);
+}

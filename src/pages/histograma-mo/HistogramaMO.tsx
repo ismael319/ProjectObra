@@ -211,6 +211,7 @@ export default function HistogramaMO() {
   }, [semanas])
 
   const semanaAtualIso = useMemo(() => toISODateStr(startOfWeek(new Date(), WEEK_START_DAY)), [])
+  const semanaAtualVisivel = useMemo(() => semanas.some((s) => s.iso === semanaAtualIso), [semanas, semanaAtualIso])
 
   const { data: cargos = [] } = useQuery({
     queryKey: ['histograma-cargos', projetoId],
@@ -355,6 +356,29 @@ export default function HistogramaMO() {
     const key = `${cargoId}__${semanaIso}`
     setRealEdits((prev) => ({ ...prev, [key]: num }))
     schedule(`real:${key}`, () => upsertRealMut.mutate({ cargoId, semanaIso, valor: num }))
+  }
+
+  // Aplica em massa, pra semana atual, o mesmo valor que o link "Cadastro: N" já
+  // oferece cargo a cargo — em vez de clicar um por um, preenche de uma vez todos
+  // os cargos que batem por nome com o Controle de Funcionários (Administração).
+  // Cargo sem correspondência (nome não bate) fica como estava, sem apagar nada.
+  function handlePreencherComCadastro() {
+    if (!cadastroPorCargo || cadastroPorCargo.size === 0) {
+      toast.warning('Nenhum funcionário cadastrado e ativo casou com os cargos deste projeto no Controle de Funcionários.')
+      return
+    }
+    let preenchidos = 0
+    for (const cargo of cargosVisiveis) {
+      const referencia = cadastroPorCargo.get(normalizarNomeCargo(cargo.nome))
+      if (referencia === undefined) continue
+      handleRealChange(cargo.id, semanaAtualIso, String(referencia))
+      preenchidos++
+    }
+    if (preenchidos === 0) {
+      toast.warning('Nenhum cargo desta lista bate com um nome de cargo do Controle de Funcionários.')
+      return
+    }
+    toast.success(`${preenchidos} cargo(s) preenchido(s) na semana atual`)
   }
 
   function handlePlanejadoChange(cargoId: string, mes: string, valor: string) {
@@ -643,6 +667,17 @@ export default function HistogramaMO() {
           </p>
 
           <div className="flex justify-end gap-2">
+            {tipoAtivo === 'MO' && podeEditarReal && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handlePreencherComCadastro}
+                disabled={!semanaAtualVisivel}
+                title={semanaAtualVisivel ? 'Preenche o Real da semana atual com o total de funcionários ativos de cada cargo (Controle de Funcionários)' : 'A semana atual está fora do período do projeto'}
+              >
+                <Users className="h-4 w-4" /> Preencher semana atual (Cadastro)
+              </Button>
+            )}
             <Button size="sm" variant="outline" onClick={handleExportar} disabled={cargosVisiveis.length === 0}>
               <Download className="h-4 w-4" /> Exportar
             </Button>

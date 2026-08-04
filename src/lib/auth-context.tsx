@@ -140,6 +140,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
+    // `session` começa em `null` (estado inicial) até getSession() resolver — sem
+    // essa guarda, esse efeito rodava no primeiro render com session=null e já
+    // dava por encerrado o carregamento (isLoadingProfile=false, userProfile=null),
+    // MESMO com uma sessão real prestes a chegar. No F5, isso abria uma janela
+    // (entre isLoading virar false e este efeito rebuscar o perfil do usuário
+    // real) em que o ProtectedRoute via session+userProfile=null+isLoadingProfile
+    // já false e mandava pra /aguardando-aprovacao — a tela "piscava" até o
+    // perfil de verdade chegar e a PendingApproval mandar de volta sozinha.
+    if (isLoading) return
+
     if (!session?.user) {
       setUserProfile(null)
       setIsLoadingProfile(false)
@@ -155,7 +165,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // usar só o id evita rebuscar o perfil à toa (e reabrir a janela da race
     // acima) toda vez que isso acontece.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session?.user?.id])
+  }, [session?.user?.id, isLoading])
 
   const refetchProfile = async () => {
     if (session?.user) {

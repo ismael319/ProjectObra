@@ -15,8 +15,13 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { Trash2, ChevronLeft, ChevronRight } from "lucide-react";
-import { todayISO } from "./lib/concreto-utils";
+import { Trash2, ChevronLeft, ChevronRight, Download, Loader2 } from "lucide-react";
+import {
+  listarTodasCargasConcreto,
+  buildCargasConcretoWorkbook,
+  downloadCargasConcretoWorkbook,
+  type CargaRow,
+} from "./lib/excel-export";
 
 function formatBR(isoDate: string): string {
   const [y, m, d] = isoDate.split("-");
@@ -33,29 +38,11 @@ type Filters = {
 
 const PAGE_SIZE = 25;
 
+// Sem filtro de data por padrão — a tela deve abrir mostrando TODOS os
+// lançamentos do sistema, não só o mês atual.
 function defaultFilters(): Filters {
-  const d = new Date();
-  const start = new Date(d.getFullYear(), d.getMonth(), 1);
-  const toISO = (x: Date) => x.toISOString().slice(0, 10);
-  return { dataInicio: toISO(start), dataFim: todayISO(), fornecedorId: null, tracoId: null, numeroCarga: "" };
+  return { dataInicio: "", dataFim: "", fornecedorId: null, tracoId: null, numeroCarga: "" };
 }
-
-type DestinoRow = { quantidade_m3_aplicada: number; observacao: string | null; areas: { nome: string } | null; subareas: { nome: string } | null };
-
-type CargaRow = {
-  id: string;
-  data: string;
-  numero_carga: string | null;
-  quantidade_m3: number;
-  tipo_origem: "propria" | "externa";
-  peso_balanca_kg: number | null;
-  preco_total: number | null;
-  validado: boolean;
-  criado_por_nome: string | null;
-  fornecedores_concreto: { nome: string } | null;
-  tracos_concreto: { nome: string; fck_mpa: number } | null;
-  destinos_carga: DestinoRow[];
-};
 
 export default function ConcretoConsulta() {
   const qc = useQueryClient();
@@ -84,9 +71,9 @@ export default function ConcretoConsulta() {
           { count: "exact" }
         )
         .eq("organizacao_id", organizacaoId!)
-        .gte("data", filters.dataInicio)
-        .lte("data", filters.dataFim)
         .order("data", { ascending: false });
+      if (filters.dataInicio) q = q.gte("data", filters.dataInicio);
+      if (filters.dataFim) q = q.lte("data", filters.dataFim);
       if (filters.fornecedorId) q = q.eq("fornecedor_id", filters.fornecedorId);
       if (filters.tracoId) q = q.eq("traco_id", filters.tracoId);
       if (filters.numeroCarga.trim()) q = q.ilike("numero_carga", `%${filters.numeroCarga.trim()}%`);
@@ -119,11 +106,42 @@ export default function ConcretoConsulta() {
     setFilters((p) => ({ ...p, [k]: v }));
   };
 
+  const [exportando, setExportando] = useState(false);
+
+  async function handleExportarTudo() {
+    if (!organizacaoId) return;
+    setExportando(true);
+    try {
+      const rows = await listarTodasCargasConcreto(organizacaoId);
+      if (rows.length === 0) {
+        toast.warning("Nenhum lançamento no banco pra exportar.");
+        return;
+      }
+      const wb = await buildCargasConcretoWorkbook(rows);
+      await downloadCargasConcretoWorkbook(wb);
+      toast.success(`${rows.length} lançamento(s) exportado(s)`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportando(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle className="text-xl">Todos os lançamentos</CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-xl">Todos os lançamentos</CardTitle>
+            <Button
+              variant="outline"
+              onClick={handleExportarTudo}
+              disabled={exportando || !organizacaoId}
+              title="Exporta TODOS os lançamentos do banco, ignorando os filtros da tela"
+            >
+              {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar tudo
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
