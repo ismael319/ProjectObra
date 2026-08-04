@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock } from 'lucide-react'
+import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock, Ban } from 'lucide-react'
 import { parseISODateStr, WEEKDAY_LABELS, formatShortDate } from '@/lib/iso-week'
 import { statusWeight, type ActivityLike } from '@/lib/adherence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -16,16 +16,22 @@ export default function CardDia({ date, activities, onOpen }: Props) {
   const short = formatShortDate(d)
 
   const total = activities.length
-  const concluidas = activities.filter((a) => a.status === 'concluida').length
-  const parciais = activities.filter((a) => a.status === 'parcial').length
-  const naoConc = activities.filter((a) => a.status === 'nao_concluida').length
-  const pendentes = activities.filter((a) => a.status === 'pendente').length
-  const extras = activities.filter((a) => a.is_extra).length
-  const cronograma = activities.filter((a) => !!a.source).length
+  // Inativas (em análise, ver "Inativar" no detalhe do dia) contam à parte, não
+  // dentro do status que tinham antes de serem colocadas de lado — senão inflam
+  // "Pendentes" (destino mais comum de quem inativa algo ainda não resolvido) sem
+  // deixar claro quantas são só pendência de verdade.
+  const ativas = activities.filter((a) => !a.inativa)
+  const inativas = activities.length - ativas.length
+  const concluidas = ativas.filter((a) => a.status === 'concluida').length
+  const parciais = ativas.filter((a) => a.status === 'parcial').length
+  const naoConc = ativas.filter((a) => a.status === 'nao_concluida').length
+  const pendentes = ativas.filter((a) => a.status === 'pendente').length
+  const extras = ativas.filter((a) => a.is_extra).length
+  const cronograma = ativas.filter((a) => !!a.source).length
 
   // Mesma fórmula da Aderência do resto do app (computeIndicators/relatorio-visual):
-  // extras fora do denominador, pendentes contam, parcial vale meio crédito.
-  const planejadas = activities.filter((a) => !a.is_extra)
+  // inativas e extras fora do denominador, pendentes contam, parcial vale meio crédito.
+  const planejadas = ativas.filter((a) => !a.is_extra)
   const denom = planejadas.length
   const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, 0.5), 0)
   const aderenciaPct = denom > 0 ? Math.round((weighted / denom) * 100) : null
@@ -67,13 +73,18 @@ export default function CardDia({ date, activities, onOpen }: Props) {
             {cronograma > 0 && (
               <Row icon={<Clock size={14} />} label="Cronograma" value={cronograma} tone="text-purple-600" />
             )}
+            {inativas > 0 && (
+              <Row icon={<Ban size={14} />} label="Inativas" value={inativas} tone="text-gray-500 dark:text-gray-400" />
+            )}
           </ul>
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs">
-        Clique pra abrir o detalhe do dia. "Extras" são atividades adicionadas manualmente (fora do
-        cronograma); "Cronograma" são as importadas de um cronograma carregado — os status (Concluída,
-        Parcial, Não concluída, Pendente) alimentam o PPC e a Aderência da semana.
+        Clique pra abrir o detalhe do dia. "Extras" são atividades marcadas como não planejadas pro
+        dia (mesmo vindas do cronograma); "Cronograma" são as importadas de um cronograma carregado.
+        "Inativas" estão de lado pra análise e não entram nos outros números nem no PPC/Aderência —
+        os demais status (Concluída, Parcial, Não concluída, Pendente) alimentam o PPC e a Aderência
+        da semana.
       </TooltipContent>
     </Tooltip>
   )

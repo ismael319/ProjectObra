@@ -3,7 +3,7 @@ import { Calendar, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
-import { computeIndicators, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
+import { computeIndicators, computeIndicatorsCronograma, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import {
   getWeek,
   lockWeek,
@@ -90,8 +90,11 @@ export default function DailyProgramming() {
   const partialWeight = weekData?.partialWeight ?? 0.5
 
   const indicators = useMemo(() => computeIndicators(activities, partialWeight), [activities, partialWeight])
+  // Aderência do Cronograma (plano original, ignora Extra/Inativa feitos depois) x
+  // Aderência Ajustada (indicators, acima) — ver WeekBar/IndicadoresSemana pra
+  // comparação exibida na tela.
+  const indicatorsCronograma = useMemo(() => computeIndicatorsCronograma(activities, partialWeight), [activities, partialWeight])
 
-  const segDisc = useMemo(() => computeSegment(activities, 'discipline', partialWeight), [activities, partialWeight])
   const segArea = useMemo(() => computeSegment(activities, 'area', partialWeight), [activities, partialWeight])
   const segEnc = useMemo(() => computeSegment(activities, 'foreman', partialWeight), [activities, partialWeight])
 
@@ -490,8 +493,8 @@ export default function DailyProgramming() {
         startDate={weekData.week.start_date}
         endDate={weekData.week.end_date}
         status={weekData.week.status}
-        ppc={indicators.ppc}
-        aderencia={indicators.aderencia}
+        aderenciaCronograma={indicatorsCronograma.aderencia}
+        aderenciaAjustada={indicators.aderencia}
         onPrev={() => shift(-1)}
         onNext={() => shift(1)}
         onToday={() => goto(cur.year, cur.week)}
@@ -511,10 +514,9 @@ export default function DailyProgramming() {
         ))}
       </div>
 
-      <IndicadoresSemana ind={indicators} />
+      <IndicadoresSemana ind={indicators} aderenciaCronograma={indicatorsCronograma.aderencia} />
 
-      <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
-        <PainelAderencia title="Aderência por Disciplina" rows={segDisc} />
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <PainelAderencia title="Aderência por Área" rows={segArea} />
         <PainelAderencia title="Aderência por Engenheiro" rows={segEnc} />
       </div>

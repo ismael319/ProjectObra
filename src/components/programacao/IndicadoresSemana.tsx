@@ -2,9 +2,13 @@ import type { WeekIndicators } from '@/lib/adherence'
 
 interface Props {
   ind: WeekIndicators
+  /** Aderência sobre o plano ORIGINAL da semana (computeIndicatorsCronograma) —
+   * comparar com ind.aderencia (a "Ajustada", com o estado atual) mostra se a
+   * semana foi reprogramada com coerência. */
+  aderenciaCronograma: number
 }
 
-export default function IndicadoresSemana({ ind }: Props) {
+export default function IndicadoresSemana({ ind, aderenciaCronograma }: Props) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -15,7 +19,7 @@ export default function IndicadoresSemana({ ind }: Props) {
           Base: {ind.total - ind.extras} atividade(s) · {ind.extras} extra(s)
         </span>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <Card
           title="PPC"
           value={`${Math.round(ind.ppc * 100)}%`}
@@ -25,7 +29,15 @@ export default function IndicadoresSemana({ ind }: Props) {
           valueColor="text-gray-900 dark:text-white"
         />
         <Card
-          title="Aderência Semanal"
+          title="Aderência Cronograma"
+          value={`${Math.round(aderenciaCronograma * 100)}%`}
+          bg="bg-slate-50 dark:bg-slate-800"
+          border="border-gray-100 dark:border-gray-700"
+          titleColor="text-gray-500 dark:text-gray-400"
+          valueColor="text-gray-900 dark:text-white"
+        />
+        <Card
+          title="Aderência Ajustada"
           value={`${Math.round(ind.aderencia * 100)}%`}
           bg="bg-slate-50 dark:bg-slate-800"
           border="border-gray-100 dark:border-gray-700"

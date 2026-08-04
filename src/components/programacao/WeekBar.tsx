@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -9,8 +9,12 @@ interface Props {
   startDate: string
   endDate: string
   status: 'rascunho' | 'consolidado'
-  ppc: number
-  aderencia: number
+  /** Aderência calculada sobre o plano ORIGINAL da semana (ignora Extra/Inativa
+   * feitos depois) — ver computeIndicatorsCronograma. */
+  aderenciaCronograma: number
+  /** Aderência calculada sobre o estado ATUAL das atividades (o que já era exibido
+   * antes) — ver computeIndicators. */
+  aderenciaAjustada: number
   onPrev: () => void
   onNext: () => void
   onToday: () => void
@@ -30,8 +34,8 @@ export default function WeekBar({
   startDate,
   endDate,
   status,
-  ppc,
-  aderencia,
+  aderenciaCronograma,
+  aderenciaAjustada,
   onPrev,
   onNext,
   onToday,
@@ -49,6 +53,10 @@ export default function WeekBar({
   const isoLabel = `${isoYear}-S${String(isoWeek).padStart(2, '0')}`
   const locked = status === 'consolidado'
   const [actionsOpen, setActionsOpen] = useState(false)
+  // Ajustada bem acima da do Cronograma = sinal de reprogramação incoerente (Extra/
+  // Inativa usados pra "limpar" o número em vez de refletir o que foi entregue).
+  const deltaPP = Math.round((aderenciaAjustada - aderenciaCronograma) * 100)
+  const deltaSuspeito = deltaPP >= 10
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -102,18 +110,42 @@ export default function WeekBar({
       </Tooltip>
 
       <div className="ml-auto flex items-center gap-4 text-sm">
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-          <span>Aderência cronograma:</span>
-          <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
-            {Math.round(ppc * 100)}%
-          </span>
-        </div>
-        <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-          <span>Aderência total:</span>
-          <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
-            {Math.round(aderencia * 100)}%
-          </span>
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <span>Aderência cronograma:</span>
+              <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                {Math.round(aderenciaCronograma * 100)}%
+              </span>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            Aderência do plano ORIGINAL da semana — ignora qualquer Extra/Inativa marcado depois. Mede se o
+            que foi importado do cronograma acabou sendo entregue.
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <span>Aderência ajustada:</span>
+              <span className="font-semibold tabular-nums text-gray-900 dark:text-white">
+                {Math.round(aderenciaAjustada * 100)}%
+              </span>
+              {deltaSuspeito && (
+                <span
+                  className="inline-flex items-center gap-0.5 text-amber-600 dark:text-amber-400"
+                  title={`${deltaPP} pontos percentuais acima da Aderência cronograma`}
+                >
+                  <TriangleAlert size={12} />
+                </span>
+              )}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            Aderência com o estado ATUAL das atividades (depois de qualquer reprogramação, Extra ou Inativa
+            feito ao longo da semana). {deltaSuspeito ? `${deltaPP}pp acima da Aderência cronograma — vale conferir se a reprogramação foi coerente.` : 'Compare com a Aderência cronograma pra ver se a semana foi reprogramada com coerência.'}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="relative">

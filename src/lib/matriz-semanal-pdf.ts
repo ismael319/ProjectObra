@@ -163,18 +163,22 @@ export async function downloadMatrizSemanalPdf(params: {
     margin: { top: MARGIN + HEADER_HEIGHT + 8, left: MARGIN, right: MARGIN, bottom: 24 },
     theme: "grid",
     // Fontes/paddings enxutos — o principal é sobrar espaço pra coluna Atividade
-    // (cellWidth "auto" abaixo herda o restante da largura disponível).
-    styles: { fontSize: 7, cellPadding: 3, valign: "middle", overflow: "linebreak", lineColor: COR.gray100, lineWidth: 0.5 },
+    // (cellWidth "auto" abaixo herda o restante da largura disponível). cellPadding
+    // vertical baixo (2, era 3) + minCellHeight fixo deixam a altura das linhas
+    // consistente entre si — sem isso, uma linha com Atividade/Subárea mais longa
+    // (que quebra em 2 linhas de texto) ficava visivelmente mais alta que as vizinhas.
+    styles: { fontSize: 7, cellPadding: { top: 2, bottom: 2, left: 4, right: 4 }, valign: "middle", overflow: "linebreak", lineColor: COR.gray100, lineWidth: 0.5, minCellHeight: 14 },
     headStyles: { fillColor: COR.gray100, textColor: COR.gray800, fontStyle: "bold", fontSize: 7 },
     columnStyles: {
-      // Área/Subárea com mais espaço (mais fácil de ler) e fonte um pouco menor —
-      // quebram linha sozinhas (overflow "linebreak" acima) em vez de estourar a coluna.
-      0: { cellWidth: 92, fontSize: 6.5, cellPadding: { top: 3, bottom: 3, left: 5, right: 5 } },
-      1: { cellWidth: 92, fontSize: 6.5, cellPadding: { top: 3, bottom: 3, left: 5, right: 5 } },
-      2: { cellWidth: "auto" },
-      3: { cellWidth: 34, halign: "center" },
-      4: { cellWidth: 34, halign: "center" },
-      ...Object.fromEntries(weekDays.map((_, i) => [DAY_COL_START + i, { cellWidth: 28, halign: "center" as const }])),
+      // Área/Subárea com fonte um pouco menor (cabe mais texto numa linha só, reduz
+      // quebra) — quebram linha sozinhas (overflow "linebreak" acima) em vez de
+      // estourar a coluna quando mesmo assim não coube.
+      0: { cellWidth: 82, fontSize: 6.5, cellPadding: { top: 2, bottom: 2, left: 5, right: 5 } },
+      1: { cellWidth: 82, fontSize: 6.5, cellPadding: { top: 2, bottom: 2, left: 5, right: 5 } },
+      2: { cellWidth: "auto", fontSize: 6.5 },
+      3: { cellWidth: 32, halign: "center" },
+      4: { cellWidth: 32, halign: "center" },
+      ...Object.fromEntries(weekDays.map((_, i) => [DAY_COL_START + i, { cellWidth: 27, halign: "center" as const }])),
     },
     // Sem texto nas células de dia — a cor vira um "chip" arredondado desenhado à
     // mão em didDrawCell (mais visual que o preenchimento quadrado padrão do

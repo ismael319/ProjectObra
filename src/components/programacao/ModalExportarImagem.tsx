@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useProjects } from '@/lib/project-store'
 import { getActivitiesInDateRange } from '@/lib/programacao-db'
-import { buildRelatorioVisual, buildMatrizSemanal, type RelatorioVisual, type MatrizSemanal } from '@/lib/relatorio-visual'
+import { buildRelatorioVisual, buildMatrizSemanal, type RelatorioVisual, type MatrizSemanal, type EngenheiroMatriz } from '@/lib/relatorio-visual'
 import { buildTextoRelatorioVisual } from '@/lib/relatorio-texto'
 import { downloadNodeAsPng, shareNodeAsPng, canShareFiles, canShareText, shareText } from '@/lib/png-export'
 import { downloadMatrizSemanalPdf } from '@/lib/matriz-semanal-pdf'
@@ -37,6 +37,18 @@ function formatHora(d: Date): string {
   return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
 }
 
+// Nome do engenheiro -> sufixo de nome de arquivo (sem acento/espaço/maiúscula).
+// NFD quebra "ã" em "a" + til combinante (\p{Diacritic}), removido em seguida.
+function slugify(s: string): string {
+  return s
+    .normalize('NFD')
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '')
+}
+
 // Gera a imagem PNG (Fechamento/Programação de um dia, ou a semana por Engenheiro) pra
 // compartilhar no WhatsApp — chamada de dentro do card do dia (ModalDetalheDia) e do
 // menu Ações (WeekBar). Só reflete os dados reais: dia fechado ou não, o card mostra o
@@ -49,6 +61,9 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
   const [emitidoAs, setEmitidoAs] = useState('')
   const [exporting, setExporting] = useState<'baixar' | 'pdf' | 'compartilhar' | null>(null)
   const [modo, setModo] = useState<'imagem' | 'texto'>('imagem')
+  // 'todos' ou o nome de um engenheiro — filtra a matriz semanal (preview e exports)
+  // pra mandar só a programação dele, em vez da semana inteira sempre junto.
+  const [engenheiroFiltro, setEngenheiroFiltro] = useState('todos')
   const cardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -57,6 +72,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
     setRelatorio(null)
     setMatriz(null)
     setModo('imagem')
+    setEngenheiroFiltro('todos')
     const promise =
       alvo.tipo === 'semana'
         ? getActivitiesInDateRange(alvo.weekDays[0], alvo.weekDays[6]).then((a) => setMatriz(buildMatrizSemanal(a, alvo.weekDays)))
@@ -101,11 +117,25 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
     return cronogramaActivityIndex.get(`${linha.source}::${linha.taskUid}`) ?? null
   }
 
+  // Recorte da matriz pro engenheiro escolhido — reaproveita os indicadores já
+  // calculados por engenheiro em buildMatrizSemanal (EngenheiroMatriz.concluidas/
+  // naoConcluidas/aderenciaPct/totalAtividades), em vez dos totais da semana
+  // inteira, senão o resumo do card/PDF não bateria com as linhas mostradas.
+  const matrizFiltrada: MatrizSemanal | null = useMemo(() => {
+    if (!matriz) return null
+    if (engenheiroFiltro === 'todos') return matriz
+    const eng = matriz.engenheiros.find((e) => e.nome === engenheiroFiltro)
+    if (!eng) return matriz
+    const { linhas: _linhas, ...statsEng }: EngenheiroMatriz = eng
+    return { ...matriz, engenheiros: [eng], ...statsEng }
+  }, [matriz, engenheiroFiltro])
+
   if (!alvo) return null
 
   const tipoLabel = alvo.tipo === 'semana' ? 'Programação semanal' : 'Programação'
-  const baseFilename = alvo.tipo === 'semana' ? `programacao-semanal-${alvo.weekDays[0]}` : `${alvo.tipo}-${alvo.data}`
-  const pronto = alvo.tipo === 'semana' ? !!matriz : !!relatorio
+  const sufixoEngenheiro = alvo.tipo === 'semana' && engenheiroFiltro !== 'todos' ? `-${slugify(engenheiroFiltro)}` : ''
+  const baseFilename = alvo.tipo === 'semana' ? `programacao-semanal-${alvo.weekDays[0]}${sufixoEngenheiro}` : `${alvo.tipo}-${alvo.data}`
+  const pronto = alvo.tipo === 'semana' ? !!matrizFiltrada : !!relatorio
 
   const handleBaixar = async () => {
     if (!cardRef.current) return
@@ -123,13 +153,13 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
     setExporting('pdf')
     try {
       if (alvo.tipo === 'semana') {
-        if (!matriz) return
+        if (!matrizFiltrada) return
         await downloadMatrizSemanalPdf({
           codigo: currentProject?.codigo ?? '—',
           nomeProjeto: currentProject?.nome ?? '—',
           gestor: currentProject?.gestor,
           dataLabel: `${formatDataCompleta(alvo.weekDays[0])} a ${formatDataCompleta(alvo.weekDays[6])}`,
-          matriz,
+          matriz: matrizFiltrada,
           getDetalhe,
           filename: `${baseFilename}.pdf`,
           percentualAvanco: currentProject?.percentualAvanco,
@@ -222,6 +252,27 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
           </div>
         )}
 
+        {alvo.tipo === 'semana' && matriz && matriz.engenheiros.length > 1 && (
+          <div className="flex items-center gap-2 -mt-1">
+            <label htmlFor="engenheiro-filtro" className="text-xs font-medium text-gray-500 dark:text-gray-400">
+              Engenheiro:
+            </label>
+            <select
+              id="engenheiro-filtro"
+              value={engenheiroFiltro}
+              onChange={(e) => setEngenheiroFiltro(e.target.value)}
+              className="text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+            >
+              <option value="todos">Todos os engenheiros</option>
+              {matriz.engenheiros.map((eng) => (
+                <option key={eng.nome} value={eng.nome}>
+                  {eng.nome}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
         <div className="flex-1 overflow-auto flex justify-center py-2">
           {loading ? (
             <div className="flex items-center justify-center py-24">
@@ -234,7 +285,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
               className="w-full min-h-[320px] text-sm px-4 py-3 border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
             />
           ) : alvo.tipo === 'semana' ? (
-            matriz && (
+            matrizFiltrada && (
               <div className="shadow-xl rounded-2xl overflow-hidden shrink-0">
                 <CardProgramacaoSemanal
                   ref={cardRef}
@@ -242,7 +293,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
                   nomeProjeto={currentProject?.nome ?? '—'}
                   gestor={currentProject?.gestor}
                   dataLabel={`${formatDataCompleta(alvo.weekDays[0])} a ${formatDataCompleta(alvo.weekDays[6])}`}
-                  matriz={matriz}
+                  matriz={matrizFiltrada}
                   getDetalhe={getDetalhe}
                 />
               </div>

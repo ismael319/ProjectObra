@@ -134,6 +134,14 @@ export type LinhaMatriz = {
 export type EngenheiroMatriz = {
   nome: string;
   linhas: LinhaMatriz[];
+  /** Indicadores só das tarefas deste engenheiro (mesma fórmula/critério dos campos
+   * de mesmo nome em MatrizSemanal) — usados quando o export é filtrado pra um
+   * engenheiro específico (ver ModalExportarImagem), em vez de reaproveitar os
+   * totais da semana inteira. */
+  concluidas: number;
+  naoConcluidas: number;
+  aderenciaPct: number | null;
+  totalAtividades: number;
 };
 
 export type MatrizSemanal = {
@@ -161,11 +169,29 @@ function normalizarData(iso: string): string {
   return iso.slice(0, 10);
 }
 
+// Mesma fórmula de computeIndicators.aderencia (ver buildRelatorioVisual acima) —
+// reaproveitada tanto pro total da semana quanto pro recorte de um engenheiro só
+// (ver EngenheiroMatriz.concluidas/naoConcluidas/aderenciaPct/totalAtividades).
+function statsDeAtividades(atividades: ActivityLike[], partialWeight: number) {
+  const planejadas = atividades.filter((a) => !a.is_extra);
+  const concluidas = planejadas.filter((a) => a.status === "concluida").length;
+  const naoConcluidas = planejadas.filter((a) => a.status === "nao_concluida").length;
+  const denom = planejadas.length;
+  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
+  return {
+    concluidas,
+    naoConcluidas,
+    aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
+    totalAtividades: atividades.length,
+  };
+}
+
 export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[], partialWeight = 0.5): MatrizSemanal {
   // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) somem da
   // matriz e das estatísticas.
   const ativas = activities.filter((a) => !a.inativa);
   const porEngenheiro = new Map<string, Map<string, LinhaMatriz>>();
+  const atividadesPorEngenheiro = new Map<string, ActivityLike[]>();
   for (const a of ativas) {
     const engenheiro = a.foreman?.trim() || SEM_ENGENHEIRO;
     const taskKey = a.taskUid ?? a.id;
@@ -174,6 +200,9 @@ export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[
     if (!linhas.has(taskKey))
       linhas.set(taskKey, { taskKey, nome: a.name, edt: a.stage, area: areaDe(a), subarea: subareaDe(a), source: a.source, taskUid: a.taskUid, porDia: {} });
     linhas.get(taskKey)!.porDia[normalizarData(a.planned_date)] = a.status;
+
+    if (!atividadesPorEngenheiro.has(engenheiro)) atividadesPorEngenheiro.set(engenheiro, []);
+    atividadesPorEngenheiro.get(engenheiro)!.push(a);
   }
 
   const engenheiros = Array.from(porEngenheiro.entries())
@@ -197,21 +226,12 @@ export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[
         if (x.subarea !== y.subarea) return x.subarea.localeCompare(y.subarea, "pt-BR");
         return x.nome.localeCompare(y.nome, "pt-BR");
       }),
+      ...statsDeAtividades(atividadesPorEngenheiro.get(nome) ?? [], partialWeight),
     }));
-
-  // Mesma fórmula de computeIndicators.aderencia (ver buildRelatorioVisual acima).
-  const planejadas = ativas.filter((a) => !a.is_extra);
-  const concluidas = planejadas.filter((a) => a.status === "concluida").length;
-  const naoConcluidas = planejadas.filter((a) => a.status === "nao_concluida").length;
-  const denom = planejadas.length;
-  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
 
   return {
     weekDays,
     engenheiros,
-    concluidas,
-    naoConcluidas,
-    aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
-    totalAtividades: ativas.length,
+    ...statsDeAtividades(ativas, partialWeight),
   };
 }

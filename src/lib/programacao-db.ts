@@ -31,6 +31,7 @@ interface ActivityRow {
   planned_pct: number
   status: ActivityStatus
   is_extra: boolean
+  is_extra_original: boolean
   observation: string | null
   actual_productivity: string | null
   inativa: boolean
@@ -179,6 +180,7 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     planned_pct: a.planned_pct,
     status: a.status,
     is_extra: a.is_extra,
+    isExtraOriginal: a.is_extra_original,
     observation: a.observation,
     source: a.source_cronograma ?? undefined,
     areaPath: a.area,
@@ -242,6 +244,7 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     planned_pct: a.planned_pct,
     status: a.status,
     is_extra: a.is_extra,
+    isExtraOriginal: a.is_extra_original,
     observation: a.observation,
     source: a.source_cronograma ?? undefined,
     areaPath: a.area,
@@ -455,6 +458,9 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
       name: payload.name,
       planned_date: payload.planned_date,
       is_extra: isExtra,
+      // Retrato de is_extra travado na criação — setActivityExtra só mexe em
+      // is_extra depois, nunca nesta coluna (ver computeIndicatorsCronograma).
+      is_extra_original: isExtra,
       // Empresa é um campo "de verdade" nos dois casos (extra ou importada — nesse
       // último caso, coletada na 2ª etapa do modal de importação). O cronograma de
       // origem tem coluna própria (source_cronograma); `area` ainda reaproveita a

@@ -46,6 +46,13 @@ export interface ActivityLike {
    * visível na tela do dia pra ser revisada. */
   inativa?: boolean;
   motivoInativacao?: string | null;
+  /** Retrato de `is_extra` no instante em que a atividade entrou na semana (import do
+   * cronograma ou avulsa) — nunca muda depois, mesmo que alguém marque/desmarque
+   * "Extra" ou inative o item mais tarde. Alimenta computeIndicatorsCronograma, que
+   * mede a aderência do plano ORIGINAL (sem gente reorganizando a semana pra
+   * melhorar o número). undefined (dados antigos sem a coluna) cai de volta em
+   * is_extra — assume que o valor atual é o original. */
+  isExtraOriginal?: boolean;
 }
 
 export interface WeekIndicators {
@@ -86,6 +93,39 @@ export function computeIndicators(
   const parciais = ativas.filter((a) => a.status === "parcial").length;
   const naoConcluidas = ativas.filter((a) => a.status === "nao_concluida").length;
   const pendentes = ativas.filter((a) => a.status === "pendente").length;
+  const weighted = planned.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
+  return {
+    total,
+    extras,
+    concluidas,
+    parciais,
+    naoConcluidas,
+    pendentes,
+    ppc: denom ? concluidas / denom : 0,
+    aderencia: denom ? weighted / denom : 0,
+  };
+}
+
+// "Aderência do Cronograma" — a mesma fórmula de computeIndicators, mas sobre o
+// plano ORIGINAL da semana (isExtraOriginal), ignorando qualquer marcação de
+// Extra/Inativa feita depois. Existe pra comparar com computeIndicators (a
+// "Aderência Ajustada", que reflete os ajustes ao longo da semana) e flagrar
+// reprogramação incoerente: se a Ajustada fica bem acima da do Cronograma, o time
+// está "limpando" o número via Extra/Inativa em vez de entregar o que foi
+// planejado. Semana bloqueada ou não, essa conta nunca muda pro mesmo item — só o
+// status atual dele entra em jogo.
+export function computeIndicatorsCronograma(
+  activities: ActivityLike[],
+  partialWeight = 0.5,
+): WeekIndicators {
+  const planned = activities.filter((a) => !(a.isExtraOriginal ?? a.is_extra));
+  const total = activities.length;
+  const extras = total - planned.length;
+  const denom = planned.length;
+  const concluidas = planned.filter((a) => a.status === "concluida").length;
+  const parciais = planned.filter((a) => a.status === "parcial").length;
+  const naoConcluidas = planned.filter((a) => a.status === "nao_concluida").length;
+  const pendentes = planned.filter((a) => a.status === "pendente").length;
   const weighted = planned.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
   return {
     total,
