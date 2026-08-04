@@ -1,4 +1,4 @@
-import { jsPDF } from "jspdf"
+import type { jsPDF as JsPDF } from "jspdf"
 import { obterFotoUrl } from "./rdr-db"
 import { MESES_PT_SHORT } from "./constants"
 import type { RdrRecord } from "./mappers"
@@ -37,6 +37,7 @@ export interface DashboardDados {
 }
 
 export async function gerarPdfRegistro(record: RdrRecord): Promise<void> {
+  const { jsPDF } = await import("jspdf")
   const doc = new jsPDF({ unit: "mm", format: "a4" })
   const pageWidth = doc.internal.pageSize.getWidth()
 
@@ -159,12 +160,13 @@ export async function gerarPdfRegistro(record: RdrRecord): Promise<void> {
   doc.save(`RDR-${record.data_ocorrido || "sem-data"}-${(record.autor_nome || "sem-autor").replace(/\s+/g, "_")}.pdf`)
 }
 
-function novaPaginaPdf(doc: jsPDF, _y: number): number {
+function novaPaginaPdf(doc: JsPDF, _y: number): number {
   doc.addPage()
   return 20
 }
 
 export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
+  const { jsPDF } = await import("jspdf")
   const doc = new jsPDF({ unit: "mm", format: "a4" })
   const pageWidth = doc.internal.pageSize.getWidth()
 

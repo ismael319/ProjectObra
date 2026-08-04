@@ -383,6 +383,7 @@ export type FuncionarioRow = {
   ativo: boolean;
   grupo_id: string | null;
   categoria: Categoria | null;
+  foto_url: string | null;
   criado_em: string;
   atualizado_em: string;
   criado_por: string | null;
@@ -460,6 +461,7 @@ export type FuncionarioInput = {
   statusFs: StatusFs;
   grupoId: string | null;
   categoria: Categoria | null;
+  fotoUrl: string | null;
 };
 
 export async function salvarFuncionario(params: {
@@ -484,6 +486,7 @@ export async function salvarFuncionario(params: {
     status_fs: input.statusFs,
     grupo_id: input.grupoId,
     categoria: input.categoria,
+    foto_url: input.fotoUrl,
   };
 
   if (input.id) {

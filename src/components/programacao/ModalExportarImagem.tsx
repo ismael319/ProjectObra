@@ -119,12 +119,12 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
     }
   }
 
-  const handleBaixarPdf = () => {
+  const handleBaixarPdf = async () => {
     setExporting('pdf')
     try {
       if (alvo.tipo === 'semana') {
         if (!matriz) return
-        downloadMatrizSemanalPdf({
+        await downloadMatrizSemanalPdf({
           codigo: currentProject?.codigo ?? '—',
           nomeProjeto: currentProject?.nome ?? '—',
           gestor: currentProject?.gestor,
@@ -139,7 +139,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
         })
       } else {
         if (!relatorio) return
-        downloadRelatorioDiaPdf({
+        await downloadRelatorioDiaPdf({
           codigo: currentProject?.codigo ?? '—',
           nomeProjeto: currentProject?.nome ?? '—',
           gestor: currentProject?.gestor,

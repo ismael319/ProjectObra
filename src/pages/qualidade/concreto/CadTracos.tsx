@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 
 export default function CadTracos() {
   return (
@@ -27,6 +27,9 @@ export default function CadTracos() {
           render: (row) => (row.preco_unitario_m3 != null ? `R$ ${Number(row.preco_unitario_m3).toFixed(2)}` : "—"),
         },
       ]}
+      organizacaoScoped
+      timestamps={false}
+      blockRefs={[{ table: "cargas_concreto", fk: "traco_id", label: "cargas de concreto" }]}
     />
   );
 }

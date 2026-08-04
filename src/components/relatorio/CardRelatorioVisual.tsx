@@ -79,21 +79,20 @@ const CardRelatorioVisual = forwardRef<HTMLDivElement, Props>(function CardRelat
                         </div>
                         {item.subetapas.length > 0 && (
                           <div className="ml-8 mt-1 space-y-0.5">
-                            {item.subetapas.map((sub, si) => (
-                              <div key={si} className="flex items-center gap-2 text-xs" style={{ color: COR.gray500 }}>
-                                <span
-                                  className="w-3.5 h-3.5 shrink-0 rounded-full flex items-center justify-center font-bold"
-                                  style={
-                                    sub.concluida
-                                      ? { backgroundColor: COR.emerald100, color: COR.emerald600, fontSize: '9px' }
-                                      : { backgroundColor: COR.gray100, color: COR.gray400, fontSize: '9px' }
-                                  }
-                                >
-                                  {sub.concluida ? '✓' : '·'}
-                                </span>
-                                <span>{sub.nome}</span>
-                              </div>
-                            ))}
+                            {item.subetapas.map((sub, si) => {
+                              const sv = subEtapaVisual(sub.status)
+                              return (
+                                <div key={si} className="flex items-center gap-2 text-xs" style={{ color: COR.gray500 }}>
+                                  <span
+                                    className="w-3.5 h-3.5 shrink-0 rounded-full flex items-center justify-center font-bold"
+                                    style={{ backgroundColor: sv.bg, color: sv.color, fontSize: '9px' }}
+                                  >
+                                    {sv.symbol}
+                                  </span>
+                                  <span>{sub.nome}</span>
+                                </div>
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -124,6 +123,19 @@ function statusVisual(item: { status: string; isExtra: boolean }): { symbol: str
       return { symbol: '✗', bg: COR.red100, color: COR.red600 }
     case 'parcial':
       return { symbol: '~', bg: COR.amber100, color: COR.amber600 }
+    default:
+      return { symbol: '·', bg: COR.gray100, color: COR.gray400 }
+  }
+}
+
+// Mesma ideia de statusVisual, mas sem "extra"/"parcial" — uma sub-etapa é atômica
+// (aconteceu, não aconteceu, ou ainda aguarda), nunca parcial nem extra.
+function subEtapaVisual(status: string): { symbol: string; bg: string; color: string } {
+  switch (status) {
+    case 'concluida':
+      return { symbol: '✓', bg: COR.emerald100, color: COR.emerald600 }
+    case 'nao_concluida':
+      return { symbol: '✗', bg: COR.red100, color: COR.red600 }
     default:
       return { symbol: '·', bg: COR.gray100, color: COR.gray400 }
   }

@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 
 const TIPOS_FORNECEDOR = [
   { value: "propria", label: "Usina própria" },
@@ -22,6 +22,9 @@ export default function CadFornecedores() {
           render: (row) => TIPOS_FORNECEDOR.find((t) => t.value === row.tipo)?.label ?? row.tipo,
         },
       ]}
+      organizacaoScoped
+      timestamps={false}
+      blockRefs={[{ table: "cargas_concreto", fk: "fornecedor_id", label: "cargas de concreto" }]}
     />
   );
 }

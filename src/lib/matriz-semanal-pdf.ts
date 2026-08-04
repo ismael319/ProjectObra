@@ -6,8 +6,7 @@
 // "página/total" e fontes/margens realmente pequenas (texto vetorial, não pixels de
 // uma imagem re-escalada).
 
-import jsPDF from "jspdf";
-import autoTable, { type RowInput } from "jspdf-autotable";
+import type { RowInput } from "jspdf-autotable";
 import type { MatrizSemanal, LinhaMatriz } from "./relatorio-visual";
 import type { ActivityStatus } from "./adherence";
 import type { WBSActivity } from "./xml-parser";
@@ -41,7 +40,7 @@ function corStatus(status: string): string | false {
   }
 }
 
-export function downloadMatrizSemanalPdf(params: {
+export async function downloadMatrizSemanalPdf(params: {
   codigo: string;
   nomeProjeto: string;
   gestor?: string;
@@ -56,7 +55,7 @@ export function downloadMatrizSemanalPdf(params: {
   dataInicioProjeto?: string;
   dataFimProjeto?: string;
   localizacao?: string;
-}): void {
+}): Promise<void> {
   const {
     codigo,
     nomeProjeto,
@@ -70,6 +69,10 @@ export function downloadMatrizSemanalPdf(params: {
     dataFimProjeto,
     localizacao,
   } = params;
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
   const doc = new jsPDF({ orientation: "landscape", unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();

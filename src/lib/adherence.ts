@@ -6,11 +6,15 @@ import { getAreaNivel2 } from "./week-activities";
 
 export type ActivityStatus = "pendente" | "concluida" | "parcial" | "nao_concluida";
 
+/** Sem "parcial" — uma sub-etapa é atômica (aconteceu, não aconteceu, ou ainda não
+ * foi resolvida), diferente da atividade em si, que pode ser parcialmente feita. */
+export type SubEtapaStatus = "pendente" | "concluida" | "nao_concluida";
+
 export interface SubEtapa {
   id: string;
   activity_id: string;
   nome: string;
-  concluida: boolean;
+  status: SubEtapaStatus;
 }
 
 export interface ActivityLike {

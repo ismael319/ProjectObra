@@ -43,7 +43,7 @@ describe("buildTextoRelatorioVisual", () => {
 
   it("marca extras com ➕ e sub-etapas indentadas", () => {
     const relatorio = buildRelatorioVisual([
-      act({ name: "Bypass", areaPath: "AZ01 / X", status: "parcial", subetapas: [{ id: "1", activity_id: "a", nome: "Armação", concluida: true }, { id: "2", activity_id: "a", nome: "Concretagem", concluida: false }] }),
+      act({ name: "Bypass", areaPath: "AZ01 / X", status: "parcial", subetapas: [{ id: "1", activity_id: "a", nome: "Armação", status: "concluida" }, { id: "2", activity_id: "a", nome: "Concretagem", status: "pendente" }] }),
       act({ name: "Retrabalho", areaPath: "", isExtra: true, status: "concluida" }),
     ]);
     const texto = buildTextoRelatorioVisual({ ...cabecalho, relatorio });

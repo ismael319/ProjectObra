@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks, Image, Ban, RotateCcw, CheckCheck, CalendarClock, History } from 'lucide-react'
 import { toast } from 'sonner'
-import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa } from '@/lib/adherence'
+import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa, type SubEtapaStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate, WEEKDAY_LABELS } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
-import { addSubEtapa, toggleSubEtapa, deleteSubEtapa, computeStatusFromSubetapas } from '@/lib/programacao-db'
+import { addSubEtapa, setSubEtapaStatus, deleteSubEtapa, computeStatusFromSubetapas } from '@/lib/programacao-db'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -32,6 +32,11 @@ interface Props {
    * executado) — sai do PPC/aderência enquanto inativo. Funciona mesmo com a semana
    * bloqueada, igual às sub-etapas. */
   onSetInativa: (id: string, inativa: boolean, motivo: string | null) => Promise<void>
+  /** Marca/desmarca a atividade como "Extra" — não estava planejada pro dia, mas foi
+   * (ou vai ser) executada mesmo assim. É só um status de exibição: não mexe no
+   * vínculo com o cronograma de origem (uma atividade real pode ser extra e
+   * continuar agrupada no cronograma dela — ver addActivitiesBulk). */
+  onSetExtra: (id: string, isExtra: boolean) => Promise<void>
   /** Marca concluída e remove a atividade dos dias futuros da semana que ainda
    * tinham a mesma tarefa programada. Funciona mesmo com a semana bloqueada. */
   onFinalizar: (activity: ActivityLike) => Promise<void>
@@ -58,6 +63,12 @@ interface Props {
   }) => Promise<void>
   onClearDay: () => void
   onAddFromCronograma: () => void
+  /** Nomes já cadastrados em "Engenheiros por Área" (sem repetição) — sugestão ao
+   * preencher o campo Engenheiro do formulário de atividade avulsa. */
+  engenheirosDisponiveis: string[]
+  /** Áreas (nível 2 da EDT) que existem nos cronogramas ativos do projeto —
+   * sugestão ao preencher o campo Área do formulário de atividade avulsa. */
+  areasDisponiveis: string[]
   /** Abre o gerador de imagem (Fechamento/Programação) pro dia aberto — funciona
    * mesmo com a semana bloqueada, é só um reflexo do que já está gravado. */
   onExportarImagem: () => void
@@ -137,6 +148,7 @@ export default function ModalDetalheDia({
   weekConsolidated,
   onSetStatus,
   onSetInativa,
+  onSetExtra,
   onFinalizar,
   onReprogramar,
   onAdicionarNaoRealizadas,
@@ -145,6 +157,8 @@ export default function ModalDetalheDia({
   onAddExtra,
   onClearDay,
   onAddFromCronograma,
+  engenheirosDisponiveis,
+  areasDisponiveis,
   onExportarImagem,
   getActivityDetail,
 }: Props) {
@@ -298,6 +312,7 @@ export default function ModalDetalheDia({
                               weekConsolidated={weekConsolidated}
                               onSetStatus={onSetStatus}
                               onSetInativa={onSetInativa}
+                              onSetExtra={onSetExtra}
                               onFinalizar={onFinalizar}
                               onReprogramar={onReprogramar}
                               onDelete={onDelete}
@@ -319,6 +334,8 @@ export default function ModalDetalheDia({
           {showExtra && date ? (
             <ExtraForm
               date={date}
+              engenheirosDisponiveis={engenheirosDisponiveis}
+              areasDisponiveis={areasDisponiveis}
               onCancel={() => setShowExtra(false)}
               onSubmit={async (p) => {
                 await onAddExtra(p)
@@ -341,7 +358,7 @@ export default function ModalDetalheDia({
                 onClick={() => setShowExtra(true)}
                 disabled={!date}
               >
-                <Plus size={16} /> Cadastrar atividade extra
+                <Plus size={16} /> Adicionar atividade avulsa
               </button>
               <button
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
@@ -374,6 +391,7 @@ function ActivityRow({
   weekConsolidated,
   onSetStatus,
   onSetInativa,
+  onSetExtra,
   onFinalizar,
   onReprogramar,
   onDelete,
@@ -386,6 +404,7 @@ function ActivityRow({
   weekConsolidated: boolean
   onSetStatus: Props['onSetStatus']
   onSetInativa: Props['onSetInativa']
+  onSetExtra: Props['onSetExtra']
   onFinalizar: Props['onFinalizar']
   onReprogramar: Props['onReprogramar']
   onDelete: Props['onDelete']
@@ -401,6 +420,16 @@ function ActivityRow({
   const [savingInativa, setSavingInativa] = useState(false)
   const [showReprogramar, setShowReprogramar] = useState(false)
   const [finalizando, setFinalizando] = useState(false)
+  const [savingExtra, setSavingExtra] = useState(false)
+
+  async function handleToggleExtra() {
+    setSavingExtra(true)
+    try {
+      await onSetExtra(activity.id, !activity.is_extra)
+    } finally {
+      setSavingExtra(false)
+    }
+  }
   const canDelete = !weekConsolidated || activity.is_extra
   const delayDays = detail ? computeDelayDays(detail) : 0
   const subetapas = activity.subetapas ?? []
@@ -475,11 +504,14 @@ function ActivityRow({
     }
   }
 
-  async function handleToggleSubetapa(sub: SubEtapa) {
+  // Clicar de novo no mesmo status desmarca (volta pra "pendente" — aguardando),
+  // igual ao padrão dos 3 botões de status da atividade.
+  async function handleSetSubetapaStatus(sub: SubEtapa, status: SubEtapaStatus) {
+    const novoStatus = sub.status === status ? 'pendente' : status
     setSavingSubetapa(true)
     try {
-      await toggleSubEtapa(sub.id, !sub.concluida)
-      await sincronizarStatus(subetapas.map((s) => (s.id === sub.id ? { ...s, concluida: !sub.concluida } : s)))
+      await setSubEtapaStatus(sub.id, novoStatus)
+      await sincronizarStatus(subetapas.map((s) => (s.id === sub.id ? { ...s, status: novoStatus } : s)))
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao marcar sub-etapa')
     } finally {
@@ -591,6 +623,15 @@ function ActivityRow({
             hint={temSubetapas ? ' — calculado a partir das sub-etapas, não dá pra marcar manualmente.' : ' — clique de novo pra desmarcar (volta pra pendente), caso tenha clicado errado.'}
             onClick={() => onSetStatus(activity.id, activity.status === 'nao_concluida' ? 'pendente' : 'nao_concluida', obs || null)}
           />
+          <StatusButton
+            active={activity.is_extra}
+            tone="blue"
+            icon={<Layers size={16} />}
+            label="Extra"
+            disabled={savingExtra}
+            hint="não estava planejada pra esse dia, mas foi (ou vai ser) executada mesmo assim — clique de novo pra desmarcar."
+            onClick={handleToggleExtra}
+          />
           {activity.inativa ? (
             <button
               disabled={savingInativa}
@@ -697,20 +738,47 @@ function ActivityRow({
         >
           {showSubetapas ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
           <ListChecks size={12} />
-          Sub-etapas{temSubetapas ? ` (${subetapas.filter((s) => s.concluida).length}/${subetapas.length})` : ''}
+          Sub-etapas{temSubetapas ? ` (${subetapas.filter((s) => s.status === 'concluida').length}/${subetapas.length})` : ''}
         </button>
         {showSubetapas && (
           <div className="mt-1.5 space-y-1 pl-4 border-l-2 border-gray-100 dark:border-gray-700">
             {subetapas.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={s.concluida}
+              <div key={s.id} className="flex items-center gap-1.5 text-xs">
+                <button
+                  type="button"
+                  title="Concluída — clique de novo pra desmarcar (volta pra pendente)"
                   disabled={savingSubetapa}
-                  onChange={() => handleToggleSubetapa(s)}
-                  className="w-3.5 h-3.5"
-                />
-                <span className={`flex-1 ${s.concluida ? 'text-gray-500 dark:text-gray-400 line-through' : 'text-gray-800 dark:text-gray-200'}`}>
+                  onClick={() => handleSetSubetapaStatus(s, 'concluida')}
+                  className={`p-0.5 rounded transition disabled:opacity-30 ${
+                    s.status === 'concluida'
+                      ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-100 dark:bg-emerald-900/30'
+                      : 'text-gray-300 dark:text-gray-600 hover:text-emerald-500'
+                  }`}
+                >
+                  <CheckCircle2 size={14} />
+                </button>
+                <button
+                  type="button"
+                  title="Não concluída — clique de novo pra desmarcar (volta pra pendente)"
+                  disabled={savingSubetapa}
+                  onClick={() => handleSetSubetapaStatus(s, 'nao_concluida')}
+                  className={`p-0.5 rounded transition disabled:opacity-30 ${
+                    s.status === 'nao_concluida'
+                      ? 'text-red-600 dark:text-red-400 bg-red-100 dark:bg-red-900/30'
+                      : 'text-gray-300 dark:text-gray-600 hover:text-red-500'
+                  }`}
+                >
+                  <XCircle size={14} />
+                </button>
+                <span
+                  className={`flex-1 ${
+                    s.status === 'concluida'
+                      ? 'text-gray-500 dark:text-gray-400 line-through'
+                      : s.status === 'nao_concluida'
+                        ? 'text-red-600 dark:text-red-400'
+                        : 'text-gray-800 dark:text-gray-200'
+                  }`}
+                >
                   {s.nome}
                 </span>
                 <button
@@ -829,7 +897,7 @@ function StatusButton({
   hint,
 }: {
   active: boolean
-  tone: 'emerald' | 'amber' | 'red'
+  tone: 'emerald' | 'amber' | 'red' | 'blue'
   icon: React.ReactNode
   label: string
   onClick: () => void
@@ -840,6 +908,7 @@ function StatusButton({
     emerald: active ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400' : '',
     amber: active ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : '',
     red: active ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' : '',
+    blue: active ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400' : '',
   }
   return (
     <Tooltip>
@@ -862,10 +931,14 @@ function StatusButton({
 
 function ExtraForm({
   date,
+  engenheirosDisponiveis,
+  areasDisponiveis,
   onSubmit,
   onCancel,
 }: {
   date: string
+  engenheirosDisponiveis: string[]
+  areasDisponiveis: string[]
   onSubmit: (p: {
     planned_date: string
     name: string
@@ -881,7 +954,7 @@ function ExtraForm({
 
   return (
     <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-3">
-      <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Nova atividade extra</p>
+      <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Nova atividade avulsa</p>
       <div className="grid grid-cols-2 gap-2">
         <div className="col-span-2">
           <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Nome *</label>
@@ -893,9 +966,9 @@ function ExtraForm({
         </div>
         <Field label="Empresa" value={f.company} onChange={(v) => setF({ ...f, company: v })} />
         <Field label="Disciplina" value={f.discipline} onChange={(v) => setF({ ...f, discipline: v })} />
-        <Field label="Área" value={f.area} onChange={(v) => setF({ ...f, area: v })} />
+        <Field label="Área" value={f.area} onChange={(v) => setF({ ...f, area: v })} options={areasDisponiveis} />
         <Field label="Etapa" value={f.stage} onChange={(v) => setF({ ...f, stage: v })} />
-        <Field label="Engenheiro" value={f.foreman} onChange={(v) => setF({ ...f, foreman: v })} />
+        <Field label="Engenheiro" value={f.foreman} onChange={(v) => setF({ ...f, foreman: v })} options={engenheirosDisponiveis} />
       </div>
       <div className="mt-3 flex justify-end gap-2">
         <button onClick={onCancel} className="px-3 py-1.5 text-sm font-medium hover:bg-gray-100 dark:hover:bg-gray-700 rounded-md transition">
@@ -923,15 +996,27 @@ function ExtraForm({
   )
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+// `options`, quando presente, liga um <datalist> ao campo: mostra as opções já
+// cadastradas no sistema (ex.: engenheiros de "Engenheiros por Área") como
+// sugestão, filtrando conforme digita — mas sem travar em só essas opções, já
+// que uma atividade avulsa às vezes precisa de um nome que ainda não existe
+// em nenhum cadastro.
+function Field({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options?: string[] }) {
+  const listId = options ? `field-options-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined
   return (
     <div>
       <label className="text-xs font-medium text-gray-700 dark:text-gray-300">{label}</label>
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        list={listId}
         className="mt-1 w-full px-3 py-1.5 text-sm border border-gray-200 dark:border-gray-600 rounded-md bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
       />
+      {options && options.length > 0 && (
+        <datalist id={listId}>
+          {options.map((o) => <option key={o} value={o} />)}
+        </datalist>
+      )}
     </div>
   )
 }

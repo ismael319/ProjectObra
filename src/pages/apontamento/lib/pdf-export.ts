@@ -1,5 +1,4 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+import type jsPDF from "jspdf";
 import { formatBR } from "./date-utils";
 import type { Apontamento } from "./excel-export";
 
@@ -48,7 +47,11 @@ function totalRow(label: string, rows: GroupRow[]): (string | number)[] {
   return [label, "", sumKey(rows, "pedreiro"), sumKey(rows, "servente"), sumKey(rows, "carpinteiro"), sumKey(rows, "qntdd_funcao"), sumKey(rows, "total")];
 }
 
-export function buildPdf(apontamentos: Apontamento[]): jsPDF {
+export async function buildPdf(apontamentos: Apontamento[]): Promise<jsPDF> {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
   const pageW = doc.internal.pageSize.getWidth();
 
@@ -135,8 +138,8 @@ export function buildPdf(apontamentos: Apontamento[]): jsPDF {
   return doc;
 }
 
-export function downloadPdf(apontamentos: Apontamento[], dataInicio: string, dataFim: string) {
-  const doc = buildPdf(apontamentos);
+export async function downloadPdf(apontamentos: Apontamento[], dataInicio: string, dataFim: string) {
+  const doc = await buildPdf(apontamentos);
   const fmt = (d: string) => d.split("-").reverse().join("");
   doc.save(`Apontamento_${fmt(dataInicio)}_a_${fmt(dataFim)}.pdf`);
 }

@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 
 export default function CadSetores() {
   return (
@@ -9,6 +9,11 @@ export default function CadSetores() {
       fields={[
         { key: "codigo", label: "Código EAP", type: "text" },
         { key: "nome", label: "Nome", type: "text", required: true },
+      ]}
+      codigoPrefix="S"
+      blockRefs={[
+        { table: "areas", fk: "setor_id", label: "áreas" },
+        { table: "apontamentos_diarios", fk: "setor_id", label: "apontamentos" },
       ]}
     />
   );

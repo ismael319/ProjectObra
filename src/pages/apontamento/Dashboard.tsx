@@ -244,9 +244,9 @@ function ResumoDiarioTab() {
     return items;
   }, [resumo]);
 
-  const handleDownloadPdf = () => {
+  const handleDownloadPdf = async () => {
     if (apontamentos.length === 0) { toast.warning("Nenhum registro para exportar"); return; }
-    downloadPdf(apontamentos, data, data);
+    await downloadPdf(apontamentos, data, data);
     toast.success("PDF gerado");
   };
 

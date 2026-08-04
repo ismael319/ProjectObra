@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 import { TIPOS_LIDERANCA } from "./lib/catalog";
 import { useEmpresas } from "./lib/catalog";
 
@@ -46,6 +46,7 @@ export default function CadLiderancas() {
             fields={fieldsFor(null)}
             extraColumns={[{ key: "tipo", label: "Tipo" }]}
             filter={{ column: "empresa_id", value: null }}
+            blockRefs={[{ table: "apontamentos_diarios", fk: "lideranca_id", label: "apontamentos" }]}
           />
         </TabsContent>
 
@@ -58,6 +59,7 @@ export default function CadLiderancas() {
               extraColumns={[{ key: "tipo", label: "Tipo" }]}
               filter={{ column: "empresa_id", value: e.id }}
               defaultFieldValues={{ empresa_id: e.id }}
+              blockRefs={[{ table: "apontamentos_diarios", fk: "lideranca_id", label: "apontamentos" }]}
             />
           </TabsContent>
         ))}

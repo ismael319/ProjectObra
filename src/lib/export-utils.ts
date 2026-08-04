@@ -1,6 +1,4 @@
 import { saveAs } from 'file-saver'
-import jsPDF from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import type { WBSActivity, WBSResource, WBSAssignment } from './xml-parser'
 import type { ProjectIndices } from './project-calculations'
 
@@ -208,11 +206,15 @@ export async function exportWideTableToExcel(
   saveAs(blob, `${title.replace(/\s+/g, '_')}_valores.xlsx`)
 }
 
-export function exportToPDF(
+export async function exportToPDF(
   activities: WBSActivity[],
   indices: ProjectIndices | null,
   projectName: string
 ) {
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ])
   const doc = new jsPDF('landscape', 'mm', 'a4')
 
   // Título

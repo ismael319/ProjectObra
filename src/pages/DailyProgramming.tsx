@@ -10,6 +10,7 @@ import {
   unlockWeek,
   setActivityStatus,
   setActivityInativa,
+  setActivityExtra,
   deleteActivity,
   addExtraActivity,
   mergeExcel,
@@ -32,6 +33,12 @@ import ModalExportarImagem, { type AlvoExportacao } from '@/components/programac
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
 import { TooltipProvider } from '@/components/ui/tooltip'
+
+// Intervalo "sem limite prático" pra busca de atividade em todo o cronograma
+// (handleSearchDayActivities) — mais simples que calcular o min/max real das
+// atividades, e cobre qualquer cronograma de obra sem risco de cortar nada.
+const MIN_DATE = new Date(2000, 0, 1)
+const MAX_DATE = new Date(2100, 0, 1)
 
 export default function DailyProgramming() {
   const { currentProject } = useProjects()
@@ -129,6 +136,13 @@ export default function DailyProgramming() {
     [currentProject],
   )
 
+  // Nomes de engenheiro já cadastrados (sem repetição) — sugestão no formulário de
+  // atividade avulsa.
+  const engenheirosDisponiveis = useMemo(
+    () => Array.from(new Set(engenheirosPorArea.values())).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [engenheirosPorArea],
+  )
+
   useEffect(() => {
     if (!currentProject?.id) {
       setEngenheirosPorArea(new Map())
@@ -194,11 +208,12 @@ export default function DailyProgramming() {
     }
   }
 
-  // Mesma busca de "Importar atividades", mas escopada a um único dia — pro caso de
-  // precisar adicionar uma tarefa do cronograma num dia que normalmente não teria
-  // (ex.: domingo). O intervalo vai até o INÍCIO do dia seguinte (não até a
-  // meia-noite do próprio dia), senão atividades que começam depois de 00h no dia
-  // escolhido ficariam de fora da sobreposição.
+  // Busca em TODO o cronograma (não só o que se sobrepõe ao dia) — o caso de uso
+  // aqui é justamente encontrar uma atividade que não estava planejada pra esse dia
+  // (ex.: domingo, ou qualquer outro dia fora da janela normal dela) mas que foi
+  // executada mesmo assim. ModalImportarAtividades recebe `targetDate` e decide,
+  // atividade por atividade, se ela vira "extra" (não some no board como planejada
+  // de verdade) comparando a janela original dela com esse dia.
   const handleSearchDayActivities = (date: string) => {
     if (!currentProject?.cronogramas?.length) {
       toast.warning('Nenhum cronograma carregado no projeto')
@@ -210,9 +225,7 @@ export default function DailyProgramming() {
     setShowDayImport(true)
 
     try {
-      const dayStart = parseISODateStr(date)
-      const dayEnd = addDays(dayStart, 1)
-      const results = findActivitiesWithWorkInWeek(currentProject.cronogramas, dayStart, dayEnd)
+      const results = findActivitiesWithWorkInWeek(currentProject.cronogramas, MIN_DATE, MAX_DATE)
       setDayImportActivities(results)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao buscar atividades'
@@ -365,6 +378,17 @@ export default function DailyProgramming() {
     }
   }
 
+  const handleSetExtra = async (id: string, isExtra: boolean) => {
+    try {
+      await setActivityExtra(id, isExtra)
+      toast.success(isExtra ? 'Marcada como extra' : 'Desmarcada como extra')
+      fetchData(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao atualizar a atividade'
+      toast.error(msg)
+    }
+  }
+
   // "Finalizado 100%": marca concluída e limpa os dias FUTUROS da mesma semana que
   // ainda tinham essa mesma tarefa (mesmo taskUid) programada — evita ela continuar
   // aparecendo como pendente depois de já ter sido entregue antes do previsto.
@@ -509,6 +533,7 @@ export default function DailyProgramming() {
         weekConsolidated={weekData.week.status === 'consolidado'}
         onSetStatus={handleSetStatus}
         onSetInativa={handleSetInativa}
+        onSetExtra={handleSetExtra}
         onFinalizar={handleFinalizarAtividade}
         onReprogramar={handleReprogramar}
         onAdicionarNaoRealizadas={handleAdicionarNaoRealizadas}
@@ -517,6 +542,8 @@ export default function DailyProgramming() {
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
+        engenheirosDisponiveis={engenheirosDisponiveis}
+        areasDisponiveis={areasDoCronograma}
         onExportarImagem={() => openDate && handleExportarDia(openDate)}
         getActivityDetail={getActivityDetail}
       />

@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 import { useAreas, useSetores } from "./lib/catalog";
 
 export default function CadSubareas() {
@@ -28,6 +28,8 @@ export default function CadSubareas() {
           return `${setorMap.get(a.setor_id) ?? "?"} / ${a.nome}`;
         } },
       ]}
+      codigoPrefix="SA"
+      blockRefs={[{ table: "apontamentos_diarios", fk: "subarea_id", label: "apontamentos" }]}
     />
   );
 }

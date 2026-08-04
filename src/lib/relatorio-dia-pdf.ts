@@ -4,8 +4,7 @@
 // ao meio (autoTable sempre move uma linha inteira pra próxima página quando ela não
 // cabe), cabeçalho repetido em toda página e numeração "página/total".
 
-import jsPDF from "jspdf";
-import autoTable, { type RowInput } from "jspdf-autotable";
+import type { RowInput } from "jspdf-autotable";
 import type { RelatorioVisual } from "./relatorio-visual";
 import { COR } from "@/components/relatorio/paleta";
 
@@ -29,7 +28,7 @@ function corStatus(status: string): string | false {
   }
 }
 
-export function downloadRelatorioDiaPdf(params: {
+export async function downloadRelatorioDiaPdf(params: {
   codigo: string;
   nomeProjeto: string;
   gestor?: string;
@@ -37,8 +36,12 @@ export function downloadRelatorioDiaPdf(params: {
   dataLabel: string;
   relatorio: RelatorioVisual;
   filename: string;
-}): void {
+}): Promise<void> {
   const { codigo, nomeProjeto, gestor, tipo, dataLabel, relatorio, filename } = params;
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
   const doc = new jsPDF({ orientation: "portrait", unit: "pt", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
@@ -76,9 +79,10 @@ export function downloadRelatorioDiaPdf(params: {
   for (const area of relatorio.areas) {
     body.push([{ content: area.nome, colSpan: 2, styles: { fillColor: COR.gray100, textColor: COR.gray800, fontStyle: "bold", fontSize: 8 } }]);
     for (const item of area.itens) {
-      body.push([item.isExtra ? "extra" : item.status, `${item.nome}${item.isExtra ? "  (extra)" : ""}`]);
+      const nomeComSubarea = item.subarea ? `${item.subarea} — ${item.nome}` : item.nome;
+      body.push([item.isExtra ? "extra" : item.status, `${nomeComSubarea}${item.isExtra ? "  (extra)" : ""}`]);
       for (const sub of item.subetapas) {
-        body.push([sub.concluida ? "concluida" : "pendente", `    • ${sub.nome}`]);
+        body.push([sub.status, `    • ${sub.nome}`]);
       }
     }
   }

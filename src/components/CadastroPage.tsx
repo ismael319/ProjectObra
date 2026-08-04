@@ -5,7 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Switch } from "@/components/ui/switch";
@@ -13,21 +13,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Combobox } from "@/components/ui/combobox";
 import { toast } from "sonner";
 import { Pencil, Plus, Search, Trash2, PowerOff, ListChecks, X, Loader2 } from "lucide-react";
-
-// Mesmo padrão visual/de código de apontamento/components/CadastroPage.tsx,
-// adaptado pras tabelas do Concreto: essas são "modernas" (organizacao_id
-// próprio, sem coluna atualizado_em) em vez das tabelas globais legadas do
-// Apontamento — por isso um componente próprio em vez de reusar aquele.
-
-type TableName = "fornecedores_concreto" | "tracos_concreto";
-
-// Coluna em cargas_concreto que referencia cada tabela — usada só pra travar
-// exclusão de um registro já vinculado a alguma carga (mesmo espírito de
-// APONTAMENTO_FK no Cadastro de mão de obra).
-const CARGAS_CONCRETO_FK: Record<TableName, string> = {
-  fornecedores_concreto: "fornecedor_id",
-  tracos_concreto: "traco_id",
-};
 
 interface ComboboxOption {
   value: string;
@@ -43,13 +28,36 @@ interface CadastroField {
   options?: ComboboxOption[];
 }
 
+export interface CadastroBlockRef {
+  /** Tabela que referencia esta tabela e bloqueia exclusão de registros vinculados. */
+  table: string;
+  /** Coluna na tabela referenciadora que aponta pro id desta tabela. */
+  fk: string;
+  /** Rótulo humano exibido nas mensagens de bloqueio (ex.: "apontamentos", "cargas de concreto"). */
+  label: string;
+}
+
 interface CadastroPageProps {
   title: string;
   description?: string;
-  table: TableName;
+  table: string;
   fields: CadastroField[];
   extraColumns?: { key: string; label: string; render?: (row: any) => string }[];
   orderBy?: string;
+  /** Restringe a lista a linhas onde `column = value` (ou `column IS NULL` quando
+   * value é null) — usado pelas subabas de Lideranças por Empresa, por exemplo. */
+  filter?: { column: string; value: string | null };
+  /** Pré-preenche o formulário ao criar um registro novo (ex.: empresa_id da
+   * subaba atual) — só sugestão, o campo continua editável/reatribuível. */
+  defaultFieldValues?: Record<string, any>;
+  /** Tabela escopada por organização (tem coluna organizacao_id própria), ex.: Concreto. */
+  organizacaoScoped?: boolean;
+  /** Tabelas cujos vínculos impedem exclusão (ex.: apontamentos, filhos, cargas). */
+  blockRefs?: CadastroBlockRef[];
+  /** Prefixo do Código EAP sugerido ao criar (S01, A01, SA01, AT01...) — ausente desativa. */
+  codigoPrefix?: string;
+  /** Grava criado_em/atualizado_em (tabelas legadas). Padrão true. */
+  timestamps?: boolean;
 }
 
 export function CadastroPage({
@@ -59,10 +67,17 @@ export function CadastroPage({
   fields,
   extraColumns = [],
   orderBy = "nome",
+  filter,
+  defaultFieldValues,
+  organizacaoScoped = false,
+  blockRefs = [],
+  codigoPrefix,
+  timestamps = true,
 }: CadastroPageProps) {
   const qc = useQueryClient();
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const hasOrg = !organizacaoScoped || !!organizacaoId;
 
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -74,35 +89,57 @@ export function CadastroPage({
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["cadastro-concreto", table, organizacaoId],
+    queryKey: ["cadastro", table, filter?.column, filter?.value, organizacaoScoped ? organizacaoId : undefined],
     queryFn: async () => {
-      const { data, error } = await supabase.from(table).select("*").eq("organizacao_id", organizacaoId!);
+      let q = supabase.from(table).select("*");
+      if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+      if (filter) q = filter.value === null ? q.is(filter.column, null) : q.eq(filter.column, filter.value);
+      const { data, error } = await q;
       if (error) throw error;
       return data;
     },
-    enabled: !!organizacaoId,
+    enabled: hasOrg,
   });
 
-  // Ids que não podem ser excluídos: já têm carga de concreto vinculada.
-  // Calculado aqui pra já desabilitar o botão de excluir na hora, em vez de
-  // só descobrir depois de tentar (e tomar o erro cru de FK vindo do banco).
-  const fkField = CARGAS_CONCRETO_FK[table];
-
-  const { data: cargasIds = [] } = useQuery({
-    queryKey: ["cadastro-concreto", table, "cargas-vinculadas", organizacaoId],
+  // Ids que NÃO podem ser excluídos: já têm registro vinculado em alguma das
+  // tabelas de blockRefs (ex.: apontamento de horas, filho dependente, carga de
+  // concreto). Calculado aqui pra já desabilitar o botão de excluir na hora, em
+  // vez de só descobrir depois de tentar (e tomar o erro cru de FK vindo do banco).
+  const blockRefsKey = blockRefs.map((r) => `${r.table}:${r.fk}`).join(",");
+  const emptyBlocked = useMemo(() => new Set<string>(), []);
+  const { data: blockedIds = emptyBlocked } = useQuery({
+    queryKey: ["cadastro", table, "vinculados", blockRefsKey, organizacaoScoped ? organizacaoId : undefined],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("cargas_concreto")
-        .select(fkField)
-        .eq("organizacao_id", organizacaoId!)
-        .not(fkField, "is", null);
-      if (error) throw error;
-      return (data as unknown as Record<string, string>[]).map((r) => r[fkField]);
+      const ids = new Set<string>();
+      for (const ref of blockRefs) {
+        let q = supabase.from(ref.table).select(ref.fk).not(ref.fk, "is", null);
+        if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+        const { data, error } = await q;
+        if (error) throw error;
+        for (const r of data as unknown as Record<string, string>[]) {
+          const v = r[ref.fk];
+          if (v) ids.add(v);
+        }
+      }
+      return ids;
     },
-    enabled: !!organizacaoId,
+    enabled: hasOrg && blockRefs.length > 0,
   });
 
-  const blockedIds = useMemo(() => new Set(cargasIds), [cargasIds]);
+  const blockLabel = useMemo(() => blockRefs.map((r) => r.label).join(" ou "), [blockRefs]);
+
+  // Sugere o próximo Código EAP livre nesse nível (S01, S02.../A01...), olhando
+  // os códigos já cadastrados — mesmo esquema da árvore da EAP.
+  function suggestCodigo(): string {
+    if (!codigoPrefix) return "";
+    const re = new RegExp(`^${codigoPrefix}(\\d+)$`, "i");
+    let max = 0;
+    for (const r of rows as { codigo?: string | null }[]) {
+      const m = r.codigo?.match(re);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    return `${codigoPrefix}${String(max + 1).padStart(2, "0")}`;
+  }
 
   const filtered = rows
     .filter((r: any) => {
@@ -115,16 +152,16 @@ export function CadastroPage({
     mutationFn: async () => {
       const payload: Record<string, any> = {};
       for (const f of fields) {
-        const empty = f.type === "text" ? "" : null;
-        payload[f.key] = form[f.key] ?? empty;
+        payload[f.key] = form[f.key] ?? (f.type === "text" ? "" : null);
       }
-
       if (editing) {
+        if (timestamps) payload.atualizado_em = new Date().toISOString();
         const { error } = await supabase.from(table).update(payload).eq("id", editing.id);
         if (error) throw error;
       } else {
-        payload.organizacao_id = organizacaoId;
         payload.ativo = true;
+        if (timestamps) payload.criado_em = new Date().toISOString();
+        if (organizacaoScoped) payload.organizacao_id = organizacaoId;
         const { error } = await supabase.from(table).insert(payload).select().single();
         if (error) throw error;
       }
@@ -134,27 +171,32 @@ export function CadastroPage({
       setOpen(false);
       setEditing(null);
       setForm({});
-      qc.invalidateQueries({ queryKey: ["cadastro-concreto", table] });
+      qc.invalidateQueries({ queryKey: ["cadastro", table] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const toggleMut = useMutation({
     mutationFn: async ({ id, ativo }: { id: string; ativo: boolean }) => {
-      const { error } = await supabase.from(table).update({ ativo }).eq("id", id);
+      const payload: Record<string, any> = { ativo };
+      if (timestamps) payload.atualizado_em = new Date().toISOString();
+      const { error } = await supabase.from(table).update(payload).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["cadastro-concreto", table] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["cadastro", table] }),
   });
 
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
-      const { count, error: countErr } = await supabase.from("cargas_concreto")
-        .select("id", { count: "exact", head: true })
-        .eq(fkField, id);
-      if (countErr) throw countErr;
-      if (count && count > 0) {
-        throw new Error("Registro possui cargas de concreto vinculadas. Recomenda-se inativar ao invés de excluir.");
+      for (const ref of blockRefs) {
+        const { count, error: countErr } = await supabase
+          .from(ref.table)
+          .select("id", { count: "exact", head: true })
+          .eq(ref.fk, id);
+        if (countErr) throw countErr;
+        if (count && count > 0) {
+          throw new Error(`Registro possui ${ref.label} vinculados. Recomenda-se inativar ao invés de excluir.`);
+        }
       }
       const { error } = await supabase.from(table).delete().eq("id", id);
       if (error) throw error;
@@ -162,14 +204,14 @@ export function CadastroPage({
     onSuccess: () => {
       toast.success("Excluído");
       setConfirm(null);
-      qc.invalidateQueries({ queryKey: ["cadastro-concreto", table] });
+      qc.invalidateQueries({ queryKey: ["cadastro", table] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   // Exclui vários de uma vez — pula (sem quebrar o lote) qualquer id que ainda
-  // esteja bloqueado por carga vinculada, mesmo que a seleção já tenha
-  // filtrado isso; é só uma segunda trava de segurança.
+  // esteja bloqueado por vínculo, mesmo que a seleção já tenha filtrado isso; é
+  // só uma segunda trava de segurança.
   const deleteBulkMut = useMutation({
     mutationFn: async (ids: string[]) => {
       const deletable = ids.filter((id) => !blockedIds.has(id));
@@ -182,7 +224,7 @@ export function CadastroPage({
     onSuccess: ({ deletedCount, skippedCount }) => {
       if (deletedCount > 0) toast.success(`${deletedCount} excluído(s)`);
       if (skippedCount > 0) toast.error(`${skippedCount} item(ns) com vínculos foram ignorados — inative-os em vez de excluir.`);
-      qc.invalidateQueries({ queryKey: ["cadastro-concreto", table] });
+      qc.invalidateQueries({ queryKey: ["cadastro", table] });
       cancelSelectMode();
     },
     onError: (e: Error) => toast.error(e.message),
@@ -190,19 +232,26 @@ export function CadastroPage({
 
   const inactivateMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from(table).update({ ativo: false }).eq("id", id);
+      const payload: Record<string, any> = { ativo: false };
+      if (timestamps) payload.atualizado_em = new Date().toISOString();
+      const { error } = await supabase.from(table).update(payload).eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Inativado");
       setConfirm(null);
-      qc.invalidateQueries({ queryKey: ["cadastro-concreto", table] });
+      qc.invalidateQueries({ queryKey: ["cadastro", table] });
     },
   });
 
   function openNew() {
     setEditing(null);
-    setForm({});
+    const f: Record<string, any> = { ...defaultFieldValues };
+    if (codigoPrefix && fields.some((fl) => fl.key === "codigo")) {
+      const suggestion = suggestCodigo();
+      if (suggestion) f.codigo = suggestion;
+    }
+    setForm(f);
     setOpen(true);
   }
 
@@ -222,7 +271,7 @@ export function CadastroPage({
 
   function toggleSelect(row: any) {
     if (blockedIds.has(row.id)) {
-      toast.error("Registro com cargas vinculadas — não pode ser selecionado para exclusão.");
+      toast.error(`Registro com ${blockLabel} vinculados — não pode ser selecionado para exclusão.`);
       return;
     }
     const next = new Set(selectedIds);
@@ -257,7 +306,7 @@ export function CadastroPage({
           <CardContent className="p-3 flex items-center gap-3 flex-wrap">
             <p className="text-sm">
               {selectedIds.size === 0
-                ? "Marque na tabela quais registros excluir. Itens com cargas vinculadas não podem ser selecionados."
+                ? `Marque na tabela quais registros excluir. Itens com ${blockLabel} vinculados não podem ser selecionados.`
                 : `${selectedIds.size} item(ns) selecionado(s).`}
             </p>
             {selectedIds.size > 0 && (
@@ -304,7 +353,7 @@ export function CadastroPage({
                             type="checkbox"
                             checked={selectedIds.has(row.id)}
                             disabled={bloqueado}
-                            title={bloqueado ? "Possui cargas vinculadas — não pode ser excluído" : undefined}
+                            title={bloqueado ? `Possui ${blockLabel} vinculados — não pode ser excluído` : undefined}
                             onChange={() => toggleSelect(row)}
                           />
                         </TableCell>
@@ -320,7 +369,7 @@ export function CadastroPage({
                           <Button
                             size="icon" variant="ghost" className="h-8 w-8 text-destructive disabled:opacity-30"
                             disabled={bloqueado}
-                            title={bloqueado ? "Possui cargas vinculadas — inative em vez de excluir" : "Excluir"}
+                            title={bloqueado ? `Possui ${blockLabel} vinculados — inative em vez de excluir` : "Excluir"}
                             onClick={() => handleDelete(row)}
                           >
                             <Trash2 className="h-3.5 w-3.5" />

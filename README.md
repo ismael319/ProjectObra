@@ -68,25 +68,26 @@ O deploy em produção continua pela Vercel; o CI apenas valida que o código es
 
 ## Banco de dados
 
-O esquema é gerenciado por **migrations SQL aplicadas manualmente no Supabase SQL Editor**
-(há centenas de arquivos em `src/lib/*.sql`). A maioria é **idempotente** (`DROP ... IF EXISTS` +
-`CREATE ...`), então pode ser re-executada com segurança. Migrations mais recentes e padronizadas
-ficam em `supabase/migrations/` (nomeadas com timestamp).
+O esquema é gerenciado por **migrations SQL** em `supabase/migrations/` (nomeadas por timestamp,
+padrão do Supabase CLI), aplicadas manualmente no Supabase SQL Editor. A maioria é **idempotente**
+(`DROP ... IF EXISTS` + `CREATE ...`), então pode ser re-executada com segurança.
 
-Ordem recomendada ao montar um banco novo:
+Scripts de consulta/diagnóstico (somente leitura) ficam em `supabase/diagnostics/` — **não** são
+migrations.
 
-1. Schema base de autenticação/perfis e segurança: `src/lib/acesso-3-niveis-migration.sql`,
-   `src/lib/funcao-usuario-migration.sql`, `src/lib/modulos-plataforma-migration.sql`,
-   `src/lib/modulos-visiveis-migration.sql`, `src/lib/user-approval-migration.sql`,
-   `src/lib/rls-migration.sql`, `src/lib/rate-limit-migration.sql` (inclui o rate limit do chat)
-2. Multi-tenant e projetos: `src/lib/multi-tenant-fase1-migration.sql`,
-   `src/lib/projetos-acesso-edicao-migration.sql`, `src/lib/projetos-grant-fix-migration.sql`
+Ordem recomendada ao montar um banco novo (os timestamps já refletem esta ordem):
+
+1. Schema base de autenticação/perfis e segurança: `acesso-3-niveis`, `funcao-usuario`,
+   `modulos-plataforma`, `modulos-visiveis`, `user-approval`, `rls`, `rate-limit`
+   (inclui o rate limit do chat), `fix-signup-500`, `consentimento-lgpd`, `exclusao-conta`,
+   `excluir-usuario`, `audit-logs`, `pendentes-consolidado`
+2. Multi-tenant e projetos: `multi-tenant-fase1`, `projetos-acesso-edicao`, `projetos-grant-fix`
 3. Módulos específicos (cada um com suas dependências — ex.: gantt, programação, apontamento,
-   administração, rdr, sienge, mapa-chuvas, concreto). Confira `src/lib/check-migrations.sql`
-   para verificar o estado do banco.
+   administração, rdr, sienge, mapa-chuvas, concreto). Confira o estado do banco com
+   `supabase/diagnostics/check-migrations.sql`.
 
-> Aviso: `src/lib/*.sql` não é um sistema de migrations versionado — não há tracking automático.
-> Aplique apenas em ambientes que você controla e valide com `check-migrations.sql`.
+> Aviso: as migrations são aplicadas manualmente no SQL Editor — não há tracking automático do
+> que já rodou em cada projeto. Rode as novas em ordem de timestamp.
 
 ## Deploy
 
@@ -101,11 +102,12 @@ cadastradas no painel da Vercel (Project Settings → Environment Variables).
 ```
 src/
   components/      Componentes de UI compartilhados
-  lib/             Lógica de domínio, store, integrações e migrations SQL
+  lib/             Lógica de domínio, store e integrações
   pages/           Telas da aplicação
   api/             Funções serverless (Vercel)
 supabase/
   migrations/      Migrations SQL nomeadas por timestamp
+  diagnostics/     Scripts de consulta/diagnóstico (somente leitura)
 ```
 
 ## Permissões

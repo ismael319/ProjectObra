@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 
 export default function CadAtividades() {
   return (
@@ -10,6 +10,8 @@ export default function CadAtividades() {
         { key: "codigo", label: "Código EAP", type: "text" },
         { key: "nome", label: "Nome", type: "text", required: true },
       ]}
+      codigoPrefix="AT"
+      blockRefs={[{ table: "apontamentos_diarios", fk: "atividade_id", label: "apontamentos" }]}
     />
   );
 }

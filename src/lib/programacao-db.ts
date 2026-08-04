@@ -2,7 +2,7 @@
 // Adaptado do Weekly Craft Pro para usar Supabase client diretamente.
 
 import { supabase } from './supabase'
-import type { ActivityLike, ActivityStatus, SubEtapa } from './adherence'
+import type { ActivityLike, ActivityStatus, SubEtapa, SubEtapaStatus } from './adherence'
 import { isoWeekFromParts, addDays, toISODateStr } from './iso-week'
 
 interface WeekRow {
@@ -106,7 +106,7 @@ async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<stri
     const lote = activityIds.slice(i, i + CHUNK)
     const { data, error } = await supabase
       .from('activity_subetapas')
-      .select('id,activity_id,nome,concluida')
+      .select('id,activity_id,nome,status')
       .in('activity_id', lote)
     if (error) {
       if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return map
@@ -161,7 +161,11 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    area: a.is_extra ? a.area : null,
+    // Provém de um cronograma de verdade (tem task_uid) ou é avulsa? Decide o
+    // significado da coluna `area` (WBS area/subárea vs. texto livre digitado à
+    // mão) e se source_cronograma é repassado — independente de is_extra, que hoje
+    // é só o status "não estava planejada pro dia" (ver addActivitiesBulk).
+    area: a.task_uid ? null : a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -169,8 +173,8 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
-    areaPath: a.is_extra ? null : a.area,
+    source: a.task_uid ? (a.source_cronograma ?? undefined) : undefined,
+    areaPath: a.task_uid ? a.area : null,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
@@ -213,7 +217,11 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    area: a.is_extra ? a.area : null,
+    // Provém de um cronograma de verdade (tem task_uid) ou é avulsa? Decide o
+    // significado da coluna `area` (WBS area/subárea vs. texto livre digitado à
+    // mão) e se source_cronograma é repassado — independente de is_extra, que hoje
+    // é só o status "não estava planejada pro dia" (ver addActivitiesBulk).
+    area: a.task_uid ? null : a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -221,8 +229,8 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.is_extra ? undefined : (a.source_cronograma ?? undefined),
-    areaPath: a.is_extra ? null : a.area,
+    source: a.task_uid ? (a.source_cronograma ?? undefined) : undefined,
+    areaPath: a.task_uid ? a.area : null,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
@@ -276,6 +284,16 @@ export async function setActivityInativa(activityId: string, inativa: boolean, m
   if (error) throw new Error(error.message)
 }
 
+// Marca/desmarca uma atividade como "Extra" (não estava planejada pro dia, mas foi
+// feita mesmo assim) — controlado manualmente pelo usuário via botão, não é mais
+// deduzido automaticamente na importação. Só mexe no status: não altera
+// source_cronograma/area/task_uid, então uma atividade real do cronograma marcada
+// extra continua agrupada no cronograma dela (ver addActivitiesBulk).
+export async function setActivityExtra(activityId: string, isExtra: boolean): Promise<void> {
+  const { error } = await supabase.from('activities').update({ is_extra: isExtra }).eq('id', activityId)
+  if (error) throw new Error(error.message)
+}
+
 // Move uma ou mais atividades já existentes pra outro dia (não cria linha nova) —
 // usado tanto pelo "Reprogramar" (1 id) quanto pelo "Adicionar atividades não
 // realizadas" (vários ids de uma vez, trazendo pendências de dias anteriores da
@@ -310,14 +328,14 @@ export async function addSubEtapa(activityId: string, nome: string): Promise<Sub
   const { data, error } = await supabase
     .from('activity_subetapas')
     .insert({ activity_id: activityId, nome })
-    .select('id,activity_id,nome,concluida')
+    .select('id,activity_id,nome,status')
     .single()
   if (error) throw new Error(error.message)
   return data as SubEtapa
 }
 
-export async function toggleSubEtapa(id: string, concluida: boolean): Promise<void> {
-  const { error } = await supabase.from('activity_subetapas').update({ concluida }).eq('id', id)
+export async function setSubEtapaStatus(id: string, status: SubEtapaStatus): Promise<void> {
+  const { error } = await supabase.from('activity_subetapas').update({ status }).eq('id', id)
   if (error) throw new Error(error.message)
 }
 
@@ -332,13 +350,20 @@ export async function deleteSubEtapa(id: string): Promise<void> {
 }
 
 /**
- * null = a atividade não tem sub-etapas (status continua manual, pelos 3 botões).
- * Regra por proporção concluída: todas -> concluída; metade ou mais (mas não todas)
- * -> parcial; menos da metade (mais da metade NÃO realizadas) -> não concluída.
+ * null = não dá pra derivar o status da atividade ainda — ou não tem sub-etapas
+ * (status continua manual, pelos 3 botões), ou ainda tem alguma sub-etapa
+ * "pendente" (nem marcada concluída nem não concluída — ex.: uma sub-etapa
+ * prevista pra mais tarde no dia). Uma sub-etapa pendente NÃO conta como "não
+ * concluída": ela simplesmente aguarda até ser resolvida, em vez de arrastar a
+ * atividade pra "não concluída"/"parcial" antes da hora.
+ * Só depois que todas as sub-etapas estiverem resolvidas (concluída ou não) é que
+ * a proporção decide: todas concluídas -> concluída; metade ou mais (mas não
+ * todas) -> parcial; menos da metade -> não concluída.
  */
 export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatus | null {
   if (subetapas.length === 0) return null
-  const concluidas = subetapas.filter((s) => s.concluida).length
+  if (subetapas.some((s) => s.status === 'pendente')) return null
+  const concluidas = subetapas.filter((s) => s.status === 'concluida').length
   const proporcao = concluidas / subetapas.length
   if (proporcao === 1) return 'concluida'
   if (proporcao >= 0.5) return 'parcial'
@@ -379,14 +404,16 @@ export interface NewActivityPayload {
   /** Área "de verdade" do cadastro Setor→Área→Etapa (setores/areas/subareas) —
    * vinculada manualmente em "Engenheiros por Área", não é criada automaticamente. */
   areaId?: string | null
-  /** WBSActivity.uid da tarefa de origem no cronograma — permite depois buscar
-   * atraso/% avanço/datas ao vivo do cronograma. Só faz sentido quando isExtra=false. */
+  /** WBSActivity.uid da tarefa de origem no cronograma — presente quando a atividade
+   * veio de um cronograma de verdade (independente de "extra"), permite depois
+   * buscar atraso/% avanço/datas ao vivo do cronograma. */
   taskUid?: number | null
 }
 
 // Adicionar atividade extra (ou, com isExtra=false, uma atividade "oficial" vinda da
-// importação do cronograma — distinção que a semana bloqueada usa pra saber o que
-// pode continuar sendo adicionado/removido mesmo bloqueada: só as extras de verdade)
+// importação do cronograma — is_extra é só um status/flag de exibição hoje, "não
+// estava planejada pro dia mas foi feita"; não decide mais se a atividade tem
+// vínculo real com um cronograma — isso quem decide é taskUid/sourceCronograma)
 export async function addExtraActivity(payload: NewActivityPayload): Promise<void> {
   return addActivitiesBulk([payload])
 }
@@ -399,6 +426,13 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
 
   const rows = payloads.map((payload) => {
     const isExtra = payload.isExtra ?? true
+    // Provém de um cronograma de verdade (tem taskUid) ou é uma atividade avulsa
+    // (digitada à mão, sem vínculo)? Essa distinção decide o que fazer com
+    // source_cronograma/area/task_uid — é independente de is_extra: uma atividade
+    // vinda do cronograma continua tendo o cronograma de origem mesmo quando
+    // marcada como extra (não estava planejada pro dia, mas é uma tarefa real),
+    // senão ela perde o agrupamento por cronograma e cai no grupo genérico à toa.
+    const isReal = payload.taskUid != null
     return {
       week_id: payload.weekId,
       name: payload.name,
@@ -409,15 +443,15 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
       // origem tem coluna própria (source_cronograma); `area` ainda reaproveita a
       // área da EDT (nível 2/3) só nas importadas, sem coluna dedicada no banco.
       company: payload.company ?? null,
-      source_cronograma: !isExtra ? (payload.sourceCronograma ?? null) : null,
+      source_cronograma: isReal ? (payload.sourceCronograma ?? null) : null,
       discipline: payload.discipline ?? null,
-      area: isExtra ? (payload.area ?? null) : (payload.areaPath ?? null),
+      area: isReal ? (payload.areaPath ?? null) : (payload.area ?? null),
       area_id: payload.areaId ?? null,
       stage: payload.stage ?? null,
       foreman: payload.foreman ?? null,
       observation: payload.observation ?? null,
       planned_pct: 100,
-      task_uid: !isExtra && payload.taskUid != null ? String(payload.taskUid) : null,
+      task_uid: isReal ? String(payload.taskUid) : null,
     }
   })
 
@@ -436,8 +470,6 @@ export async function mergeExcel(
     (existing ?? []).filter((a: ActivityRow) => a.task_uid).map((a: ActivityRow) => [a.task_uid!, a]),
   )
 
-  let updated = 0
-
   const STATUS_MAP: Record<string, ActivityStatus> = {
     concluida: 'concluida',
     'concluída': 'concluida',
@@ -448,6 +480,10 @@ export async function mergeExcel(
     pendente: 'pendente',
   }
 
+  // Um upsert por linha (id já existe pra todas — vieram de byUid) em vez de
+  // um UPDATE por linha: mesmo resultado, sem N chamadas de rede pra planilhas
+  // grandes.
+  const patches: Record<string, unknown>[] = []
   for (const raw of rows) {
     const uid = String(raw.UID ?? raw.uid ?? '').trim()
     if (!uid) continue
@@ -458,7 +494,8 @@ export async function mergeExcel(
     const rawStatus = String(raw.Status ?? raw.status ?? '').trim().toLowerCase()
     const st = STATUS_MAP[rawStatus] ?? (target as ActivityRow).status
 
-    const patch = {
+    patches.push({
+      id: target.id,
       status: st,
       observation:
         raw['Observações'] != null
@@ -470,13 +507,19 @@ export async function mergeExcel(
         raw['Produtividade Real'] != null
           ? String(raw['Produtividade Real'])
           : (target as ActivityRow).actual_productivity,
-    }
-
-    const { error } = await supabase.from('activities').update(patch).eq('id', target.id)
-    if (!error) updated += 1
+    })
   }
 
-  return { updated }
+  if (patches.length === 0) return { updated: 0 }
+
+  const TAMANHO_LOTE = 500
+  for (let i = 0; i < patches.length; i += TAMANHO_LOTE) {
+    const lote = patches.slice(i, i + TAMANHO_LOTE)
+    const { error } = await supabase.from('activities').upsert(lote, { onConflict: 'id' })
+    if (error) throw new Error(error.message)
+  }
+
+  return { updated: patches.length }
 }
 
 // ============ Engenheiro responsável por Área (nível 2 da EDT) ============

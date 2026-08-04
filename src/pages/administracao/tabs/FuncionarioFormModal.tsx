@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { toast } from "sonner";
-import { X, Plus, Loader2 } from "lucide-react";
+import { X, Plus, Loader2, ExternalLink } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -138,6 +138,7 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
     statusFs: funcionario?.status_fs ?? "bloqueado",
     grupoId: funcionario?.grupo_id ?? null,
     categoria: funcionario?.categoria ?? null,
+    fotoUrl: funcionario?.foto_url ?? null,
   }));
   const [salvando, setSalvando] = useState(false);
 
@@ -205,6 +206,33 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
           <div className="space-y-1.5">
             <Label>Data de admissão *</Label>
             <Input type="date" value={form.dataAdmissao} onChange={(e) => set("dataAdmissao", e.target.value)} />
+          </div>
+
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Foto (URL)</Label>
+            <Input
+              placeholder="https://servidor-da-empresa/fotos/123.jpg"
+              value={form.fotoUrl ?? ""}
+              onChange={(e) => set("fotoUrl", e.target.value || null)}
+            />
+            {form.fotoUrl ? (
+              <div className="flex items-center gap-3 pt-1">
+                <img
+                  src={form.fotoUrl}
+                  alt={form.nome || "Foto do funcionário"}
+                  className="h-16 w-16 rounded-lg object-cover border border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-700"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+                <a
+                  href={form.fotoUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  <ExternalLink className="h-4 w-4" /> Ver foto
+                </a>
+              </div>
+            ) : null}
           </div>
 
           <CampoCatalogo

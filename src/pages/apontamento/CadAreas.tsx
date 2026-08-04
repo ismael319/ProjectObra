@@ -1,4 +1,4 @@
-import { CadastroPage } from "./components/CadastroPage";
+import { CadastroPage } from "@/components/CadastroPage";
 import { useSetores } from "./lib/catalog";
 
 export default function CadAreas() {
@@ -16,6 +16,11 @@ export default function CadAreas() {
         { key: "nome", label: "Nome", type: "text", required: true },
       ]}
       extraColumns={[{ key: "setor_id", label: "Setor", render: (r) => setorMap.get(r.setor_id) ?? "—" }]}
+      codigoPrefix="A"
+      blockRefs={[
+        { table: "subareas", fk: "area_id", label: "etapas" },
+        { table: "apontamentos_diarios", fk: "area_id", label: "apontamentos" },
+      ]}
     />
   );
 }

@@ -2,12 +2,12 @@
 // substitui o texto corrido mandado hoje pro WhatsApp — ver
 // src/components/relatorio/CardRelatorioVisual.tsx e src/pages/ProgramacaoVisual.tsx.
 
-import { statusWeight, type ActivityLike, type ActivityStatus } from "./adherence";
+import { statusWeight, type ActivityLike, type ActivityStatus, type SubEtapaStatus } from "./adherence";
 import { getAreaNivel2, getAreaNivel3 } from "./week-activities";
 
 export type SubEtapaRelatorio = {
   nome: string;
-  concluida: boolean;
+  status: SubEtapaStatus;
 };
 
 export type ItemRelatorio = {
@@ -16,6 +16,11 @@ export type ItemRelatorio = {
   status: ActivityLike["status"];
   isExtra: boolean;
   subetapas: SubEtapaRelatorio[];
+  /** Nível 3 da EDT ("" quando a tarefa não tem esse nível) — a área (nível 2) já
+   * aparece como cabeçalho do grupo (AreaRelatorio.nome); isso aqui é o nível
+   * abaixo dela, usado no PDF do dia e no texto de WhatsApp (ver
+   * relatorio-dia-pdf.ts e relatorio-texto.ts). */
+  subarea: string;
 };
 
 export type AreaRelatorio = {
@@ -61,7 +66,8 @@ export function buildRelatorioVisual(activities: ActivityLike[], partialWeight =
       nome: a.name,
       status: a.status,
       isExtra: a.is_extra,
-      subetapas: (a.subetapas ?? []).map((s) => ({ nome: s.nome, concluida: s.concluida })),
+      subetapas: (a.subetapas ?? []).map((s) => ({ nome: s.nome, status: s.status })),
+      subarea: subareaDe(a),
     });
   }
   for (const itens of map.values()) {

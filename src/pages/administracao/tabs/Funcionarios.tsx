@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Search, Plus, Upload, Download, Pencil, ChevronLeft, ChevronRight } from "lucide-react";
+import { Search, Plus, Upload, Download, Pencil, ChevronLeft, ChevronRight, User } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -242,6 +242,7 @@ export default function Funcionarios() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Mat.</TableHead>
+                  <TableHead className="w-[48px]">Foto</TableHead>
                   <TableHead>Nome</TableHead>
                   <TableHead>Cargo</TableHead>
                   <TableHead>Nível</TableHead>
@@ -254,13 +255,26 @@ export default function Funcionarios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
-                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
+                {isLoading && <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
+                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
                 {pagina.map((f) => {
                   const cargoNome = f.cargo_id ? cargoNomePorId.get(f.cargo_id) : undefined;
                   return (
                   <TableRow key={f.id} className={!f.ativo ? "opacity-60" : ""}>
                     <TableCell className="font-mono text-xs">{f.matricula}</TableCell>
+                    <TableCell>
+                      {f.foto_url ? (
+                        <a
+                          href={f.foto_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          title="Ver foto"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:ring-2 hover:ring-blue-500"
+                        >
+                          <User className="h-4 w-4" />
+                        </a>
+                      ) : null}
+                    </TableCell>
                     <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{cargoNome ?? "—"}</TableCell>
                     <TableCell className="text-muted-foreground">{cargoNome ? nivelDoCargo(cargoNome) ?? "—" : "—"}</TableCell>
