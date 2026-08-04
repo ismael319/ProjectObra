@@ -162,6 +162,20 @@ export async function criarBaseline(projetoId: string, baselineAtualId: string |
   return nova as Baseline
 }
 
+// Zera os valores lançados (planejado da baseline ativa + real semanal do projeto
+// inteiro, os dois tipos — Pessoas e Equipamentos) sem mexer nos cargos nem no
+// histórico de baselines — usado quando os números foram lançados errado (ex.:
+// importação malformada) e é mais rápido recomeçar a digitar do que corrigir linha
+// a linha. Real não é por baseline (é por projeto/cargo/semana), por isso zera
+// direto pelo projeto inteiro, não só a baseline ativa.
+export async function zerarValoresHistograma(projetoId: string, baselineId: string): Promise<void> {
+  const { error: errPlan } = await supabase.from('histograma_planejado').delete().eq('baseline_id', baselineId)
+  if (errPlan) throw new Error(errPlan.message)
+
+  const { error: errReal } = await supabase.from('histograma_real_semanal').delete().eq('projeto_id', projetoId)
+  if (errReal) throw new Error(errReal.message)
+}
+
 // Funções (cargos) já cadastradas no Controle de Funcionários (rh_cargos),
 // pra sugerir na hora de criar um cargo no Histograma — evita nome
 // divergente ("Pedreiro" vs "pedreiro") do que já é usado lá, o que é

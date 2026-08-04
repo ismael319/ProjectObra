@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   BarChart,
   Bar,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -14,12 +16,12 @@ import {
 import {
   Plus, CalendarClock, Table2, X, LineChart as LineChartIcon,
   Upload, Download, FileSpreadsheet, Loader2, AlertTriangle, CheckCircle2,
-  Users, Wrench,
+  Users, Wrench, Eraser,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjects } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
-import { toISODateStr, parseISODateStr, startOfWeek, addDays, formatShortDate } from '@/lib/iso-week'
+import { toISODateStr, parseISODateStr, startOfWeek, addDays, formatShortDate, getISOWeekYearAndNumber } from '@/lib/iso-week'
 import { lerArquivoComoLinhas } from '@/lib/administracao/parse-shared'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -42,6 +44,7 @@ import {
   normalizarNomeCargo,
   upsertPlanejado,
   upsertReal,
+  zerarValoresHistograma,
 } from './lib/histograma-db'
 import {
   buildHistogramaWorkbook,
@@ -66,19 +69,45 @@ const TIPO_OPCOES: { value: 'MO' | 'EQUIPAMENTO'; label: string; icon: typeof Us
 ]
 
 const DEBOUNCE_MS = 500
-const THURSDAY = 4 // 0=Dom..6=Sáb
+// Sexta-feira (0=Dom..6=Sáb) — mesmo weekStartDay padrão usado na Curva S
+// (curve-utils.ts/SCurve.tsx, default 5 quando o cronograma não define o próprio) e
+// na Programação Semanal (convenção Sex→Qui, ver iso-week.ts). O Histograma usava
+// 4 (quinta) aqui antes, um dia adiantado — as semanas batiam entre si dentro do
+// Histograma, mas ficavam desalinhadas 1 dia contra a Curva S/Programação.
+const WEEK_START_DAY = 5
+// Jornada padrão CLT (44h semanais) — usada só como multiplicador pra converter o
+// efetivo (Qtd de pessoas) já lançado em Planejado/Real em horas-homem, pra Curva
+// de Horas. Editável na própria aba, não é uma verdade fixa do sistema.
+const HORAS_SEMANAIS_PADRAO = 44
+// Altura fixa (px) das linhas da grade semanal — Cargo/Total ficam num painel à
+// parte, fora do scroll horizontal (ver comentário acima de "Lançamento semanal"),
+// então as alturas dos dois painéis precisam bater exatamente, senão as linhas
+// desalinham visualmente entre os dois. HEADER_ROW_H cobre as camadas Ano/Mês;
+// HEADER_WEEK_ROW_H cobre a última linha (número da semana + data, 2 textos
+// empilhados na mesma célula); DATA_ROW_H cobre Planejado e Real.
+const HEADER_ROW_H = 22
+const HEADER_WEEK_ROW_H = 34
+const DATA_ROW_H = 44
 
 interface Semana {
   iso: string
   label: string
   monthKey: string
   monthLabel: string
+  /** Nome do mês por extenso ("março") — cabeçalho da grade semanal (2ª camada,
+   * entre Ano e Semana), separado de monthLabel (abreviado, usado na Visão mensal). */
+  monthFullLabel: string
+  ano: string
+  /** Ano/número da semana ISO (weekStartDay=Sexta) — mesmo cálculo/rótulo "AAAA-ww"
+   * de formatAxisTick (curve-utils.ts), usado na Curva S. */
+  isoWeek: number
+  isoYear: number
 }
 
 function gerarSemanas(inicioISO: string, fimISO: string): Semana[] {
   if (!inicioISO || !fimISO) return []
   const fim = parseISODateStr(fimISO.slice(0, 10))
-  let cursor = startOfWeek(parseISODateStr(inicioISO.slice(0, 10)), THURSDAY)
+  let cursor = startOfWeek(parseISODateStr(inicioISO.slice(0, 10)), WEEK_START_DAY)
   const semanas: Semana[] = []
   let guard = 0
   while (cursor <= fim && guard < 520) {
@@ -87,11 +116,29 @@ function gerarSemanas(inicioISO: string, fimISO: string): Semana[] {
       label: formatShortDate(cursor).slice(0, 5),
       monthKey: `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}`,
       monthLabel: cursor.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''),
+      monthFullLabel: cursor.toLocaleDateString('pt-BR', { month: 'long' }),
+      ano: String(cursor.getFullYear()),
+      isoWeek: getISOWeekYearAndNumber(cursor, WEEK_START_DAY).week,
+      isoYear: getISOWeekYearAndNumber(cursor, WEEK_START_DAY).year,
     })
     cursor = addDays(cursor, 7)
     guard++
   }
   return semanas
+}
+
+// Agrupa semanas consecutivas do mesmo mês (ou ano) numa faixa colSpan — cabeçalho
+// de 3 camadas da grade semanal (Ano / Mês / Semana), igual a um cabeçalho de
+// cronograma/Gantt. `semanas` já vem em ordem cronológica (gerarSemanas), então
+// meses/anos iguais sempre ficam adjacentes — não precisa reordenar nada aqui.
+function agruparPorColSpan(semanas: Semana[], chave: 'monthKey' | 'ano', label: 'monthFullLabel' | 'ano'): { chave: string; label: string; colSpan: number }[] {
+  const grupos: { chave: string; label: string; colSpan: number }[] = []
+  for (const s of semanas) {
+    const ultimo = grupos.at(-1)
+    if (ultimo && ultimo.chave === s[chave]) ultimo.colSpan++
+    else grupos.push({ chave: s[chave], label: s[label], colSpan: 1 })
+  }
+  return grupos
 }
 
 function useDebouncedSave(delay = DEBOUNCE_MS) {
@@ -127,7 +174,8 @@ export default function HistogramaMO() {
 
   const [tipoAtivo, setTipoAtivo] = useState<'MO' | 'EQUIPAMENTO'>('MO')
   const [baselineId, setBaselineId] = useState<string | null>(null)
-  const [aba, setAba] = useState<'semanal' | 'mensal'>('semanal')
+  const [aba, setAba] = useState<'semanal' | 'mensal' | 'horas'>('semanal')
+  const [horasSemanais, setHorasSemanais] = useState(HORAS_SEMANAIS_PADRAO)
   const [cargoSelecionado, setCargoSelecionado] = useState<string>('__total__')
   const [modalBaselineAberto, setModalBaselineAberto] = useState(false)
   const [motivoNovaBaseline, setMotivoNovaBaseline] = useState('')
@@ -147,6 +195,10 @@ export default function HistogramaMO() {
     [currentProject?.dataInicio, currentProject?.dataFimPrevista],
   )
 
+  // Cabeçalho de 3 camadas da grade semanal (Lançamento semanal): Ano / Mês / Semana.
+  const anosHeader = useMemo(() => agruparPorColSpan(semanas, 'ano', 'ano'), [semanas])
+  const mesesHeader = useMemo(() => agruparPorColSpan(semanas, 'monthKey', 'monthFullLabel'), [semanas])
+
   const meses = useMemo(() => {
     const vistos = new Set<string>()
     const lista: { key: string; label: string; mes: string }[] = []
@@ -158,7 +210,7 @@ export default function HistogramaMO() {
     return lista
   }, [semanas])
 
-  const semanaAtualIso = useMemo(() => toISODateStr(startOfWeek(new Date(), THURSDAY)), [])
+  const semanaAtualIso = useMemo(() => toISODateStr(startOfWeek(new Date(), WEEK_START_DAY)), [])
 
   const { data: cargos = [] } = useQuery({
     queryKey: ['histograma-cargos', projetoId],
@@ -267,6 +319,23 @@ export default function HistogramaMO() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  const zerarValoresMut = useMutation({
+    mutationFn: () => zerarValoresHistograma(projetoId!, baselineAtiva!.id),
+    onSuccess: () => {
+      toast.success('Valores zerados')
+      setRealEdits({})
+      setPlanejadoEdits({})
+      qc.invalidateQueries({ queryKey: ['histograma-planejado', baselineAtiva?.id] })
+      qc.invalidateQueries({ queryKey: ['histograma-real', projetoId] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function handleZerarValores() {
+    if (!confirm('Zerar TODOS os valores de Planejado (baseline ativa) e Real (todas as semanas, Pessoas e Equipamentos) deste projeto? Os cargos e as baselines cadastradas continuam intactos. Essa ação não pode ser desfeita.')) return
+    zerarValoresMut.mutate()
+  }
 
   const criarCargoMut = useMutation({
     mutationFn: () => criarCargo(projetoId!, novoCargo.nome.trim(), novoCargo.categoria, tipoAtivo),
@@ -411,6 +480,67 @@ export default function HistogramaMO() {
     return linhas.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
   }, [cargoSelecionado, cargosVisiveis, mensalPorCargo, meses])
 
+  // Total do período (soma, não média) por cargo — Planejado soma o valor mensal de
+  // cada mês do projeto, Real soma o valor de cada semana lançada. Existe pra
+  // responder "quanto desse cargo foi usado/apontado no projeto inteiro", que
+  // mensalPorCargo não responde de jeito nenhum (ali o Real é média por mês, feita
+  // pro gráfico, não soma do período todo).
+  const totaisPorCargo = useMemo(() => {
+    const map = new Map<string, { planejado: number; real: number }>()
+    for (const cargo of cargosVisiveis) {
+      let planejado = 0
+      for (const m of meses) planejado += planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
+      let real = 0
+      for (const s of semanas) real += realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`) ?? 0
+      map.set(cargo.id, { planejado, real })
+    }
+    return map
+  }, [cargosVisiveis, meses, semanas, planejadoEdits, planejadoMap, realEdits, realMap])
+
+  // Curva de Horas (HH) — só Pessoas (MO): equipamento não vira "hora-homem" da
+  // mesma forma, e "horas do projeto" nesse sentido é sempre mão de obra. Converte
+  // o efetivo já lançado (Qtd de pessoas por semana/mês) em horas via
+  // horasSemanais, e acumula mês a mês — a curva S sai da própria acumulação
+  // (poucas horas no início/fim da obra, pico no meio), não de uma fórmula pronta.
+  // Planejado é lançado por mês (mesmo valor pra todas as semanas do mês, ver
+  // handlePlanejadoChange) — por isso multiplica pelo nº de semanas do mês; Real é
+  // por semana, soma direto.
+  const cargosMO = useMemo(() => cargos.filter((c) => c.tipo === 'MO'), [cargos])
+  const curvaHoras = useMemo(() => {
+    let acumPlanejado = 0
+    let acumReal = 0
+    let temReal = false
+    return meses.map((m) => {
+      const semanasDoMes = semanas.filter((s) => s.monthKey === m.key)
+      let planejadoMes = 0
+      let realMes = 0
+      let semanasComReal = 0
+      for (const cargo of cargosMO) {
+        const qtdPlanejada = planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
+        planejadoMes += qtdPlanejada * semanasDoMes.length * horasSemanais
+        for (const s of semanasDoMes) {
+          const v = realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`)
+          if (v !== undefined) {
+            realMes += v * horasSemanais
+            semanasComReal++
+          }
+        }
+      }
+      acumPlanejado += planejadoMes
+      if (semanasComReal > 0) {
+        acumReal += realMes
+        temReal = true
+      }
+      return { mes: m.label, Planejado: Math.round(acumPlanejado), Real: temReal ? Math.round(acumReal) : null }
+    })
+  }, [cargosMO, meses, semanas, planejadoEdits, planejadoMap, realEdits, realMap, horasSemanais])
+
+  const horasPlanejadasTotais = curvaHoras.at(-1)?.Planejado ?? 0
+  const horasReaisTotais = curvaHoras.at(-1)?.Real ?? 0
+  const aderenciaHoras = horasPlanejadasTotais > 0 && curvaHoras.some((p) => p.Real !== null)
+    ? (horasReaisTotais / horasPlanejadasTotais) * 100
+    : null
+
   const cargoOptions = useMemo(
     () => [
       { value: '__total__', label: 'Total (todos os cargos)' },
@@ -444,6 +574,17 @@ export default function HistogramaMO() {
           {podeEditarPlano && (
             <Button variant="outline" onClick={() => setModalBaselineAberto(true)}>
               <CalendarClock className="h-4 w-4" /> Nova revisão
+            </Button>
+          )}
+          {podeEditarPlano && baselineAtiva && (
+            <Button
+              variant="outline"
+              className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/30"
+              onClick={handleZerarValores}
+              disabled={zerarValoresMut.isPending}
+              title="Apaga os valores de Planejado (baseline ativa) e Real (todas as semanas) — cargos e baselines continuam cadastrados"
+            >
+              {zerarValoresMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eraser className="h-4 w-4" />} Zerar valores
             </Button>
           )}
         </div>
@@ -482,10 +623,11 @@ export default function HistogramaMO() {
         </Card>
       )}
 
-      <Tabs value={aba} onValueChange={(v) => setAba(v as 'semanal' | 'mensal')}>
+      <Tabs value={aba} onValueChange={(v) => setAba(v as 'semanal' | 'mensal' | 'horas')}>
         <TabsList>
           <TabsTrigger value="semanal">Lançamento semanal</TabsTrigger>
           <TabsTrigger value="mensal"><Table2 className="h-4 w-4" /> Visão mensal</TabsTrigger>
+          <TabsTrigger value="horas"><LineChartIcon className="h-4 w-4" /> Curva de Horas</TabsTrigger>
         </TabsList>
 
         <TabsContent value="semanal" className="space-y-4">
@@ -571,87 +713,152 @@ export default function HistogramaMO() {
             </p>
           )}
 
+          {/* Painel Cargo/Total fica FORA do scroll horizontal (div própria, sem
+              overflow) — só o painel das semanas rola. Antes, com as duas colunas
+              "sticky" dentro do mesmo scroll da tabela, a barra de rolagem do
+              navegador cobria a largura inteira (Cargo+Total+semanas), mesmo essas
+              duas colunas não saindo do lugar visualmente — dava a impressão da
+              barra "invadindo" a área do cargo. As alturas de linha são fixas
+              (HEADER_ROW_H/DATA_ROW_H) pra alinhar as linhas entre os dois painéis. */}
           {semanas.length > 0 && cargosPorCategoria.map((grupo) => (
               <Card key={grupo.chave} className="overflow-hidden">
                 <div className="px-4 py-2 bg-muted/50 font-semibold text-sm">{CATEGORIA_GRUPO_LABEL[grupo.chave]}</div>
-                <CardContent className="p-0 overflow-x-auto">
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b">
-                        <th className="text-left px-3 py-2 sticky left-0 bg-card min-w-[140px]">Cargo</th>
-                        {semanas.map((s) => (
-                          <th key={s.iso} className="px-2 py-2 text-center min-w-[64px] font-medium text-muted-foreground">
-                            {s.label}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {grupo.cargos.map((cargo) => {
-                        const linhasMes = mensalPorCargo.get(cargo.id) ?? []
-                        return (
-                          <Fragment key={cargo.id}>
-                            <tr className="border-b border-border/50">
-                              <td className="px-3 py-1.5 sticky left-0 bg-card">
-                                <span className="font-medium">{cargo.nome}</span>
-                                <span className="block text-[10px] text-blue-600 dark:text-blue-400">Planejado (mês)</span>
-                              </td>
-                              {semanas.map((s) => {
-                                const mes = `${s.monthKey}-01`
-                                const key = `${cargo.id}__${s.monthKey}`
-                                const linha = linhasMes.find((l) => l.monthKey === s.monthKey)
-                                const valor = planejadoEdits[key] ?? linha?.planejado ?? 0
-                                return (
-                                  <td key={s.iso} className="px-1 py-1">
-                                    <input
-                                      type="number"
-                                      inputMode="decimal"
-                                      value={valor}
-                                      disabled={!podeEditarPlano || !baselineAtiva}
-                                      title="Valor mensal — editar aqui atualiza todas as semanas do mês"
-                                      onChange={(e) => handlePlanejadoChange(cargo.id, mes, e.target.value)}
-                                      className="w-14 rounded border border-input bg-background text-center text-blue-600 dark:text-blue-400 disabled:opacity-50"
-                                    />
+                <CardContent className="p-0">
+                  <div className="flex">
+                    <div className="shrink-0 border-r border-border">
+                      <table className="text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b" style={{ height: HEADER_ROW_H * 2 + HEADER_WEEK_ROW_H }}>
+                            <th className="text-left px-3 py-2 w-36 align-bottom">Cargo</th>
+                            <th
+                              className="text-center px-2 py-2 w-16 align-bottom"
+                              title="Soma de todo o período — Planejado soma cada mês, Real soma cada semana lançada"
+                            >
+                              Total
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.cargos.map((cargo) => {
+                            const total = totaisPorCargo.get(cargo.id) ?? { planejado: 0, real: 0 }
+                            return (
+                              <Fragment key={cargo.id}>
+                                <tr className="border-b border-border/50 bg-muted/40" style={{ height: DATA_ROW_H }}>
+                                  <td className="px-3 py-1.5 w-36 truncate" title={cargo.nome}>
+                                    <span className="font-medium">{cargo.nome}</span>
+                                    <span className="block text-[10px] text-blue-600 dark:text-blue-400">Planejado (mês)</span>
                                   </td>
-                                )
-                              })}
-                            </tr>
-                            <tr className="border-b">
-                              <td className="px-3 py-1.5 sticky left-0 bg-card text-muted-foreground text-[11px]">Real (semana)</td>
-                              {semanas.map((s) => {
-                                const key = `${cargo.id}__${s.iso}`
-                                const valor = realEdits[key] ?? realMap.get(key) ?? ''
-                                const referencia = tipoAtivo === 'MO' && s.iso === semanaAtualIso ? cadastroPorCargo?.get(normalizarNomeCargo(cargo.nome)) : undefined
-                                return (
-                                  <td key={s.iso} className="px-1 py-1">
-                                    <input
-                                      type="number"
-                                      inputMode="decimal"
-                                      value={valor}
-                                      disabled={!podeEditarReal}
-                                      onChange={(e) => handleRealChange(cargo.id, s.iso, e.target.value)}
-                                      className="w-14 rounded border border-input bg-background text-center text-red-600 dark:text-red-400 disabled:opacity-50"
-                                    />
-                                    {referencia !== undefined && (
-                                      <button
-                                        type="button"
-                                        disabled={!podeEditarReal}
-                                        title="Vem do Cadastro de Funcionários (Administração) — clique pra usar esse valor"
-                                        onClick={() => handleRealChange(cargo.id, s.iso, String(referencia))}
-                                        className="mt-0.5 block w-full text-center text-[10px] text-muted-foreground hover:text-primary underline decoration-dotted disabled:pointer-events-none"
-                                      >
-                                        Cadastro: {referencia}
-                                      </button>
-                                    )}
+                                  <td className="px-2 py-1.5 text-center font-semibold text-blue-600 dark:text-blue-400" title="Total planejado no período (soma dos meses)">
+                                    {total.planejado}
                                   </td>
-                                )
-                              })}
-                            </tr>
-                          </Fragment>
-                        )
-                      })}
-                    </tbody>
-                  </table>
+                                </tr>
+                                <tr className="border-b" style={{ height: DATA_ROW_H }}>
+                                  <td className="px-3 py-1.5 w-36 text-muted-foreground text-[11px] truncate" title={cargo.nome}>Real (semana)</td>
+                                  <td className="px-2 py-1.5 text-center font-semibold text-red-600 dark:text-red-400" title="Total real apontado no período (soma das semanas)">
+                                    {total.real}
+                                  </td>
+                                </tr>
+                              </Fragment>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="overflow-x-auto flex-1">
+                      <table className="text-xs border-collapse">
+                        <thead>
+                          <tr className="border-b border-border/50" style={{ height: HEADER_ROW_H }}>
+                            {anosHeader.map((a) => (
+                              <th key={a.chave} colSpan={a.colSpan} className="px-2 text-center font-semibold text-muted-foreground border-l border-border/50">
+                                {a.label}
+                              </th>
+                            ))}
+                          </tr>
+                          <tr className="border-b border-border/50" style={{ height: HEADER_ROW_H }}>
+                            {mesesHeader.map((m) => (
+                              <th key={m.chave} colSpan={m.colSpan} className="px-2 text-center font-medium text-muted-foreground capitalize border-l border-border/50">
+                                {m.label}
+                              </th>
+                            ))}
+                          </tr>
+                          <tr className="border-b" style={{ height: HEADER_WEEK_ROW_H }}>
+                            {semanas.map((s) => (
+                              <th key={s.iso} className="px-2 text-center min-w-[64px] font-medium text-muted-foreground" title={`Semana ISO ${s.isoYear}-${String(s.isoWeek).padStart(2, '0')} — mesmo cálculo da Curva S`}>
+                                <div className="text-[9px] font-normal text-muted-foreground/70">{s.isoYear}-{String(s.isoWeek).padStart(2, '0')}</div>
+                                <div>{s.label}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {grupo.cargos.map((cargo) => {
+                            const linhasMes = mensalPorCargo.get(cargo.id) ?? []
+                            return (
+                              <Fragment key={cargo.id}>
+                                <tr className="border-b border-border/50 bg-muted/40" style={{ height: DATA_ROW_H }}>
+                                  {semanas.map((s) => {
+                                    const mes = `${s.monthKey}-01`
+                                    const key = `${cargo.id}__${s.monthKey}`
+                                    const linha = linhasMes.find((l) => l.monthKey === s.monthKey)
+                                    const valor = planejadoEdits[key] ?? linha?.planejado ?? 0
+                                    return (
+                                      <td key={s.iso} className="px-1 py-1">
+                                        <input
+                                          type="number"
+                                          inputMode="decimal"
+                                          value={valor}
+                                          disabled={!podeEditarPlano || !baselineAtiva}
+                                          title="Valor mensal — editar aqui atualiza todas as semanas do mês"
+                                          onChange={(e) => handlePlanejadoChange(cargo.id, mes, e.target.value)}
+                                          className="w-14 rounded border border-input bg-background text-center text-blue-600 dark:text-blue-400 disabled:opacity-50"
+                                        />
+                                      </td>
+                                    )
+                                  })}
+                                </tr>
+                                <tr className="border-b" style={{ height: DATA_ROW_H }}>
+                                  {semanas.map((s) => {
+                                    const key = `${cargo.id}__${s.iso}`
+                                    const valor = realEdits[key] ?? realMap.get(key) ?? ''
+                                    const referencia = tipoAtivo === 'MO' && s.iso === semanaAtualIso ? cadastroPorCargo?.get(normalizarNomeCargo(cargo.nome)) : undefined
+                                    return (
+                                      <td key={s.iso} className="px-1 py-1">
+                                        <input
+                                          type="number"
+                                          inputMode="decimal"
+                                          value={valor}
+                                          disabled={!podeEditarReal}
+                                          onChange={(e) => handleRealChange(cargo.id, s.iso, e.target.value)}
+                                          className="w-14 rounded border border-input bg-background text-center text-red-600 dark:text-red-400 disabled:opacity-50"
+                                        />
+                                        {/* Espaço sempre reservado (mesmo sem sugestão) pra linha não mudar de
+                                            altura conforme a semana/cargo — o painel Cargo/Total, numa tabela
+                                            separada, não teria como "crescer junto" se essa altura variasse. */}
+                                        <div className="h-3.5">
+                                          {referencia !== undefined && (
+                                            <button
+                                              type="button"
+                                              disabled={!podeEditarReal}
+                                              title="Vem do Cadastro de Funcionários (Administração) — clique pra usar esse valor"
+                                              onClick={() => handleRealChange(cargo.id, s.iso, String(referencia))}
+                                              className="block w-full text-center text-[10px] text-muted-foreground hover:text-primary underline decoration-dotted disabled:pointer-events-none"
+                                            >
+                                              Cadastro: {referencia}
+                                            </button>
+                                          )}
+                                        </div>
+                                      </td>
+                                    )
+                                  })}
+                                </tr>
+                              </Fragment>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
           ))}
@@ -727,6 +934,60 @@ export default function HistogramaMO() {
               </CardContent>
             </Card>
           )}
+        </TabsContent>
+
+        <TabsContent value="horas" className="space-y-4">
+          <p className="text-xs text-muted-foreground">
+            Curva S de horas-homem do projeto inteiro (só Pessoas — equipamento não entra aqui) — converte o efetivo já
+            lançado em Planejado/Real (Qtd de pessoas por semana) em horas, usando a jornada semanal abaixo, e acumula
+            mês a mês. É a mesma acumulação que forma o "S": poucas horas no início/fim da obra, pico no meio.
+          </p>
+
+          <div className="flex flex-wrap items-end gap-4">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Jornada semanal por pessoa (horas)</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={1}
+                value={horasSemanais}
+                onChange={(e) => setHorasSemanais(Number(e.target.value) || 0)}
+                className="w-32"
+              />
+            </div>
+            <div className="flex gap-4 text-sm">
+              <div>
+                <p className="text-xs text-muted-foreground">Horas planejadas (total)</p>
+                <p className="text-lg font-bold text-blue-600 dark:text-blue-400">{horasPlanejadasTotais.toLocaleString('pt-BR')}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Horas reais (até agora)</p>
+                <p className="text-lg font-bold text-red-600 dark:text-red-400">{horasReaisTotais.toLocaleString('pt-BR')}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground">Aderência</p>
+                <p className={`text-lg font-bold ${aderenciaHoras !== null ? corAderencia(aderenciaHoras) : 'text-muted-foreground'}`}>
+                  {aderenciaHoras !== null ? `${aderenciaHoras.toFixed(0)}%` : '—'}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <Card>
+            <CardContent className="pt-4">
+              <ResponsiveContainer width="100%" height={360}>
+                <LineChart data={curvaHoras} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                  <YAxis allowDecimals={false} />
+                  <Tooltip />
+                  <Legend />
+                  <Line type="monotone" dataKey="Planejado" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
+                  <Line type="monotone" dataKey="Real" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

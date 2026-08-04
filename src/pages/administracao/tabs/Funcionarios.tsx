@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { Combobox } from "@/components/ui/combobox";
+import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth-context";
@@ -40,9 +40,10 @@ type Filtros = {
   local: Local | null;
   grupoId: string | null;
   setorId: string | null;
+  cargoIds: string[];
 };
 
-const FILTROS_INICIAIS: Filtros = { busca: "", status: "todos", statusBdr: null, statusFs: null, local: null, grupoId: null, setorId: null };
+const FILTROS_INICIAIS: Filtros = { busca: "", status: "todos", statusBdr: null, statusFs: null, local: null, grupoId: null, setorId: null, cargoIds: [] };
 
 export default function Funcionarios() {
   const qc = useQueryClient();
@@ -79,6 +80,7 @@ export default function Funcionarios() {
       if (filtros.local && f.local !== filtros.local) return false;
       if (filtros.grupoId && f.grupo_id !== filtros.grupoId) return false;
       if (filtros.setorId && f.setor_id !== filtros.setorId) return false;
+      if (filtros.cargoIds.length > 0 && (!f.cargo_id || !filtros.cargoIds.includes(f.cargo_id))) return false;
       return true;
     });
   }, [funcionarios, filtros]);
@@ -196,6 +198,10 @@ export default function Funcionarios() {
           </div>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
             <div className="space-y-1.5">
+              <Label>Função</Label>
+              <MultiCombobox options={cargos.map((c) => ({ value: c.id, label: c.nome }))} value={filtros.cargoIds} onChange={(v) => setF("cargoIds", v)} placeholder="Todas" />
+            </div>
+            <div className="space-y-1.5">
               <Label>Local</Label>
               <Combobox
                 options={(Object.keys(LOCAL_LABEL) as Local[]).map((l) => ({ value: l, label: LOCAL_LABEL[l] }))}
@@ -242,7 +248,7 @@ export default function Funcionarios() {
                 <TableRow>
                   <TableHead className="text-center">Mat.</TableHead>
                   <TableHead className="w-[48px] text-center">Foto</TableHead>
-                  <TableHead className="text-center">Nome</TableHead>
+                  <TableHead>Nome</TableHead>
                   <TableHead>Cargo</TableHead>
                   <TableHead>Setor</TableHead>
                   <TableHead>Local</TableHead>
@@ -273,7 +279,7 @@ export default function Funcionarios() {
                         </a>
                       ) : null}
                     </TableCell>
-                    <TableCell className="font-medium text-center">{f.nome}</TableCell>
+                    <TableCell className="font-medium">{f.nome}</TableCell>
                     <TableCell>{cargoNome ?? "—"}</TableCell>
                     <TableCell>{f.setor_id ? setorNomePorId.get(f.setor_id) ?? "—" : "—"}</TableCell>
                     <TableCell>{f.local ? LOCAL_LABEL[f.local] : "—"}</TableCell>

@@ -763,3 +763,59 @@ export async function seedCargosReferenciaPadrao(organizacaoId: string): Promise
   const { error } = await supabase.rpc("seed_cargos_referencia_padrao", { p_organizacao_id: organizacaoId });
   if (error) throw new Error(error.message);
 }
+
+// ============================================================
+// Cadastro de Tipos de Documento (ASO, NRs, Integração, Gota espessa etc.)
+// ============================================================
+
+export type TipoDocumentoInput = {
+  id?: string;
+  nome: string;
+  validadeDias: number;
+};
+
+// key só é gravada na criação (constraint UNIQUE organizacao_id+key, ver
+// seed_tipos_documento_padrao) — nunca reaproveitada na edição, então renomear um
+// tipo depois não quebra nada: documentos já emitidos referenciam tipo_documento_id,
+// não a key.
+function slugKeyTipoDocumento(nome: string): string {
+  return nome
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_")
+    .replace(/[^a-z0-9_]/g, "");
+}
+
+export async function salvarTipoDocumento(params: { organizacaoId: string; input: TipoDocumentoInput }): Promise<void> {
+  const { organizacaoId, input } = params;
+  if (input.id) {
+    const { error } = await supabase
+      .from("tipos_documento")
+      .update({ nome: input.nome, validade_dias: input.validadeDias })
+      .eq("id", input.id);
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase.from("tipos_documento").insert({
+      organizacao_id: organizacaoId,
+      key: slugKeyTipoDocumento(input.nome),
+      nome: input.nome,
+      validade_dias: input.validadeDias,
+    });
+    if (error) throw new Error(error.code === "23505" ? "Já existe um tipo de documento com esse nome." : error.message);
+  }
+}
+
+export async function alternarAtivoTipoDocumento(id: string, ativo: boolean): Promise<void> {
+  const { error } = await supabase.from("tipos_documento").update({ ativo }).eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+// Popula os 9 tipos padrão (ASO, NR 01/06/12/18/20/35, Malária/gota espessa,
+// Integração FS) — idempotente (ON CONFLICT DO NOTHING na key), seguro chamar de
+// novo mesmo que a empresa já tenha alguns tipos cadastrados/editados.
+export async function seedTiposDocumentoPadrao(organizacaoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_tipos_documento_padrao", { p_organizacao_id: organizacaoId });
+  if (error) throw new Error(error.message);
+}

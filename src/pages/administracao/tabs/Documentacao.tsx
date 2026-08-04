@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AlertTriangle, FileCheck2, Search } from "lucide-react";
+import { AlertTriangle, FileCheck2, Search, Settings2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -10,6 +10,7 @@ import type { FuncionarioRow } from "@/lib/administracao/db";
 import { useAlertasDocumentos } from "@/lib/administracao/catalog";
 import { VencimentoPill } from "../status-pills";
 import DocumentosFuncionarioModal from "./DocumentosFuncionarioModal";
+import CadastroTiposDocumento from "./CadastroTiposDocumento";
 
 export default function Documentacao() {
   const { user, userProfile } = useAuth();
@@ -21,6 +22,7 @@ export default function Documentacao() {
 
   const [busca, setBusca] = useState("");
   const [verDocumentos, setVerDocumentos] = useState<FuncionarioRow | null>(null);
+  const [gerenciarTipos, setGerenciarTipos] = useState(false);
 
   const cargoNomePorId = useMemo(() => new Map(cargos.map((c) => [c.id, c.nome])), [cargos]);
 
@@ -70,9 +72,14 @@ export default function Documentacao() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center gap-2">
-            <FileCheck2 size={16} /> Documentação por funcionário
-          </CardTitle>
+          <div className="flex items-center justify-between gap-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileCheck2 size={16} /> Documentação por funcionário
+            </CardTitle>
+            <Button size="sm" variant="outline" onClick={() => setGerenciarTipos(true)}>
+              <Settings2 size={14} /> Tipos de documento
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative max-w-sm">
@@ -127,6 +134,10 @@ export default function Documentacao() {
           funcionario={verDocumentos}
           onClose={() => setVerDocumentos(null)}
         />
+      )}
+
+      {gerenciarTipos && organizacaoId && (
+        <CadastroTiposDocumento organizacaoId={organizacaoId} onClose={() => setGerenciarTipos(false)} />
       )}
     </div>
   );
