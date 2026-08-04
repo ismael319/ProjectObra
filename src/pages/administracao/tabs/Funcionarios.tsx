@@ -16,7 +16,6 @@ import {
   useUltimaImportacaoEfetivo,
 } from "@/lib/administracao/catalog";
 import { reativarFuncionario, type FuncionarioRow, type Local, type StatusBdr, type StatusFs } from "@/lib/administracao/db";
-import { nivelDoCargo } from "@/lib/administracao/cargo-nivel";
 import { buildFuncionariosWorkbook, downloadFuncionariosWorkbook } from "@/lib/administracao/excel-export";
 import { StatusBdrPill, StatusFsPill } from "../status-pills";
 import FuncionarioFormModal from "./FuncionarioFormModal";
@@ -241,11 +240,10 @@ export default function Funcionarios() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Mat.</TableHead>
-                  <TableHead className="w-[48px]">Foto</TableHead>
-                  <TableHead>Nome</TableHead>
+                  <TableHead className="text-center">Mat.</TableHead>
+                  <TableHead className="w-[48px] text-center">Foto</TableHead>
+                  <TableHead className="text-center">Nome</TableHead>
                   <TableHead>Cargo</TableHead>
-                  <TableHead>Nível</TableHead>
                   <TableHead>Setor</TableHead>
                   <TableHead>Local</TableHead>
                   <TableHead>Status BDR</TableHead>
@@ -255,14 +253,14 @@ export default function Funcionarios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {isLoading && <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
-                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
+                {isLoading && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>}
+                {!isLoading && pagina.length === 0 && <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum funcionário encontrado</TableCell></TableRow>}
                 {pagina.map((f) => {
                   const cargoNome = f.cargo_id ? cargoNomePorId.get(f.cargo_id) : undefined;
                   return (
                   <TableRow key={f.id} className={!f.ativo ? "opacity-60" : ""}>
-                    <TableCell className="font-mono text-xs">{f.matricula}</TableCell>
-                    <TableCell>
+                    <TableCell className="font-mono text-xs text-center">{f.matricula}</TableCell>
+                    <TableCell className="text-center">
                       {f.foto_url ? (
                         <a
                           href={f.foto_url}
@@ -275,9 +273,8 @@ export default function Funcionarios() {
                         </a>
                       ) : null}
                     </TableCell>
-                    <TableCell className="font-medium">{f.nome}</TableCell>
+                    <TableCell className="font-medium text-center">{f.nome}</TableCell>
                     <TableCell>{cargoNome ?? "—"}</TableCell>
-                    <TableCell className="text-muted-foreground">{cargoNome ? nivelDoCargo(cargoNome) ?? "—" : "—"}</TableCell>
                     <TableCell>{f.setor_id ? setorNomePorId.get(f.setor_id) ?? "—" : "—"}</TableCell>
                     <TableCell>{f.local ? LOCAL_LABEL[f.local] : "—"}</TableCell>
                     <TableCell><StatusBdrPill status={f.status_bdr} /></TableCell>

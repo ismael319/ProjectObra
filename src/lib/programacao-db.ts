@@ -161,11 +161,16 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    // Provém de um cronograma de verdade (tem task_uid) ou é avulsa? Decide o
-    // significado da coluna `area` (WBS area/subárea vs. texto livre digitado à
-    // mão) e se source_cronograma é repassado — independente de is_extra, que hoje
-    // é só o status "não estava planejada pro dia" (ver addActivitiesBulk).
-    area: a.task_uid ? null : a.area,
+    // Provém de um cronograma de verdade ou é avulsa? Decide o significado da
+    // coluna `area` (WBS area/subárea vs. texto livre digitado à mão). Usa
+    // source_cronograma (não task_uid) como discriminador: task_uid só existe
+    // pra atividades importadas DEPOIS que esse campo foi criado — importações
+    // antigas têm source_cronograma preenchido mas task_uid null, e usar
+    // task_uid aqui zerava a área/subárea delas (ex.: "Edificações
+    // complementares" sumia da mensagem de WhatsApp). Independente de
+    // is_extra, que hoje é só o status "não estava planejada pro dia" (ver
+    // addActivitiesBulk).
+    area: a.source_cronograma ? null : a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -173,8 +178,8 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.task_uid ? (a.source_cronograma ?? undefined) : undefined,
-    areaPath: a.task_uid ? a.area : null,
+    source: a.source_cronograma ?? undefined,
+    areaPath: a.source_cronograma ? a.area : null,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
@@ -217,11 +222,16 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     name: a.name,
     company: a.company,
     discipline: a.discipline,
-    // Provém de um cronograma de verdade (tem task_uid) ou é avulsa? Decide o
-    // significado da coluna `area` (WBS area/subárea vs. texto livre digitado à
-    // mão) e se source_cronograma é repassado — independente de is_extra, que hoje
-    // é só o status "não estava planejada pro dia" (ver addActivitiesBulk).
-    area: a.task_uid ? null : a.area,
+    // Provém de um cronograma de verdade ou é avulsa? Decide o significado da
+    // coluna `area` (WBS area/subárea vs. texto livre digitado à mão). Usa
+    // source_cronograma (não task_uid) como discriminador: task_uid só existe
+    // pra atividades importadas DEPOIS que esse campo foi criado — importações
+    // antigas têm source_cronograma preenchido mas task_uid null, e usar
+    // task_uid aqui zerava a área/subárea delas (ex.: "Edificações
+    // complementares" sumia da mensagem de WhatsApp). Independente de
+    // is_extra, que hoje é só o status "não estava planejada pro dia" (ver
+    // addActivitiesBulk).
+    area: a.source_cronograma ? null : a.area,
     stage: a.stage,
     foreman: a.foreman,
     planned_date: a.planned_date,
@@ -229,8 +239,8 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
     status: a.status,
     is_extra: a.is_extra,
     observation: a.observation,
-    source: a.task_uid ? (a.source_cronograma ?? undefined) : undefined,
-    areaPath: a.task_uid ? a.area : null,
+    source: a.source_cronograma ?? undefined,
+    areaPath: a.source_cronograma ? a.area : null,
     taskUid: a.task_uid,
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
@@ -426,13 +436,16 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
 
   const rows = payloads.map((payload) => {
     const isExtra = payload.isExtra ?? true
-    // Provém de um cronograma de verdade (tem taskUid) ou é uma atividade avulsa
-    // (digitada à mão, sem vínculo)? Essa distinção decide o que fazer com
+    // Provém de um cronograma de verdade ou é uma atividade avulsa (digitada à
+    // mão, sem vínculo)? Essa distinção decide o que fazer com
     // source_cronograma/area/task_uid — é independente de is_extra: uma atividade
     // vinda do cronograma continua tendo o cronograma de origem mesmo quando
     // marcada como extra (não estava planejada pro dia, mas é uma tarefa real),
     // senão ela perde o agrupamento por cronograma e cai no grupo genérico à toa.
-    const isReal = payload.taskUid != null
+    // sourceCronograma (não taskUid) decide isso — mesmo motivo do lado da
+    // leitura em getWeek/getActivitiesInDateRange: taskUid é opcional mesmo em
+    // atividades reais (pode faltar em fluxos antigos), sourceCronograma não.
+    const isReal = !!payload.sourceCronograma
     return {
       week_id: payload.weekId,
       name: payload.name,

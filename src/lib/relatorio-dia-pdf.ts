@@ -98,9 +98,14 @@ export async function downloadRelatorioDiaPdf(params: {
       1: { cellWidth: "auto" },
     },
     // Sem texto na célula de status — a cor vira um "chip" arredondado desenhado à
-    // mão em didDrawCell, mais visual que o preenchimento quadrado padrão.
+    // mão em didDrawCell, mais visual que o preenchimento quadrado padrão. Só quando
+    // raw é string (status "concluida"/"pendente"/etc.) — a linha de cabeçalho da
+    // área também cai na coluna 0 (por causa do colSpan), mas o raw dela é o objeto
+    // {content, colSpan, styles}, não string; sem essa checagem, o nome da área
+    // também era limpo e a linha ficava em branco.
     didParseCell: (data) => {
       if (data.section !== "body" || data.column.index !== 0) return;
+      if (typeof data.cell.raw !== "string") return;
       data.cell.text = [];
     },
     didDrawCell: (data) => {

@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import {
   ChevronRight, ChevronDown, Plus, Pencil, Trash2, Building2, Map as MapIcon, MapPin, Wrench,
   Clock, GitMerge, Save, FolderOpen, X, Loader2, IndentIncrease, IndentDecrease, MoveUp, MoveDown, Layers,
+  ChevronsDownUp, ChevronsUpDown,
 } from "lucide-react";
 
 type Nivel = "setor" | "area" | "subarea" | "atividade";
@@ -91,6 +92,16 @@ export default function EapPage() {
   const qc = useQueryClient();
   const { currentProject } = useProjects();
   const [search, setSearch] = useState("");
+  // Cada EapNode guarda seu próprio "aberto/fechado" (useState local, não é um Set
+  // compartilhado) — pra expandir/recolher tudo de uma vez, força a árvore inteira a
+  // remontar (treeVersion no key) já nascendo com o novo defaultOpen, em vez de
+  // tentar sincronizar centenas de estados locais individualmente.
+  const [treeExpanded, setTreeExpanded] = useState(true);
+  const [treeVersion, setTreeVersion] = useState(0);
+  function handleToggleExpandAll() {
+    setTreeExpanded((v) => !v);
+    setTreeVersion((v) => v + 1);
+  }
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<{ id: string; nome: string; codigo: string | null; ativo: boolean; nivel: Nivel; parentId?: string } | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -1024,6 +1035,10 @@ export default function EapPage() {
         <CardHeader>
           <div className="flex items-center gap-3">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar na árvore..." className="max-w-sm" />
+            <Button variant="outline" size="sm" onClick={handleToggleExpandAll} className="ml-auto">
+              {treeExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}
+              {treeExpanded ? "Recolher tudo" : "Expandir tudo"}
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-1">
@@ -1032,7 +1047,7 @@ export default function EapPage() {
           )}
           {filteredTree.map((setor) => (
             <EapNode
-              key={setor.id} node={setor} depth={0}
+              key={`${setor.id}-${treeVersion}`} node={setor} depth={0}
               onEdit={openEdit} onAdd={openNew} onDelete={handleDelete} onToggle={toggleMut.mutate}
               onIndent={handleIndent} onOutdent={handleOutdent}
               onMoveUp={(n) => moveMut.mutate({ node: n, direction: "up" })}
@@ -1041,6 +1056,7 @@ export default function EapPage() {
               mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={toggleMergeSelect}
               deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={toggleDeleteSelect}
               bulkMoveMode={bulkMoveMode} bulkMoveSelected={bulkMoveSelected} onBulkMoveToggle={toggleBulkMoveSelect}
+              defaultOpen={treeExpanded}
             />
           ))}
         </CardContent>
@@ -1308,6 +1324,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
                 mergeMode={mergeMode} mergeNivel={mergeNivel} mergeSelected={mergeSelected} onMergeToggle={onMergeToggle}
                 deleteMode={deleteMode} deleteSelected={deleteSelected} onDeleteToggle={onDeleteToggle}
                 bulkMoveMode={bulkMoveMode} bulkMoveSelected={bulkMoveSelected} onBulkMoveToggle={onBulkMoveToggle}
+                defaultOpen={defaultOpen}
               />
             ))}
             {node.mescladoDe.map((m) => (
