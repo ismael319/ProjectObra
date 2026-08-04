@@ -1,6 +1,7 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
@@ -14,6 +15,7 @@ import SiengeAnnotationPopover from './SiengeAnnotationPopover'
 interface Props {
   colunas: ColunaConfig[]
   colunasDetalhe: ColunaConfig[]
+  colunasVisiveis: Record<string, boolean>
   itens: ItemComClassificacao[]
   onSalvarAnotacao: (chave: string, anotacao: Pick<Anotacao, 'status' | 'nota' | 'lembreteData' | 'sinalizado'>) => Promise<void>
 }
@@ -22,6 +24,8 @@ interface Ordenacao {
   coluna: ColunaConfig['key']
   asc: boolean
 }
+
+const TAMANHO_PAGINA = 50
 
 function valorExibicao(item: ItemComClassificacao, col: ColunaConfig): ReactNode {
   if (col.key === 'dias') {
@@ -94,9 +98,13 @@ function ConteudoTooltip({ item, colunasDetalhe }: { item: ItemComClassificacao;
   )
 }
 
-export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSalvarAnotacao }: Props) {
+export default function SiengeItemsTable({ colunas, colunasDetalhe, colunasVisiveis, itens, onSalvarAnotacao }: Props) {
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set())
   const [ordenacao, setOrdenacao] = useState<Ordenacao>({ coluna: 'dias', asc: false })
+  const [pagina, setPagina] = useState(0)
+
+  const colunasRender = colunas.filter((c) => colunasVisiveis[c.key] !== false)
+  const colunasDetalheRender = colunasDetalhe.filter((c) => colunasVisiveis[c.key] !== false)
 
   function toggleExpandido(chave: string) {
     setExpandidos((prev) => {
@@ -109,6 +117,7 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
 
   function handleHeaderClick(col: ColunaConfig) {
     setOrdenacao((prev) => (prev.coluna === col.key ? { coluna: col.key, asc: !prev.asc } : { coluna: col.key, asc: false }))
+    setPagina(0)
   }
 
   // Ordena por urgência por padrão (dias decrescente) — quem precisa de decisão
@@ -125,6 +134,16 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
     })
   }, [itens, colunas, ordenacao])
 
+  const totalPaginas = Math.max(1, Math.ceil(itensOrdenados.length / TAMANHO_PAGINA))
+
+  // Mantém a página válida quando os resultados mudam (filtro, busca, aba).
+  useEffect(() => {
+    setPagina((p) => Math.min(p, totalPaginas - 1))
+  }, [totalPaginas])
+
+  const paginaAtual = Math.min(pagina, totalPaginas - 1)
+  const itensPagina = itensOrdenados.slice(paginaAtual * TAMANHO_PAGINA, (paginaAtual + 1) * TAMANHO_PAGINA)
+
   if (itens.length === 0) {
     return (
       <div className="text-center text-sm text-gray-500 dark:text-gray-400 py-12 border border-dashed border-gray-200 dark:border-gray-700 rounded-xl">
@@ -133,8 +152,8 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
     )
   }
 
-  const temDetalhe = colunasDetalhe.length > 0
-  const totalColunas = colunas.length + (temDetalhe ? 1 : 0) + 1
+  const temDetalhe = colunasDetalheRender.length > 0
+  const totalColunas = colunasRender.length + (temDetalhe ? 1 : 0) + 1
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -143,7 +162,7 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
           <TableHeader>
             <TableRow>
               {temDetalhe && <TableHead className="w-8" />}
-              {colunas.map((col) => (
+              {colunasRender.map((col) => (
                 <TableHead
                   key={col.key}
                   onClick={() => handleHeaderClick(col)}
@@ -160,7 +179,7 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
             </TableRow>
           </TableHeader>
           <TableBody>
-            {itensOrdenados.map((item) => {
+            {itensPagina.map((item) => {
               const aberto = expandidos.has(item.chave)
               return (
                 <Fragment key={item.chave}>
@@ -183,7 +202,7 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
                             </button>
                           </TableCell>
                         )}
-                        {colunas.map((col) => (
+                        {colunasRender.map((col) => (
                           <TableCell key={col.key}>{valorExibicao(item, col)}</TableCell>
                         ))}
                         <TableCell>
@@ -195,14 +214,14 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
                       </TableRow>
                     </TooltipTrigger>
                     <TooltipContent side="right">
-                      <ConteudoTooltip item={item} colunasDetalhe={colunasDetalhe} />
+                      <ConteudoTooltip item={item} colunasDetalhe={colunasDetalheRender} />
                     </TooltipContent>
                   </Tooltip>
                   {aberto && temDetalhe && (
                     <TableRow>
                       <TableCell colSpan={totalColunas} className="bg-muted/30">
                         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 py-2">
-                          {colunasDetalhe.map((col) => (
+                          {colunasDetalheRender.map((col) => (
                             <div key={col.key}>
                               <p className="text-xs text-gray-500 dark:text-gray-400">{col.label}</p>
                               <p className="text-sm text-gray-900 dark:text-white">{valorExibicao(item, col)}</p>
@@ -217,6 +236,31 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, itens, onSal
             })}
           </TableBody>
         </Table>
+
+        {totalPaginas > 1 && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-gray-100 dark:border-gray-700/80">
+            <p className="text-xs text-gray-500 dark:text-gray-400">
+              Mostrando <span className="font-medium text-gray-700 dark:text-gray-200">{itensPagina.length ? paginaAtual * TAMANHO_PAGINA + 1 : 0}–{paginaAtual * TAMANHO_PAGINA + itensPagina.length}</span> de{' '}
+              <span className="font-medium text-gray-700 dark:text-gray-200">{itensOrdenados.length}</span> itens
+            </p>
+            <div className="flex items-center gap-1">
+              <Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.max(0, p - 1))} disabled={paginaAtual === 0}>
+                <ChevronLeft size={14} /> Anterior
+              </Button>
+              <span className="text-xs text-gray-500 dark:text-gray-400 px-2">
+                {paginaAtual + 1} / {totalPaginas}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPagina((p) => Math.min(totalPaginas - 1, p + 1))}
+                disabled={paginaAtual >= totalPaginas - 1}
+              >
+                Próxima <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )

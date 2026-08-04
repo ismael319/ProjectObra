@@ -26,6 +26,50 @@ export function opcoesUnicas(itens: ItemComClassificacao[], key: ColunaConfig['k
   return [...set].sort((a, b) => a.localeCompare(b, 'pt-BR'))
 }
 
+export type FiltroRapido =
+  | 'sinalizado'
+  | 'lembrete'
+  | 'resolvido'
+  | 'critico'
+  | 'nao_autorizado'
+
+/** Busca global por texto em todos os campos livres relevantes do item. */
+export function aplicarBusca(itens: ItemComClassificacao[], busca: string): ItemComClassificacao[] {
+  const termo = busca.trim().toLowerCase()
+  if (!termo) return itens
+  return itens.filter((item) =>
+    [
+      item.insumo,
+      item.obra,
+      item.solicitante,
+      item.solicitacao,
+      item.fornecedor,
+      item.numeroPedido,
+      item.contrato,
+      item.objeto,
+      item.empresa,
+      item.obras,
+    ].some((v) => v.toLowerCase().includes(termo))
+  )
+}
+
+/** Filtros rápidos por anotação/classificação (sinalizados, lembretes, etc.). Todos os ativos precisam casar. */
+export function aplicarFiltrosRapidos(itens: ItemComClassificacao[], ativos: ReadonlySet<FiltroRapido>): ItemComClassificacao[] {
+  if (ativos.size === 0) return itens
+  const hojeISO = new Date().toISOString().slice(0, 10)
+  return itens.filter((item) => {
+    const a = item.anotacao
+    const condicao: Record<FiltroRapido, boolean> = {
+      sinalizado: a.sinalizado,
+      lembrete: Boolean(a.lembreteData && a.lembreteData <= hojeISO),
+      resolvido: a.status === 'resolvido',
+      critico: item.classificacao.classe === 'critical',
+      nao_autorizado: item.autorizado === false,
+    }
+    return [...ativos].every((k) => condicao[k])
+  })
+}
+
 export function aplicarFiltrosColuna(
   itens: ItemComClassificacao[],
   colunas: ColunaConfig[],
