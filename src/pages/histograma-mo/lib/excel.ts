@@ -1,6 +1,7 @@
 import type { WorkBook } from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import type { LinhaTabela, Problema } from '@/lib/administracao/parse-shared'
+import { funcaoBase } from '@/lib/administracao/cargo-nivel'
 import { type Cargo, type Categoria, normalizarNomeCargo } from './histograma-db'
 
 const TAMANHO_LOTE = 500
@@ -23,11 +24,33 @@ function formatarDataBR(iso: string): string {
   return `${d}/${m}/${y}`
 }
 
+// Toda data de cabeçalho que este módulo exporta é sempre uma sexta-feira (semana
+// Sex→Qui, mesma convenção da Curva S/Programação) — serve de âncora pra detectar
+// dia/mês trocados.
+function ehSexta(iso: string): boolean {
+  return new Date(`${iso}T00:00:00`).getDay() === 5
+}
+
+// Espera DD/MM/AAAA (formato em que buildHistogramaWorkbook grava o cabeçalho como
+// TEXTO). Mas se o arquivo for reaberto/editado no Excel, ele às vezes "ajuda"
+// convertendo esse texto pra uma data de verdade e, ao salvar/reexportar, formata
+// de volta usando o padrão do sistema do usuário — que pode ser MM/DD/AAAA (ordem
+// americana). Sem checagem, isso troca o dia pelo mês em silêncio e todo o
+// lançamento cai numa semana diferente da que estava na planilha original. Como
+// toda data de cabeçalho válida cai numa sexta, usa isso pra escolher a leitura
+// certa entre DD/MM e MM/DD quando as duas são datas possíveis.
 function parseDataBR(texto: string): string | null {
   const m = texto.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (!m) return null
-  const [, d, mo, y] = m
-  return `${y}-${mo!.padStart(2, '0')}-${d!.padStart(2, '0')}`
+  const [, a, b, y] = m
+  const comoDiaMes = `${y}-${b!.padStart(2, '0')}-${a!.padStart(2, '0')}`
+  if (ehSexta(comoDiaMes)) return comoDiaMes
+  const comoMesDia = `${y}-${a!.padStart(2, '0')}-${b!.padStart(2, '0')}`
+  if (ehSexta(comoMesDia)) return comoMesDia
+  // Nenhuma das duas leituras cai numa sexta — mantém a leitura padrão (DD/MM);
+  // se a planilha realmente tiver uma data fora do padrão, o problema já
+  // aparecia antes desta função existir, não é uma regressão.
+  return comoDiaMes
 }
 
 function parseNumero(texto: string): number | null {
@@ -41,7 +64,9 @@ function parseNumero(texto: string): number | null {
 // cargo vira duas linhas (Planejado/Real), igual ao "Lançamento semanal".
 // A reimportação lê as datas do próprio cabeçalho (não assume posição fixa
 // nem que bate com as semanas atuais do projeto), então funciona mesmo se
-// o intervalo de semanas tiver mudado desde a exportação.
+// o intervalo de semanas tiver mudado desde a exportação. Planejado é por
+// semana (igual Real) — cada coluna tem seu próprio valor, não um valor de mês
+// repetido nas semanas dele.
 export async function buildHistogramaWorkbook(
   cargos: Cargo[],
   semanas: { iso: string; monthKey: string }[],
@@ -55,7 +80,7 @@ export async function buildHistogramaWorkbook(
       cargo.nome,
       categoriaLabel(cargo.categoria),
       'Planejado',
-      ...semanas.map((s) => planejadoMap.get(`${cargo.id}__${s.monthKey}`) ?? 0),
+      ...semanas.map((s) => planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0),
     ])
     linhas.push([
       cargo.nome,
@@ -161,8 +186,14 @@ export async function importarHistograma(params: {
   tipo: Cargo['tipo']
   cargosExistentes: Cargo[]
   linhas: LinhaImportada[]
+  // Nome-base (normalizado) -> categoria, vindo do cadastro de Funções em
+  // Administração (rh_cargos) — usado só quando a planilha NÃO informa a
+  // categoria de um cargo novo: em vez de cair sempre em "Sem categoria", herda
+  // Direta/Indireta de uma função já cadastrada com o mesmo nome (ex.: "Servente
+  // de Obras" já existe em Administração com categoria definida).
+  categoriaPorFuncao?: Map<string, Categoria | null>
 }): Promise<ResumoImportacaoHistograma> {
-  const { projetoId, baselineAtivaId, tipo, cargosExistentes, linhas } = params
+  const { projetoId, baselineAtivaId, tipo, cargosExistentes, linhas, categoriaPorFuncao } = params
 
   const cargoPorNome = new Map(cargosExistentes.map((c) => [normalizarNomeCargo(c.nome), c]))
   const nomesNovos = new Map<string, { nome: string; categoria: Categoria | null }>()
@@ -174,21 +205,30 @@ export async function importarHistograma(params: {
   if (nomesNovos.size > 0) {
     const { data, error } = await supabase
       .from('histograma_cargos')
-      .insert([...nomesNovos.values()].map((c) => ({ projeto_id: projetoId, nome: c.nome, categoria: c.categoria, tipo })))
+      .insert([...nomesNovos.values()].map((c) => ({
+        projeto_id: projetoId,
+        nome: c.nome,
+        categoria: c.categoria ?? categoriaPorFuncao?.get(normalizarNomeCargo(funcaoBase(c.nome))) ?? null,
+        tipo,
+      })))
       .select('*')
     if (error) throw new Error(error.message)
     for (const c of data as Cargo[]) cargoPorNome.set(normalizarNomeCargo(c.nome), c)
   }
 
-  const planejadoPorChave = new Map<string, { baseline_id: string; cargo_id: string; mes: string; qtd_planejada: number }>()
+  const planejadoPorChave = new Map<string, { baseline_id: string; cargo_id: string; semana_ref: string; qtd_planejada: number }>()
   const reaisPorChave = new Map<string, { projeto_id: string; cargo_id: string; semana_ref: string; qtd_real: number }>()
 
   for (const linha of linhas) {
     const cargo = cargoPorNome.get(normalizarNomeCargo(linha.cargoNome))
     if (!cargo) continue
     if (linha.planejado !== null && baselineAtivaId) {
-      const mes = `${linha.semanaIso.slice(0, 7)}-01`
-      planejadoPorChave.set(`${cargo.id}__${mes}`, { baseline_id: baselineAtivaId, cargo_id: cargo.id, mes, qtd_planejada: linha.planejado })
+      planejadoPorChave.set(`${cargo.id}__${linha.semanaIso}`, {
+        baseline_id: baselineAtivaId,
+        cargo_id: cargo.id,
+        semana_ref: linha.semanaIso,
+        qtd_planejada: linha.planejado,
+      })
     }
     if (linha.real !== null) {
       reaisPorChave.set(`${cargo.id}__${linha.semanaIso}`, { projeto_id: projetoId, cargo_id: cargo.id, semana_ref: linha.semanaIso, qtd_real: linha.real })
@@ -198,7 +238,7 @@ export async function importarHistograma(params: {
   const planejadoRows = [...planejadoPorChave.values()]
   for (let i = 0; i < planejadoRows.length; i += TAMANHO_LOTE) {
     const lote = planejadoRows.slice(i, i + TAMANHO_LOTE)
-    const { error } = await supabase.from('histograma_planejado').upsert(lote, { onConflict: 'baseline_id,cargo_id,mes' })
+    const { error } = await supabase.from('histograma_planejado').upsert(lote, { onConflict: 'baseline_id,cargo_id,semana_ref' })
     if (error) throw new Error(error.message)
   }
 

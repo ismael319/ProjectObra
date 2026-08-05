@@ -16,7 +16,7 @@ import {
 import {
   Plus, CalendarClock, Table2, X, LineChart as LineChartIcon,
   Upload, Download, FileSpreadsheet, Loader2, AlertTriangle, CheckCircle2,
-  Users, Wrench, Eraser,
+  Users, Wrench, Eraser, Trash2, Merge,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useProjects } from '@/lib/project-store'
@@ -36,6 +36,7 @@ import {
   contarCadastroAtivoPorCargo,
   criarBaseline,
   criarCargo,
+  deleteBaseline,
   listBaselines,
   listCargos,
   listFuncoesAdministracao,
@@ -53,6 +54,7 @@ import {
   parseHistogramaLinhas,
   type ResultadoParseHistograma,
 } from './lib/excel'
+import MesclarCargosDialog from './MesclarCargosDialog'
 
 const CATEGORIA_OPCOES: { value: Categoria; label: string }[] = [
   { value: 'D', label: 'D — Direta (MOD)' },
@@ -183,6 +185,7 @@ export default function HistogramaMO() {
   const [novoCargo, setNovoCargo] = useState<{ nome: string; categoria: Categoria | null }>({ nome: '', categoria: null })
   const [funcaoBuscada, setFuncaoBuscada] = useState<string | null>(null)
   const [importAberto, setImportAberto] = useState(false)
+  const [showMesclarCargos, setShowMesclarCargos] = useState(false)
   const [importArquivoNome, setImportArquivoNome] = useState('')
   const [importResultado, setImportResultado] = useState<ResultadoParseHistograma | null>(null)
   const [importResumo, setImportResumo] = useState<{ cargosCriados: number; valoresPlanejadoGravados: number; valoresRealGravados: number } | null>(null)
@@ -239,6 +242,16 @@ export default function HistogramaMO() {
     enabled: !!organizacaoId && tipoAtivo === 'MO',
   })
 
+  // Nome-base normalizado -> categoria, do cadastro de Funções em Administração —
+  // usado na importação pra herdar Direta/Indireta de um cargo novo cuja planilha
+  // não informou categoria, em vez de sempre cair em "Sem categoria" (ver
+  // importarHistograma em lib/excel.ts).
+  const categoriaPorFuncaoAdministracao = useMemo(() => {
+    const map = new Map<string, Categoria | null>()
+    for (const f of funcoesAdministracao) map.set(normalizarNomeCargo(f.nome), f.categoria)
+    return map
+  }, [funcoesAdministracao])
+
   const { data: baselines = [] } = useQuery({
     queryKey: ['histograma-baselines', projetoId],
     queryFn: () => listBaselines(projetoId!),
@@ -271,7 +284,7 @@ export default function HistogramaMO() {
 
   const planejadoMap = useMemo(() => {
     const map = new Map<string, number>()
-    for (const p of planejado) map.set(`${p.cargo_id}__${p.mes.slice(0, 7)}`, p.qtd_planejada)
+    for (const p of planejado) map.set(`${p.cargo_id}__${p.semana_ref}`, p.qtd_planejada)
     return map
   }, [planejado])
 
@@ -296,13 +309,13 @@ export default function HistogramaMO() {
   })
 
   const upsertPlanejadoMut = useMutation({
-    mutationFn: ({ cargoId, mes, valor }: { cargoId: string; mes: string; valor: number }) =>
-      upsertPlanejado(baselineAtiva!.id, cargoId, mes, valor),
+    mutationFn: ({ cargoId, semanaIso, valor }: { cargoId: string; semanaIso: string; valor: number }) =>
+      upsertPlanejado(baselineAtiva!.id, cargoId, semanaIso, valor),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ['histograma-planejado', baselineAtiva?.id] })
       setPlanejadoEdits((prev) => {
         const next = { ...prev }
-        delete next[`${vars.cargoId}__${vars.mes.slice(0, 7)}`]
+        delete next[`${vars.cargoId}__${vars.semanaIso}`]
         return next
       })
     },
@@ -320,6 +333,31 @@ export default function HistogramaMO() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  const deleteBaselineMut = useMutation({
+    mutationFn: (id: string) => deleteBaseline(id),
+    onSuccess: (_data, id) => {
+      toast.success('Baseline excluída')
+      // Se a excluída era a que estava selecionada, limpa pra próxima leitura
+      // recair sozinha na ativa (ou na primeira) da lista já sem ela — ver
+      // baselineAtiva useMemo, que já trata baselineId apontando pra algo
+      // que não existe mais.
+      if (baselineId === id) setBaselineId(null)
+      qc.invalidateQueries({ queryKey: ['histograma-baselines', projetoId] })
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  function handleExcluirBaseline() {
+    if (!baselineAtiva) return
+    if (
+      !confirm(
+        `Excluir a baseline ${baselineAtiva.versao}? Todo o Planejado gravado nela se perde — os cargos e o Real apontado continuam intactos. Essa ação não pode ser desfeita.`,
+      )
+    )
+      return
+    deleteBaselineMut.mutate(baselineAtiva.id)
+  }
 
   const zerarValoresMut = useMutation({
     mutationFn: () => zerarValoresHistograma(projetoId!, baselineAtiva!.id),
@@ -381,12 +419,12 @@ export default function HistogramaMO() {
     toast.success(`${preenchidos} cargo(s) preenchido(s) na semana atual`)
   }
 
-  function handlePlanejadoChange(cargoId: string, mes: string, valor: string) {
+  function handlePlanejadoChange(cargoId: string, semanaIso: string, valor: string) {
     const num = valor === '' ? 0 : Number(valor)
     if (Number.isNaN(num)) return
-    const key = `${cargoId}__${mes.slice(0, 7)}`
+    const key = `${cargoId}__${semanaIso}`
     setPlanejadoEdits((prev) => ({ ...prev, [key]: num }))
-    schedule(`planejado:${key}`, () => upsertPlanejadoMut.mutate({ cargoId, mes, valor: num }))
+    schedule(`planejado:${key}`, () => upsertPlanejadoMut.mutate({ cargoId, semanaIso, valor: num }))
   }
 
   async function handleExportar() {
@@ -416,20 +454,58 @@ export default function HistogramaMO() {
     }
   }
 
+  // Nomes da planilha que NÃO batem com nenhum cargo já cadastrado (mesma
+  // comparação normalizada que importarHistograma usa pra decidir se cria um cargo
+  // novo) — mostrado ANTES de confirmar, porque hoje esse "cargo novo" só aparecia
+  // como uma contagem no resumo de DEPOIS ("N cargo(s) novo(s)"), fácil de não
+  // notar. Se um cargo da planilha na verdade já existe só que com um nome digitado
+  // um pouco diferente (plural, abreviação, "de Obras" a mais/a menos), a
+  // importação cria um cargo DUPLICADO em vez de atualizar o existente — os valores
+  // são gravados nesse duplicado (que cai em "Sem categoria", separado de onde o
+  // cargo original está), dando a impressão de que "não carregou".
+  const cargosNovosNaImportacao = useMemo(() => {
+    if (!importResultado) return []
+    const existentes = new Set(cargosVisiveis.map((c) => normalizarNomeCargo(c.nome)))
+    const vistos = new Set<string>()
+    const novos: string[] = []
+    for (const linha of importResultado.linhas) {
+      const chave = normalizarNomeCargo(linha.cargoNome)
+      if (existentes.has(chave) || vistos.has(chave)) continue
+      vistos.add(chave)
+      novos.push(linha.cargoNome)
+    }
+    return novos
+  }, [importResultado, cargosVisiveis])
+
   async function handleConfirmarImport() {
     if (!importResultado || !projetoId) return
     setImportGravando(true)
     try {
+      // importarHistograma só grava Planejado se houver baseline_id (a tabela
+      // histograma_planejado exige) — sem essa criação automática, importar uma
+      // planilha num projeto que ainda não tem nenhuma baseline (LB0) descartava
+      // TODO o Planejado da planilha em silêncio, gravando só o Real. O resumo
+      // até mostrava "0 valor(es) de planejado gravado(s)", mas fácil de não
+      // reparar no meio da lista — daí a sensação de "a importação não carregou
+      // todas as informações".
+      let baselineIdParaImportar = baselineAtiva?.id ?? null
+      if (!baselineIdParaImportar) {
+        const novaBaseline = await criarBaseline(projetoId, null, 'Criada automaticamente pela importação de planilha (nenhuma baseline existia ainda)')
+        baselineIdParaImportar = novaBaseline.id
+        setBaselineId(novaBaseline.id)
+        qc.invalidateQueries({ queryKey: ['histograma-baselines', projetoId] })
+      }
       const resumo = await importarHistograma({
         projetoId,
-        baselineAtivaId: baselineAtiva?.id ?? null,
+        baselineAtivaId: baselineIdParaImportar,
         tipo: tipoAtivo,
         cargosExistentes: cargosVisiveis,
         linhas: importResultado.linhas,
+        categoriaPorFuncao: categoriaPorFuncaoAdministracao,
       })
       setImportResumo(resumo)
       qc.invalidateQueries({ queryKey: ['histograma-cargos', projetoId] })
-      qc.invalidateQueries({ queryKey: ['histograma-planejado', baselineAtiva?.id] })
+      qc.invalidateQueries({ queryKey: ['histograma-planejado', baselineIdParaImportar] })
       qc.invalidateQueries({ queryKey: ['histograma-real', projetoId] })
       toast.success('Importação concluída')
     } catch (err) {
@@ -446,18 +522,22 @@ export default function HistogramaMO() {
     setImportResumo(null)
   }
 
-  // Planejado x real por cargo e por mês — agregado no cliente (média das
-  // semanas apontadas em cada mês), em vez de uma VIEW no banco: as views do
-  // Postgres rodam com o contexto de permissão do dono por padrão, e este
-  // projeto não tem nenhum padrão estabelecido de view multi-tenant segura
-  // (os únicos 2 exemplos existentes são telas de admin, não dado por
-  // organização) — agregar aqui evita esse risco.
+  // Planejado x real por cargo e por mês — agregado no cliente (média das semanas
+  // do mês, mesmo critério pros dois agora que Planejado também é semanal), em vez
+  // de uma VIEW no banco: as views do Postgres rodam com o contexto de permissão do
+  // dono por padrão, e este projeto não tem nenhum padrão estabelecido de view
+  // multi-tenant segura (os únicos 2 exemplos existentes são telas de admin, não
+  // dado por organização) — agregar aqui evita esse risco.
+  // Planejado sempre teve um valor (0 por padrão, nunca "sem lançamento") — por
+  // isso a média usa TODAS as semanas do mês. Real só conta as semanas que
+  // realmente têm apontamento (undefined fica de fora, ver semanasApontadas).
   const mensalPorCargo = useMemo(() => {
     const resultado = new Map<string, { monthKey: string; monthLabel: string; planejado: number; real: number | null; semanasApontadas: number; semanasTotais: number }[]>()
     for (const cargo of cargosVisiveis) {
       const linhas = meses.map((m) => {
-        const planejadoVal = planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
         const semanasDoMes = semanas.filter((s) => s.monthKey === m.key)
+        const valoresPlanejados = semanasDoMes.map((s) => planejadoEdits[`${cargo.id}__${s.iso}`] ?? planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0)
+        const planejadoVal = valoresPlanejados.length > 0 ? valoresPlanejados.reduce((a, b) => a + b, 0) / valoresPlanejados.length : 0
         const valoresReais = semanasDoMes
           .map((s) => realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`))
           .filter((v): v is number => v !== undefined)
@@ -504,31 +584,31 @@ export default function HistogramaMO() {
     return linhas.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
   }, [cargoSelecionado, cargosVisiveis, mensalPorCargo, meses])
 
-  // Total do período (soma, não média) por cargo — Planejado soma o valor mensal de
-  // cada mês do projeto, Real soma o valor de cada semana lançada. Existe pra
-  // responder "quanto desse cargo foi usado/apontado no projeto inteiro", que
-  // mensalPorCargo não responde de jeito nenhum (ali o Real é média por mês, feita
-  // pro gráfico, não soma do período todo).
+  // Total do período (soma, não média) por cargo — soma o valor de cada semana
+  // lançada, Planejado e Real do mesmo jeito agora que os dois são semanais. Existe
+  // pra responder "quanto desse cargo foi usado/apontado no projeto inteiro", que
+  // mensalPorCargo não responde de jeito nenhum (ali é média por mês, feita pro
+  // gráfico, não soma do período todo).
   const totaisPorCargo = useMemo(() => {
     const map = new Map<string, { planejado: number; real: number }>()
     for (const cargo of cargosVisiveis) {
       let planejado = 0
-      for (const m of meses) planejado += planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
       let real = 0
-      for (const s of semanas) real += realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`) ?? 0
+      for (const s of semanas) {
+        planejado += planejadoEdits[`${cargo.id}__${s.iso}`] ?? planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0
+        real += realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`) ?? 0
+      }
       map.set(cargo.id, { planejado, real })
     }
     return map
-  }, [cargosVisiveis, meses, semanas, planejadoEdits, planejadoMap, realEdits, realMap])
+  }, [cargosVisiveis, semanas, planejadoEdits, planejadoMap, realEdits, realMap])
 
   // Curva de Horas (HH) — só Pessoas (MO): equipamento não vira "hora-homem" da
   // mesma forma, e "horas do projeto" nesse sentido é sempre mão de obra. Converte
-  // o efetivo já lançado (Qtd de pessoas por semana/mês) em horas via
-  // horasSemanais, e acumula mês a mês — a curva S sai da própria acumulação
-  // (poucas horas no início/fim da obra, pico no meio), não de uma fórmula pronta.
-  // Planejado é lançado por mês (mesmo valor pra todas as semanas do mês, ver
-  // handlePlanejadoChange) — por isso multiplica pelo nº de semanas do mês; Real é
-  // por semana, soma direto.
+  // o efetivo já lançado (Qtd de pessoas por semana) em horas via horasSemanais, e
+  // acumula mês a mês — a curva S sai da própria acumulação (poucas horas no
+  // início/fim da obra, pico no meio), não de uma fórmula pronta. Planejado e Real
+  // são os dois por semana, somam direto.
   const cargosMO = useMemo(() => cargos.filter((c) => c.tipo === 'MO'), [cargos])
   const curvaHoras = useMemo(() => {
     let acumPlanejado = 0
@@ -540,9 +620,9 @@ export default function HistogramaMO() {
       let realMes = 0
       let semanasComReal = 0
       for (const cargo of cargosMO) {
-        const qtdPlanejada = planejadoEdits[`${cargo.id}__${m.key}`] ?? planejadoMap.get(`${cargo.id}__${m.key}`) ?? 0
-        planejadoMes += qtdPlanejada * semanasDoMes.length * horasSemanais
         for (const s of semanasDoMes) {
+          const qtdPlanejada = planejadoEdits[`${cargo.id}__${s.iso}`] ?? planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0
+          planejadoMes += qtdPlanejada * horasSemanais
           const v = realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`)
           if (v !== undefined) {
             realMes += v * horasSemanais
@@ -604,6 +684,17 @@ export default function HistogramaMO() {
             <Button
               variant="outline"
               className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/30"
+              onClick={handleExcluirBaseline}
+              disabled={deleteBaselineMut.isPending}
+              title={`Exclui a baseline ${baselineAtiva.versao} e todo o Planejado gravado nela — cargos e Real continuam intactos`}
+            >
+              {deleteBaselineMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />} Excluir baseline
+            </Button>
+          )}
+          {podeEditarPlano && baselineAtiva && (
+            <Button
+              variant="outline"
+              className="text-red-600 dark:text-red-400 border-red-200 dark:border-red-900 hover:bg-red-50 dark:hover:bg-red-950/30"
               onClick={handleZerarValores}
               disabled={zerarValoresMut.isPending}
               title="Apaga os valores de Planejado (baseline ativa) e Real (todas as semanas) — cargos e baselines continuam cadastrados"
@@ -656,9 +747,8 @@ export default function HistogramaMO() {
 
         <TabsContent value="semanal" className="space-y-4">
           <p className="text-xs text-muted-foreground">
-            Cada cargo tem duas linhas: <span className="text-blue-600 dark:text-blue-400 font-medium">Planejado (mês)</span> — editar
-            em qualquer semana atualiza o mês inteiro — e <span className="text-red-600 dark:text-red-400 font-medium">Real (semana)</span> —
-            um valor por semana. Os valores salvam sozinhos ~0,5s depois de parar de digitar.
+            Cada cargo tem duas linhas, uma pra cada semana: <span className="text-blue-600 dark:text-blue-400 font-medium">Planejado</span> e{' '}
+            <span className="text-red-600 dark:text-red-400 font-medium">Real</span>. Os valores salvam sozinhos ~0,5s depois de parar de digitar.
             {tipoAtivo === 'MO' && (
               <> Na semana atual, quando o cargo bate com um cargo do Controle de Funcionários (Administração), aparece "Cadastro: N" com
               o total de funcionários ativos daquele cargo vinculados a este projeto — clique pra usar esse número no Real.</>
@@ -684,6 +774,17 @@ export default function HistogramaMO() {
             {podeEditarPlano && (
               <Button size="sm" variant="outline" onClick={() => setImportAberto(true)}>
                 <Upload className="h-4 w-4" /> Importar
+              </Button>
+            )}
+            {podeEditarPlano && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowMesclarCargos(true)}
+                disabled={cargosVisiveis.length < 2}
+                title="Corrige um cargo duplicado — junta os valores de dois cargos num só"
+              >
+                <Merge className="h-4 w-4" /> Mesclar cargos
               </Button>
             )}
           </div>
@@ -767,7 +868,7 @@ export default function HistogramaMO() {
                             <th className="text-left px-3 py-2 w-36 align-bottom">Cargo</th>
                             <th
                               className="text-center px-2 py-2 w-16 align-bottom"
-                              title="Soma de todo o período — Planejado soma cada mês, Real soma cada semana lançada"
+                              title="Soma de todo o período — Planejado e Real somam cada semana lançada"
                             >
                               Total
                             </th>
@@ -781,9 +882,9 @@ export default function HistogramaMO() {
                                 <tr className="border-b border-border/50 bg-muted/40" style={{ height: DATA_ROW_H }}>
                                   <td className="px-3 py-1.5 w-36 truncate" title={cargo.nome}>
                                     <span className="font-medium">{cargo.nome}</span>
-                                    <span className="block text-[10px] text-blue-600 dark:text-blue-400">Planejado (mês)</span>
+                                    <span className="block text-[10px] text-blue-600 dark:text-blue-400">Planejado (semana)</span>
                                   </td>
-                                  <td className="px-2 py-1.5 text-center font-semibold text-blue-600 dark:text-blue-400" title="Total planejado no período (soma dos meses)">
+                                  <td className="px-2 py-1.5 text-center font-semibold text-blue-600 dark:text-blue-400" title="Total planejado no período (soma das semanas)">
                                     {total.planejado}
                                   </td>
                                 </tr>
@@ -828,15 +929,12 @@ export default function HistogramaMO() {
                         </thead>
                         <tbody>
                           {grupo.cargos.map((cargo) => {
-                            const linhasMes = mensalPorCargo.get(cargo.id) ?? []
                             return (
                               <Fragment key={cargo.id}>
                                 <tr className="border-b border-border/50 bg-muted/40" style={{ height: DATA_ROW_H }}>
                                   {semanas.map((s) => {
-                                    const mes = `${s.monthKey}-01`
-                                    const key = `${cargo.id}__${s.monthKey}`
-                                    const linha = linhasMes.find((l) => l.monthKey === s.monthKey)
-                                    const valor = planejadoEdits[key] ?? linha?.planejado ?? 0
+                                    const key = `${cargo.id}__${s.iso}`
+                                    const valor = planejadoEdits[key] ?? planejadoMap.get(key) ?? 0
                                     return (
                                       <td key={s.iso} className="px-1 py-1">
                                         <input
@@ -844,8 +942,7 @@ export default function HistogramaMO() {
                                           inputMode="decimal"
                                           value={valor}
                                           disabled={!podeEditarPlano || !baselineAtiva}
-                                          title="Valor mensal — editar aqui atualiza todas as semanas do mês"
-                                          onChange={(e) => handlePlanejadoChange(cargo.id, mes, e.target.value)}
+                                          onChange={(e) => handlePlanejadoChange(cargo.id, s.iso, e.target.value)}
                                           className="w-14 rounded border border-input bg-background text-center text-blue-600 dark:text-blue-400 disabled:opacity-50"
                                         />
                                       </td>
@@ -931,7 +1028,7 @@ export default function HistogramaMO() {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="text-left px-3 py-2">Mês</th>
-                      <th className="px-3 py-2">Planejado</th>
+                      <th className="px-3 py-2">Planejado (média)</th>
                       <th className="px-3 py-2">Real (média)</th>
                       <th className="px-3 py-2">Aderência</th>
                       <th className="px-3 py-2">Semanas apontadas</th>
@@ -943,19 +1040,7 @@ export default function HistogramaMO() {
                       return (
                         <tr key={l.monthKey} className="border-b">
                           <td className="px-3 py-1.5">{l.monthLabel}</td>
-                          <td className="px-3 py-1.5 text-center">
-                            {podeEditarPlano ? (
-                              <input
-                                type="number"
-                                inputMode="decimal"
-                                value={planejadoEdits[`${cargoSelecionado}__${l.monthKey}`] ?? l.planejado}
-                                onChange={(e) => handlePlanejadoChange(cargoSelecionado, `${l.monthKey}-01`, e.target.value)}
-                                className="w-16 rounded border border-input bg-background text-center"
-                              />
-                            ) : (
-                              l.planejado
-                            )}
-                          </td>
+                          <td className="px-3 py-1.5 text-center">{l.planejado.toFixed(1)}</td>
                           <td className="px-3 py-1.5 text-center">{l.real !== null ? l.real.toFixed(1) : '—'}</td>
                           <td className={`px-3 py-1.5 text-center font-medium ${l.real !== null ? corAderencia(pct) : 'text-muted-foreground'}`}>
                             {l.real !== null ? `${pct.toFixed(0)}%` : '—'}
@@ -1089,6 +1174,16 @@ export default function HistogramaMO() {
                   {importResultado.linhas.length} linha(s) prontas pra importar
                   {importResultado.problemas.length > 0 && ` · ${importResultado.problemas.length} aviso(s)`}
                 </p>
+                {cargosNovosNaImportacao.length > 0 && (
+                  <div className="rounded-md border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30 p-2 text-xs text-amber-700 dark:text-amber-400">
+                    <p className="font-medium flex items-center gap-1.5">
+                      <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                      {cargosNovosNaImportacao.length} nome(s) da planilha não bateram com nenhum cargo já cadastrado — serão criados como cargo novo:
+                    </p>
+                    <p className="mt-1">{cargosNovosNaImportacao.join(', ')}</p>
+                    <p className="mt-1">Se algum desses já existe no projeto com o nome escrito um pouco diferente, cancele e ajuste a planilha antes de confirmar — senão vira um cargo duplicado, com os valores separados do cargo original.</p>
+                  </div>
+                )}
                 {importResultado.problemas.length > 0 && (
                   <div className="max-h-40 overflow-y-auto space-y-1">
                     {importResultado.problemas.map((p, i) => (
@@ -1125,6 +1220,18 @@ export default function HistogramaMO() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {showMesclarCargos && (
+        <MesclarCargosDialog
+          cargos={cargosVisiveis}
+          onClose={() => setShowMesclarCargos(false)}
+          onMesclado={() => {
+            qc.invalidateQueries({ queryKey: ['histograma-cargos', projetoId] })
+            qc.invalidateQueries({ queryKey: ['histograma-planejado'] })
+            qc.invalidateQueries({ queryKey: ['histograma-real', projetoId] })
+          }}
+        />
+      )}
     </div>
   )
 }

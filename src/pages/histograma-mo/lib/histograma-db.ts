@@ -44,7 +44,7 @@ export interface PlanejadoRow {
   id: string
   baseline_id: string
   cargo_id: string
-  mes: string
+  semana_ref: string
   qtd_planejada: number
 }
 
@@ -87,29 +87,52 @@ export async function listBaselines(projetoId: string): Promise<Baseline[]> {
   return data as Baseline[]
 }
 
+// Paginado — o Supabase corta na página default (1000 linhas) sem isso. Desde que
+// o Planejado passou a ser semanal (antes era 1 linha por mês por cargo, agora é 1
+// por semana — ~4-5x mais linhas), projetos com bastante cargo cruzam esse limite
+// fácil, e cargos "depois da linha 1000" (ordem não é garantida) simplesmente
+// sumiam da tela mesmo com o dado certinho gravado no banco.
 export async function listPlanejado(baselineId: string): Promise<PlanejadoRow[]> {
-  const { data, error } = await supabase
-    .from('histograma_planejado')
-    .select('*')
-    .eq('baseline_id', baselineId)
-  if (error) throw new Error(error.message)
-  return data as PlanejadoRow[]
+  const PAGE_SIZE = 1000
+  const rows: PlanejadoRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('histograma_planejado')
+      .select('*')
+      .eq('baseline_id', baselineId)
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    rows.push(...((data ?? []) as PlanejadoRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return rows
 }
 
-export async function upsertPlanejado(baselineId: string, cargoId: string, mes: string, qtd: number): Promise<void> {
+export async function upsertPlanejado(baselineId: string, cargoId: string, semanaRef: string, qtd: number): Promise<void> {
   const { error } = await supabase
     .from('histograma_planejado')
-    .upsert({ baseline_id: baselineId, cargo_id: cargoId, mes, qtd_planejada: qtd }, { onConflict: 'baseline_id,cargo_id,mes' })
+    .upsert(
+      { baseline_id: baselineId, cargo_id: cargoId, semana_ref: semanaRef, qtd_planejada: qtd },
+      { onConflict: 'baseline_id,cargo_id,semana_ref' },
+    )
   if (error) throw new Error(error.message)
 }
 
+// Mesmo motivo de listPlanejado acima — paginado pra não cortar em 1000 linhas.
 export async function listRealSemanal(projetoId: string): Promise<RealSemanalRow[]> {
-  const { data, error } = await supabase
-    .from('histograma_real_semanal')
-    .select('*')
-    .eq('projeto_id', projetoId)
-  if (error) throw new Error(error.message)
-  return data as RealSemanalRow[]
+  const PAGE_SIZE = 1000
+  const rows: RealSemanalRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('histograma_real_semanal')
+      .select('*')
+      .eq('projeto_id', projetoId)
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    rows.push(...((data ?? []) as RealSemanalRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return rows
 }
 
 export async function upsertReal(projetoId: string, cargoId: string, semanaRef: string, qtd: number): Promise<void> {
@@ -143,7 +166,7 @@ export async function criarBaseline(projetoId: string, baselineAtualId: string |
   if (baselineAtualId) {
     const { data: planejadoAtual, error: errPlan } = await supabase
       .from('histograma_planejado')
-      .select('cargo_id, mes, qtd_planejada')
+      .select('cargo_id, semana_ref, qtd_planejada')
       .eq('baseline_id', baselineAtualId)
     if (errPlan) throw new Error(errPlan.message)
 
@@ -151,7 +174,7 @@ export async function criarBaseline(projetoId: string, baselineAtualId: string |
       const rows = planejadoAtual.map((p) => ({
         baseline_id: nova.id,
         cargo_id: p.cargo_id,
-        mes: p.mes,
+        semana_ref: p.semana_ref,
         qtd_planejada: p.qtd_planejada,
       }))
       const { error: errInsert } = await supabase.from('histograma_planejado').insert(rows)
@@ -160,6 +183,91 @@ export async function criarBaseline(projetoId: string, baselineAtualId: string |
   }
 
   return nova as Baseline
+}
+
+// Exclui uma baseline (LB0, LB1, ...) e, em cascata (FK ON DELETE CASCADE), todo o
+// Planejado gravado nela — não mexe nos cargos nem no Real semanal (esses dois não
+// são por baseline). Se a excluída for a única/ativa, o projeto volta ao estado
+// "sem baseline" (mesma tela de "Nenhuma baseline cadastrada ainda").
+export async function deleteBaseline(id: string): Promise<void> {
+  const { error } = await supabase.from('histograma_baselines').delete().eq('id', id)
+  if (error) throw new Error(error.message)
+}
+
+export interface ResultadoMesclagem {
+  planejadoMovidos: number
+  planejadoSomados: number
+  realMovidos: number
+  realSomados: number
+}
+
+// Move todo o Planejado e Real de um cargo "origem" (duplicado, ex.: criado sem
+// querer por uma importação cujo nome na planilha não bateu com o cargo já
+// cadastrado — ver aviso em ModalImportar/handleConfirmarImport) pro cargo
+// "destino", e apaga o origem no final. Quando os dois já têm valor no mesmo
+// mês/semana, SOMA em vez de sobrescrever — nenhum dos dois lançamentos se perde,
+// já que não dá pra saber de antemão qual dos dois é "o certo".
+export async function mesclarCargos(origemId: string, destinoId: string): Promise<ResultadoMesclagem> {
+  if (origemId === destinoId) throw new Error('Selecione dois cargos diferentes pra mesclar.')
+
+  const [{ data: planejadoOrigem, error: errPO }, { data: planejadoDestino, error: errPD }] = await Promise.all([
+    supabase.from('histograma_planejado').select('id, baseline_id, semana_ref, qtd_planejada').eq('cargo_id', origemId),
+    supabase.from('histograma_planejado').select('id, baseline_id, semana_ref, qtd_planejada').eq('cargo_id', destinoId),
+  ])
+  if (errPO) throw new Error(errPO.message)
+  if (errPD) throw new Error(errPD.message)
+
+  const planejadoDestinoPorChave = new Map((planejadoDestino ?? []).map((r) => [`${r.baseline_id}__${r.semana_ref}`, r]))
+  let planejadoMovidos = 0
+  let planejadoSomados = 0
+  for (const row of planejadoOrigem ?? []) {
+    const existente = planejadoDestinoPorChave.get(`${row.baseline_id}__${row.semana_ref}`)
+    if (existente) {
+      const { error } = await supabase
+        .from('histograma_planejado')
+        .update({ qtd_planejada: existente.qtd_planejada + row.qtd_planejada })
+        .eq('id', existente.id)
+      if (error) throw new Error(error.message)
+      planejadoSomados++
+    } else {
+      const { error } = await supabase.from('histograma_planejado').update({ cargo_id: destinoId }).eq('id', row.id)
+      if (error) throw new Error(error.message)
+      planejadoMovidos++
+    }
+  }
+
+  const [{ data: realOrigem, error: errRO }, { data: realDestino, error: errRD }] = await Promise.all([
+    supabase.from('histograma_real_semanal').select('id, semana_ref, qtd_real').eq('cargo_id', origemId),
+    supabase.from('histograma_real_semanal').select('id, semana_ref, qtd_real').eq('cargo_id', destinoId),
+  ])
+  if (errRO) throw new Error(errRO.message)
+  if (errRD) throw new Error(errRD.message)
+
+  const realDestinoPorSemana = new Map((realDestino ?? []).map((r) => [r.semana_ref, r]))
+  let realMovidos = 0
+  let realSomados = 0
+  for (const row of realOrigem ?? []) {
+    const existente = realDestinoPorSemana.get(row.semana_ref)
+    if (existente) {
+      const { error } = await supabase
+        .from('histograma_real_semanal')
+        .update({ qtd_real: existente.qtd_real + row.qtd_real })
+        .eq('id', existente.id)
+      if (error) throw new Error(error.message)
+      realSomados++
+    } else {
+      const { error } = await supabase.from('histograma_real_semanal').update({ cargo_id: destinoId }).eq('id', row.id)
+      if (error) throw new Error(error.message)
+      realMovidos++
+    }
+  }
+
+  // Sem mais nada apontando pro origem (tudo foi movido ou somado acima) — apaga
+  // ele. Se sobrar algo por qualquer motivo, o FK ON DELETE CASCADE limpa junto.
+  const { error: errDel } = await supabase.from('histograma_cargos').delete().eq('id', origemId)
+  if (errDel) throw new Error(errDel.message)
+
+  return { planejadoMovidos, planejadoSomados, realMovidos, realSomados }
 }
 
 // Zera os valores lançados (planejado da baseline ativa + real semanal do projeto
