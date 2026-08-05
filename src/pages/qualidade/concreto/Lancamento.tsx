@@ -210,7 +210,7 @@ export default function ConcretoLancamentoPage() {
           carga_id: id,
           setor_id: d.setor_id,
           area_id: d.area_id,
-          subarea_id: d.subarea_id,
+          etapa_concreto_id: d.etapa_concreto_id,
           quantidade_m3_aplicada: d.quantidade_m3_aplicada ?? quantidade,
           observacao: d.observacao || null,
         }));

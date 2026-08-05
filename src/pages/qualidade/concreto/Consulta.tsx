@@ -67,7 +67,7 @@ export default function ConcretoConsulta() {
           `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
            fornecedores_concreto(nome),
            tracos_concreto(nome, fck_mpa),
-           destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), subareas(nome))`,
+           destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`,
           { count: "exact" }
         )
         .eq("organizacao_id", organizacaoId!)
@@ -186,6 +186,9 @@ export default function ConcretoConsulta() {
                   <TableHead className="text-right">Qtd. (m³)</TableHead>
                   <TableHead className="text-right">Preço total</TableHead>
                   <TableHead>Destino(s)</TableHead>
+                  <TableHead>Projeto</TableHead>
+                  <TableHead>Etapa</TableHead>
+                  <TableHead>Observações</TableHead>
                   <TableHead>Validado</TableHead>
                   <TableHead>Lançado por</TableHead>
                   <TableHead></TableHead>
@@ -193,10 +196,10 @@ export default function ConcretoConsulta() {
               </TableHeader>
               <TableBody>
                 {isLoading && (
-                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
                 )}
                 {!isLoading && (data?.rows ?? []).length === 0 && (
-                  <TableRow><TableCell colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum lançamento encontrado</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={13} className="text-center py-8 text-muted-foreground">Nenhum lançamento encontrado</TableCell></TableRow>
                 )}
                 {(data?.rows ?? []).map((r) => (
                   <TableRow key={r.id}>
@@ -209,13 +212,34 @@ export default function ConcretoConsulta() {
                     <TableCell className="whitespace-nowrap">{r.tracos_concreto?.nome ?? "—"}</TableCell>
                     <TableCell className="text-right">{r.quantidade_m3.toLocaleString("pt-BR")}</TableCell>
                     <TableCell className="text-right">{r.preco_total != null ? r.preco_total.toLocaleString("pt-BR", { style: "currency", currency: "BRL" }) : "—"}</TableCell>
-                    <TableCell className="text-xs max-w-[240px]">
+                    <TableCell className="text-xs max-w-[200px]">
                       {r.destinos_carga.length === 0
                         ? "—"
                         : r.destinos_carga.map((d, i) => (
                             <div key={i} className="whitespace-nowrap">
-                              {d.areas?.nome ?? "Sem área"}{d.subareas?.nome ? ` / ${d.subareas.nome}` : ""} — {d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³
+                              {d.areas?.nome ?? "Sem área"} — {d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³
                             </div>
+                          ))}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[160px]">
+                      {r.destinos_carga.length === 0
+                        ? "—"
+                        : r.destinos_carga.map((d, i) => (
+                            <div key={i} className="whitespace-nowrap">{d.areas?.nome ?? "—"}</div>
+                          ))}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[160px]">
+                      {r.destinos_carga.length === 0
+                        ? "—"
+                        : r.destinos_carga.map((d, i) => (
+                            <div key={i} className="whitespace-nowrap">{d.etapa_concreto?.nome ?? "—"}</div>
+                          ))}
+                    </TableCell>
+                    <TableCell className="text-xs max-w-[220px]">
+                      {r.destinos_carga.length === 0 || r.destinos_carga.every((d) => !d.observacao)
+                        ? "—"
+                        : r.destinos_carga.map((d, i) => (
+                            <div key={i} className="whitespace-nowrap">{d.observacao || "—"}</div>
                           ))}
                     </TableCell>
                     <TableCell>

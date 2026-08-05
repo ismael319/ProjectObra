@@ -1,37 +1,104 @@
 import { useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowLeft, FileSpreadsheet, Loader2, Upload, AlertTriangle, CheckCircle2, Ban } from "lucide-react";
+import { ArrowLeft, Download, FileSpreadsheet, Loader2, Upload, AlertTriangle, CheckCircle2, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Combobox } from "@/components/ui/combobox";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { lerArquivoComoLinhas, normalizarTexto } from "@/lib/administracao/parse-shared";
 import {
-  parseBDConcreto,
-  agruparEmCargas,
+  parseCargasConcreto,
   distintosComContagem,
-  type CargaAgrupada,
+  type CargaImportada,
   type Problema,
 } from "./lib/importer";
 import {
-  carregarSetores,
-  carregarAreas,
-  sugerirMapeamentoAreas,
+  carregarTracos,
+  sugerirMapeamentoTracos,
   commitarImportacaoConcreto,
-  type SetorCatalogo,
-  type AreaCatalogo,
-  type MapeamentoAreas,
-  type ResolucaoArea,
+  type TracoCatalogo,
+  type MapeamentoTracos,
+  type ResolucaoTraco,
   type ResumoImportacaoConcreto,
 } from "./lib/importer-db";
+import { listarTodasCargasConcreto, buildCargasConcretoWorkbook, downloadCargasConcretoWorkbook } from "./lib/excel-export";
 
 type Estagio = "idle" | "processando" | "revisao" | "importando" | "concluido";
 
-type LinhaRevisao = { projetoRaw: string; total: number; resolucao: ResolucaoArea | null };
+type LinhaRevisaoTracoItem = { tracoNome: string; total: number; resolucao: ResolucaoTraco | null };
 
-export default function ImportarHistoricoConcreto() {
+// Hub de dados do Concreto: importação de cargas em massa e exportação do
+// banco completo de lançamentos — as duas pontas de entrada/saída de dados em
+// massa do módulo, reunidas numa única tela. O arquivo importado segue
+// exatamente o mesmo formato de colunas do exportado (excel-export.ts).
+export default function DadosConcreto() {
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div>
+        <Link to="/dashboard/qualidade/concreto/dashboard" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft size={14} /> Concreto
+        </Link>
+        <h1 className="text-2xl font-bold mt-1">Dados</h1>
+        <p className="text-sm text-muted-foreground">Importação do histórico de concreto e exportação do banco completo de lançamentos.</p>
+      </div>
+
+      <Tabs defaultValue="importar" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="importar">Importar histórico</TabsTrigger>
+          <TabsTrigger value="exportar">Exportar</TabsTrigger>
+        </TabsList>
+        <TabsContent value="importar">
+          <ImportarHistoricoConcreto />
+        </TabsContent>
+        <TabsContent value="exportar">
+          <ExportarConcreto />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ExportarConcreto() {
+  const { userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const [exportando, setExportando] = useState(false);
+
+  async function handleExportar() {
+    if (!organizacaoId) return;
+    setExportando(true);
+    try {
+      const rows = await listarTodasCargasConcreto(organizacaoId);
+      if (rows.length === 0) {
+        toast.warning("Nenhum lançamento no banco pra exportar.");
+        return;
+      }
+      const wb = await buildCargasConcretoWorkbook(rows);
+      await downloadCargasConcretoWorkbook(wb);
+      toast.success(`${rows.length} lançamento(s) exportado(s)`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportando(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6 space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Baixa em Excel TODOS os lançamentos de concreto da organização, sem filtro de data nem paginação de tela.
+        </p>
+        <Button onClick={handleExportar} disabled={exportando || !organizacaoId}>
+          {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar tudo
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ImportarHistoricoConcreto() {
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
 
@@ -40,51 +107,47 @@ export default function ImportarHistoricoConcreto() {
   const [erro, setErro] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
-  const [cargas, setCargas] = useState<CargaAgrupada[]>([]);
+  const [cargas, setCargas] = useState<CargaImportada[]>([]);
   const [problemasParse, setProblemasParse] = useState<Problema[]>([]);
-  const [problemasGrupo, setProblemasGrupo] = useState<Problema[]>([]);
   const [totalLinhasArquivo, setTotalLinhasArquivo] = useState(0);
 
-  const [setores, setSetores] = useState<SetorCatalogo[]>([]);
-  const [areas, setAreas] = useState<AreaCatalogo[]>([]);
-  const [mapeamentoBase, setMapeamentoBase] = useState<MapeamentoAreas>(new Map());
-  const [revisao, setRevisao] = useState<LinhaRevisao[]>([]);
+  const [tracos, setTracos] = useState<TracoCatalogo[]>([]);
+  const [mapeamentoTracosBase, setMapeamentoTracosBase] = useState<MapeamentoTracos>(new Map());
+  const [revisaoTracos, setRevisaoTracos] = useState<LinhaRevisaoTracoItem[]>([]);
+
   const [resumo, setResumo] = useState<ResumoImportacaoConcreto | null>(null);
 
   const totalDestinos = useMemo(() => cargas.reduce((s, c) => s + c.destinos.length, 0), [cargas]);
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !organizacaoId) return;
     setFileName(file.name);
     setErro("");
     setEstagio("processando");
 
     try {
       const linhasArquivo = await lerArquivoComoLinhas(file);
-      const parse = parseBDConcreto(linhasArquivo);
-      const { cargas: cargasAgrupadas, problemas: problemasAgrupamento } = agruparEmCargas(parse.linhas);
+      const parse = parseCargasConcreto(linhasArquivo);
 
-      const projetosDistintos = distintosComContagem(cargasAgrupadas.flatMap((c) => c.destinos.map((d) => d.projetoRaw)));
-      const [setoresCarregados, areasCarregadas] = await Promise.all([carregarSetores(), carregarAreas()]);
-      const { sugestao, semCorrespondencia } = sugerirMapeamentoAreas(
-        projetosDistintos.map((p) => p.valor).filter((v): v is string => v != null),
-        areasCarregadas
+      const tracosDistintos = distintosComContagem(parse.cargas.map((c) => c.tracoNome));
+      const tracosCarregados = await carregarTracos(organizacaoId);
+      const { sugestao: sugestaoTracos, semCorrespondencia: tracosSemCorrespondencia } = sugerirMapeamentoTracos(
+        tracosDistintos.map((t) => t.valor).filter((v): v is string => v != null),
+        tracosCarregados
       );
 
-      setCargas(cargasAgrupadas);
+      setCargas(parse.cargas);
       setProblemasParse(parse.problemas);
-      setProblemasGrupo(problemasAgrupamento);
       setTotalLinhasArquivo(parse.totalLinhasArquivo);
-      setSetores(setoresCarregados);
-      setAreas(areasCarregadas);
-      setMapeamentoBase(sugestao);
-      setRevisao(
-        semCorrespondencia
-          .map((projetoRaw) => ({
-            projetoRaw,
-            total: projetosDistintos.find((p) => p.valor === projetoRaw)?.total ?? 0,
-            resolucao: null as ResolucaoArea | null,
+      setTracos(tracosCarregados);
+      setMapeamentoTracosBase(sugestaoTracos);
+      setRevisaoTracos(
+        tracosSemCorrespondencia
+          .map((tracoNome) => ({
+            tracoNome,
+            total: tracosDistintos.find((t) => t.valor === tracoNome)?.total ?? 0,
+            resolucao: null as ResolucaoTraco | null,
           }))
           .sort((a, b) => b.total - a.total)
       );
@@ -97,28 +160,29 @@ export default function ImportarHistoricoConcreto() {
     }
   }
 
-  function setResolucao(projetoRaw: string, resolucao: ResolucaoArea) {
-    setRevisao((prev) => prev.map((r) => (r.projetoRaw === projetoRaw ? { ...r, resolucao } : r)));
+  function setResolucaoTraco(tracoNome: string, resolucao: ResolucaoTraco) {
+    setRevisaoTracos((prev) => prev.map((r) => (r.tracoNome === tracoNome ? { ...r, resolucao } : r)));
   }
 
-  const faltaResolver = revisao.filter((r) => !r.resolucao).length;
+  const faltaResolver = revisaoTracos.filter((r) => !r.resolucao).length;
 
   async function handleConfirmar() {
     if (!organizacaoId || faltaResolver > 0) return;
     setEstagio("importando");
     setErro("");
     try {
-      const mapeamentoFinal: MapeamentoAreas = new Map(mapeamentoBase);
-      for (const r of revisao) {
-        if (r.resolucao) mapeamentoFinal.set(normalizarTexto(r.projetoRaw), r.resolucao);
+      const mapeamentoTracosFinal: MapeamentoTracos = new Map(mapeamentoTracosBase);
+      for (const r of revisaoTracos) {
+        if (r.resolucao) mapeamentoTracosFinal.set(normalizarTexto(r.tracoNome), r.resolucao);
       }
 
       const r = await commitarImportacaoConcreto({
         organizacaoId,
         userId: user?.id,
-        userNome: user?.email ?? "Importação histórica",
+        userNome: user?.email ?? "Importação",
         cargas,
-        mapeamentoAreas: mapeamentoFinal,
+        mapeamentoTracos: mapeamentoTracosFinal,
+        tracosCatalogo: tracos,
       });
       setResumo(r);
       setEstagio("concluido");
@@ -135,22 +199,15 @@ export default function ImportarHistoricoConcreto() {
     setErro("");
     setCargas([]);
     setProblemasParse([]);
-    setProblemasGrupo([]);
-    setRevisao([]);
+    setRevisaoTracos([]);
     setResumo(null);
   }
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <div>
-        <Link to="/dashboard/qualidade/concreto/dashboard" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft size={14} /> Concreto
-        </Link>
-        <h1 className="text-2xl font-bold mt-1">Importar histórico de concreto</h1>
-        <p className="text-sm text-muted-foreground">
-          Envie a planilha BDConcreto (XLSX ou CSV). Importação única — cada linha vira uma carga (ou parte de uma carga dividida entre destinos).
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Envie um arquivo XLSX ou CSV com as mesmas colunas do "Exportar" (DATA, FORNECEDOR, ORIGEM, TRAÇO, QTD (m³), PROJETO, ETAPA...). Cada linha é uma carga inteira — uma carga com mais de um destino junta Projeto/Etapa/Observações com ";" na mesma célula. Fornecedor, Área/Setor (Projeto) e Etapa são criados automaticamente com o nome do arquivo quando não existem — só Traço precisa já estar cadastrado.
+      </p>
 
       <Card>
         <CardContent className="pt-6 space-y-4">
@@ -184,6 +241,15 @@ export default function ImportarHistoricoConcreto() {
           </button>
 
           {(estagio === "revisao" || estagio === "importando") && (
+            <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <span>
+                Ao confirmar, <strong>TODOS os lançamentos de concreto já existentes desta organização serão apagados</strong> (inclusive os feitos manualmente) e substituídos pelo conteúdo deste arquivo. Os cadastros de Fornecedores, Traços, Áreas/Setores e Etapas não são apagados.
+              </span>
+            </div>
+          )}
+
+          {(estagio === "revisao" || estagio === "importando") && (
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-sm space-y-3">
               <p className="font-medium text-gray-900 dark:text-white">
                 {cargas.length} carga(s) prontas ({totalDestinos} destino(s)) de {totalLinhasArquivo} linha(s) no arquivo
@@ -191,7 +257,7 @@ export default function ImportarHistoricoConcreto() {
               {problemasParse.length > 0 && (
                 <details>
                   <summary className="cursor-pointer text-amber-700 dark:text-amber-400 font-medium">
-                    {problemasParse.length} linha(s) ignorada(s) (usina/traço/data não reconhecidos)
+                    {problemasParse.length} linha(s) ignorada(s) (coluna obrigatória inválida ou em branco)
                   </summary>
                   <div className="max-h-48 overflow-y-auto mt-2 space-y-1">
                     {problemasParse.map((p, i) => (
@@ -203,32 +269,17 @@ export default function ImportarHistoricoConcreto() {
                   </div>
                 </details>
               )}
-              {problemasGrupo.length > 0 && (
-                <details>
-                  <summary className="cursor-pointer text-amber-700 dark:text-amber-400 font-medium">
-                    {problemasGrupo.length} carga(s) com divergência interna (importadas mesmo assim — revisar depois)
-                  </summary>
-                  <div className="max-h-48 overflow-y-auto mt-2 space-y-1">
-                    {problemasGrupo.map((p, i) => (
-                      <div key={i} className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
-                        <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-                        <span>{p.descricao}</span>
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              )}
             </div>
           )}
 
-          {estagio === "revisao" && revisao.length > 0 && (
+          {estagio === "revisao" && revisaoTracos.length > 0 && (
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 space-y-3">
               <p className="text-sm font-medium">
-                {revisao.length} valor(es) de "PROJETO" sem Área correspondente — escolha uma Área existente (em qualquer Setor), crie uma nova, ou pule essas linhas.
+                {revisaoTracos.length} valor(es) de "TRAÇO" sem correspondência no cadastro — escolha um traço já cadastrado, ou pule essas cargas.
               </p>
               <div className="space-y-2 max-h-96 overflow-y-auto">
-                {revisao.map((r) => (
-                  <LinhaRevisaoArea key={r.projetoRaw} linha={r} setores={setores} areas={areas} onResolve={(res) => setResolucao(r.projetoRaw, res)} />
+                {revisaoTracos.map((r) => (
+                  <LinhaRevisaoTraco key={r.tracoNome} linha={r} tracos={tracos} onResolve={(res) => setResolucaoTraco(r.tracoNome, res)} />
                 ))}
               </div>
             </div>
@@ -240,11 +291,14 @@ export default function ImportarHistoricoConcreto() {
                 <CheckCircle2 size={16} /> Importação concluída
               </p>
               <ul className="text-green-700 dark:text-green-400 space-y-0.5">
+                {resumo.cargasRemovidas > 0 && <li>{resumo.cargasRemovidas} lançamento(s) anterior(es) removido(s)</li>}
                 <li>{resumo.cargasCriadas} carga(s) criada(s)</li>
                 <li>{resumo.destinosCriados} destino(s) criado(s)</li>
+                {resumo.setoresCriados > 0 && <li>{resumo.setoresCriados} setor(es) novo(s) criado(s)</li>}
                 {resumo.areasCriadas > 0 && <li>{resumo.areasCriadas} área(s) nova(s) criada(s)</li>}
                 {resumo.etapasCriadas > 0 && <li>{resumo.etapasCriadas} etapa(s) nova(s) criada(s)</li>}
-                {resumo.cargasPuladas > 0 && <li>{resumo.cargasPuladas} carga(s) pulada(s) (área "pular" ou traço não resolvido)</li>}
+                {resumo.fornecedoresCriados > 0 && <li>{resumo.fornecedoresCriados} fornecedor(es) novo(s) criado(s)</li>}
+                {resumo.cargasPuladas > 0 && <li>{resumo.cargasPuladas} carga(s) pulada(s) (traço não resolvido ou sem destino)</li>}
               </ul>
             </div>
           )}
@@ -256,14 +310,15 @@ export default function ImportarHistoricoConcreto() {
           <Button onClick={reiniciar}>Importar outro arquivo</Button>
         ) : (
           <Button
+            variant={estagio === "revisao" && faltaResolver === 0 ? "destructive" : "default"}
             onClick={handleConfirmar}
             disabled={estagio !== "revisao" || cargas.length === 0 || faltaResolver > 0}
           >
             {estagio === "importando"
               ? "Importando..."
               : faltaResolver > 0
-              ? `Resolva ${faltaResolver} área(s) pendente(s)`
-              : "Confirmar importação"}
+              ? `Resolva ${faltaResolver} pendência(s)`
+              : "Apagar tudo e importar"}
           </Button>
         )}
       </div>
@@ -271,74 +326,43 @@ export default function ImportarHistoricoConcreto() {
   );
 }
 
-function LinhaRevisaoArea({
+function LinhaRevisaoTraco({
   linha,
-  setores,
-  areas,
+  tracos,
   onResolve,
 }: {
-  linha: LinhaRevisao;
-  setores: SetorCatalogo[];
-  areas: AreaCatalogo[];
-  onResolve: (r: ResolucaoArea) => void;
+  linha: LinhaRevisaoTracoItem;
+  tracos: TracoCatalogo[];
+  onResolve: (r: ResolucaoTraco) => void;
 }) {
-  const [novoNome, setNovoNome] = useState(linha.projetoRaw);
-  const [setorNovo, setSetorNovo] = useState<string | null>(null);
-
   const resolvido = linha.resolucao;
   const rotulo =
     resolvido?.tipo === "match"
-      ? `Área "${areas.find((a) => a.id === resolvido.areaId)?.nome ?? "?"}" (${areas.find((a) => a.id === resolvido.areaId)?.setorNome ?? "?"})`
-      : resolvido?.tipo === "criar"
-      ? `Nova área "${resolvido.nome}" em "${setores.find((s) => s.id === resolvido.setorId)?.nome ?? "?"}"`
+      ? `Traço "${tracos.find((t) => t.id === resolvido.tracoId)?.nome ?? "?"}"`
       : resolvido?.tipo === "pular"
-      ? "Pulando essas linhas"
+      ? "Pulando essas cargas"
       : null;
 
   return (
     <div className="rounded-md border p-3 space-y-2">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <div>
-          <p className="text-sm font-medium">{linha.projetoRaw || "(vazio)"}</p>
-          <p className="text-xs text-muted-foreground">{linha.total} linha(s)</p>
+          <p className="text-sm font-medium">{linha.tracoNome || "(vazio)"}</p>
+          <p className="text-xs text-muted-foreground">{linha.total} carga(s)</p>
         </div>
         {rotulo && <span className="text-xs rounded-full bg-primary/10 text-primary px-2 py-0.5">{rotulo}</span>}
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-muted-foreground w-24">Área existente:</span>
+        <span className="text-xs text-muted-foreground w-24">Traço cadastrado:</span>
         <div className="w-72">
           <Combobox
-            options={areas.map((a) => ({ value: a.id, label: `${a.nome} (${a.setorNome})` }))}
-            value={resolvido?.tipo === "match" ? resolvido.areaId : null}
-            onChange={(v) => {
-              const area = areas.find((a) => a.id === v);
-              if (area) onResolve({ tipo: "match", areaId: area.id, setorId: area.setor_id });
-            }}
-            placeholder="Buscar área existente"
+            options={tracos.map((t) => ({ value: t.id, label: `${t.nome} (${t.fck_mpa} MPa)` }))}
+            value={resolvido?.tipo === "match" ? resolvido.tracoId : null}
+            onChange={(v) => v && onResolve({ tipo: "match", tracoId: v })}
+            placeholder="Buscar traço existente"
           />
         </div>
-      </div>
-
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-xs text-muted-foreground w-24">Ou criar em:</span>
-        <div className="w-56">
-          <Combobox
-            options={setores.map((s) => ({ value: s.id, label: s.nome }))}
-            value={setorNovo}
-            onChange={setSetorNovo}
-            placeholder="Setor pai da área nova"
-          />
-        </div>
-        <Input className="w-56 h-9" value={novoNome} onChange={(e) => setNovoNome(e.target.value)} />
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!setorNovo || !novoNome.trim()}
-          onClick={() => setorNovo && onResolve({ tipo: "criar", setorId: setorNovo, nome: novoNome })}
-        >
-          Criar Área
-        </Button>
         <Button size="sm" variant="ghost" onClick={() => onResolve({ tipo: "pular" })}>
           <Ban className="h-3.5 w-3.5" /> Pular
         </Button>

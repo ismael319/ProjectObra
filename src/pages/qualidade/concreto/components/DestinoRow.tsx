@@ -1,4 +1,6 @@
-import { useSetores, useAreas, useSubareas } from "@/pages/apontamento/lib/catalog";
+import { useSetores, useAreas } from "@/pages/apontamento/lib/catalog";
+import { useAuth } from "@/lib/auth-context";
+import { useEtapasConcreto } from "../lib/catalog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,7 +11,7 @@ export type DestinoForm = {
   key: string; // só uso local (key de lista em React) — não vai pro banco
   setor_id: string | null;
   area_id: string | null;
-  subarea_id: string | null;
+  etapa_concreto_id: string | null;
   quantidade_m3_aplicada: number | null;
   observacao: string;
 };
@@ -19,16 +21,17 @@ export function novoDestino(): DestinoForm {
     key: crypto.randomUUID(),
     setor_id: null,
     area_id: null,
-    subarea_id: null,
+    etapa_concreto_id: null,
     quantidade_m3_aplicada: null,
     observacao: "",
   };
 }
 
-// Cascata Setor→Área→Etapa reaproveitada do módulo de Apontamento de Mão de
-// Obra (mesmos catálogos globais, referenciados via FK — não duplicados
-// aqui). Cada linha de destino chama os hooks pra si mesma, por isso é um
-// componente à parte em vez de um loop dentro do formulário principal.
+// Setor→Área reaproveita a cascata global do Apontamento de Mão de Obra. Já
+// Etapa é um catálogo próprio do Concreto, por organização, independente de
+// Área/Setor (ver 20260806010000_etapas-concreto-migration.sql). Cada linha
+// de destino chama os hooks pra si mesma, por isso é um componente à parte
+// em vez de um loop dentro do formulário principal.
 export function DestinoRow({
   destino,
   onChange,
@@ -38,9 +41,10 @@ export function DestinoRow({
   onChange: (d: DestinoForm) => void;
   onRemove?: () => void;
 }) {
+  const { userProfile } = useAuth();
   const { data: setores = [] } = useSetores();
   const { data: areas = [] } = useAreas(destino.setor_id);
-  const { data: subareas = [] } = useSubareas(destino.area_id);
+  const { data: etapas = [] } = useEtapasConcreto(userProfile?.organizacao_id ?? undefined);
 
   return (
     <div className="grid gap-3 sm:grid-cols-6 items-end rounded-md border p-3">
@@ -49,7 +53,7 @@ export function DestinoRow({
         <Combobox
           options={setores.map((s) => ({ value: s.id, label: s.nome }))}
           value={destino.setor_id}
-          onChange={(v) => onChange({ ...destino, setor_id: v, area_id: null, subarea_id: null })}
+          onChange={(v) => onChange({ ...destino, setor_id: v, area_id: null })}
           placeholder="Setor"
         />
       </div>
@@ -58,7 +62,7 @@ export function DestinoRow({
         <Combobox
           options={areas.map((a) => ({ value: a.id, label: a.nome }))}
           value={destino.area_id}
-          onChange={(v) => onChange({ ...destino, area_id: v, subarea_id: null })}
+          onChange={(v) => onChange({ ...destino, area_id: v })}
           placeholder={destino.setor_id ? "Área" : "Setor primeiro"}
           disabled={!destino.setor_id}
         />
@@ -66,11 +70,10 @@ export function DestinoRow({
       <div className="space-y-1.5 sm:col-span-1">
         <Label className="text-xs text-muted-foreground">Etapa</Label>
         <Combobox
-          options={subareas.map((s) => ({ value: s.id, label: s.nome }))}
-          value={destino.subarea_id}
-          onChange={(v) => onChange({ ...destino, subarea_id: v })}
-          placeholder={destino.area_id ? "Etapa" : "Área primeiro"}
-          disabled={!destino.area_id}
+          options={etapas.map((e) => ({ value: e.id, label: e.nome }))}
+          value={destino.etapa_concreto_id}
+          onChange={(v) => onChange({ ...destino, etapa_concreto_id: v })}
+          placeholder="Etapa"
         />
       </div>
       <div className="space-y-1.5 sm:col-span-1">

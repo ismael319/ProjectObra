@@ -9,7 +9,7 @@ import {
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog, FileText,
-  Truck, Upload, LineChart,
+  Truck, LineChart, Database,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -74,7 +74,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
         { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
         { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
-        { icon: Upload, label: 'Importar histórico', path: '/dashboard/qualidade/concreto/importar-historico' },
+        { icon: Database, label: 'Dados', path: '/dashboard/qualidade/concreto/importar-historico' },
       ],
     },
   ] : []

@@ -5,7 +5,7 @@ export type DestinoRow = {
   quantidade_m3_aplicada: number;
   observacao: string | null;
   areas: { nome: string } | null;
-  subareas: { nome: string } | null;
+  etapa_concreto: { nome: string } | null;
 };
 
 export type CargaRow = {
@@ -26,7 +26,7 @@ export type CargaRow = {
 const CARGA_SELECT = `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
   fornecedores_concreto(nome),
   tracos_concreto(nome, fck_mpa),
-  destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), subareas(nome))`;
+  destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`;
 
 // Busca TODAS as cargas da organização, sem filtro nem paginação — usada só pelo
 // botão "Exportar tudo" (o banco completo, não o recorte filtrado da tela). Pagina
@@ -53,19 +53,34 @@ function formatBR(isoDate: string): string {
   return `${d}/${m}/${y}`;
 }
 
-function destinosTexto(destinos: DestinoRow[]): string {
+// Uma carga pode ter mais de um destino (dividida entre áreas) — cada campo
+// abaixo junta os N destinos com "; ", mantendo a mesma ordem em todos, pra
+// dar pra cruzar Projeto[i]/Etapa[i]/Observações[i] entre colunas na planilha.
+function destinosCampo(destinos: DestinoRow[], extrair: (d: DestinoRow) => string): string {
   if (destinos.length === 0) return "";
-  return destinos
-    .map((d) => {
-      const local = `${d.areas?.nome ?? "Sem área"}${d.subareas?.nome ? ` / ${d.subareas.nome}` : ""}`;
-      return `${local} — ${d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³`;
-    })
-    .join("; ");
+  return destinos.map(extrair).join("; ");
+}
+
+function destinosTexto(destinos: DestinoRow[]): string {
+  return destinosCampo(destinos, (d) => `${d.areas?.nome ?? "Sem área"} — ${d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³`);
+}
+
+function projetosTexto(destinos: DestinoRow[]): string {
+  return destinosCampo(destinos, (d) => d.areas?.nome ?? "Sem área");
+}
+
+function etapasTexto(destinos: DestinoRow[]): string {
+  return destinosCampo(destinos, (d) => d.etapa_concreto?.nome ?? "");
+}
+
+function observacoesTexto(destinos: DestinoRow[]): string {
+  return destinosCampo(destinos, (d) => d.observacao ?? "");
 }
 
 const HEADERS = [
   "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
-  "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "VALIDADO", "LANÇADO POR",
+  "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "PROJETO", "ETAPA", "OBSERVAÇÕES",
+  "VALIDADO", "LANÇADO POR",
 ];
 
 function autoSizeFromRows(rows: (string | number)[][]) {
@@ -96,6 +111,9 @@ export async function buildCargasConcretoWorkbook(rows: CargaRow[]): Promise<Wor
       r.peso_balanca_kg ?? "",
       r.preco_total ?? "",
       destinosTexto(r.destinos_carga),
+      projetosTexto(r.destinos_carga),
+      etapasTexto(r.destinos_carga),
+      observacoesTexto(r.destinos_carga),
       r.validado ? "Sim" : "Não",
       r.criado_por_nome ?? "",
     ]);

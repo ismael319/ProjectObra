@@ -21,6 +21,12 @@ export type FornecedorConcreto = {
   ativo: boolean;
 };
 
+export type EtapaConcreto = {
+  id: string;
+  nome: string;
+  ativo: boolean;
+};
+
 export type TracoConcreto = {
   id: string;
   nome: string;
@@ -49,6 +55,29 @@ export function useFornecedoresConcreto(organizacaoId?: string, onlyActive = tru
     enabled: !!organizacaoId,
     ...OFFLINE_CATALOG_OPTS,
   });
+}
+
+// Etapa de aplicação do concreto (RADIER, PILAR, LAJE...) — catálogo próprio
+// por organização, independente de Área/Setor (ver 20260806010000_etapas-
+// concreto-migration.sql pro porquê disso substituir a antiga cascata
+// Setor→Área→Etapa que reaproveitava subareas do Apontamento).
+export function useEtapasConcreto(organizacaoId?: string, onlyActive = true) {
+  return useQuery({
+    queryKey: ["etapas_concreto", organizacaoId, onlyActive],
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:etapas_concreto:${organizacaoId}:${onlyActive}`, async () => {
+        let q = supabase.from("etapas_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as EtapaConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
+    enabled: !!organizacaoId,
+    ...OFFLINE_CATALOG_OPTS,
+  });
+}
+
+export async function seedEtapasConcretoPadrao(organizacaoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_etapas_concreto_padrao", { p_organizacao_id: organizacaoId });
+  if (error) throw new Error(error.message);
 }
 
 export function useTracosConcreto(organizacaoId?: string, onlyActive = true) {

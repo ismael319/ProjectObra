@@ -1,13 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  parseNumeroPtBr,
-  parseDataDDMMAA,
-  classificarUsina,
-  normalizarEtapa,
-  foldarPlurais,
-  parseBDConcreto,
-  agruparEmCargas,
-} from "./importer";
+import { parseNumeroPtBr, parseCargasConcreto } from "./importer";
 import type { LinhaTabela } from "@/lib/administracao/parse-shared";
 
 describe("parseNumeroPtBr", () => {
@@ -25,176 +17,164 @@ describe("parseNumeroPtBr", () => {
   });
 });
 
-describe("parseDataDDMMAA", () => {
-  it("converte DD/MM/AA pra ISO assumindo 20XX", () => {
-    expect(parseDataDDMMAA("07/08/25")).toBe("2025-08-07");
-    expect(parseDataDDMMAA("28/07/26")).toBe("2026-07-28");
-  });
-  it("rejeita data inválida", () => {
-    expect(parseDataDDMMAA("32/13/25")).toBeNull();
-    expect(parseDataDDMMAA("abc")).toBeNull();
-  });
-});
-
-describe("classificarUsina", () => {
-  it("reconhece a usina própria mesmo com variação de espaço", () => {
-    expect(classificarUsina("728 / 729 - FS CNP")).toBe("propria");
-  });
-  it("reconhece o fornecedor externo mesmo com espaço duplo", () => {
-    expect(classificarUsina("RIO DO SANGUE")).toBe("externa");
-    expect(classificarUsina("RIO  DO SANGUE")).toBe("externa");
-  });
-  it("retorna null pra usina desconhecida ou vazia", () => {
-    expect(classificarUsina("")).toBeNull();
-    expect(classificarUsina(null)).toBeNull();
-    expect(classificarUsina("OUTRA USINA")).toBeNull();
-  });
-});
-
-describe("normalizarEtapa", () => {
-  it("corrige acento faltando sem mudar o conceito", () => {
-    expect(normalizarEtapa("ESTACA FUNDAÇAO")).toBe("ESTACA FUNDAÇÃO");
-    expect(normalizarEtapa("PISO INCLNADO")).toBe("PISO INCLINADO");
-  });
-  it("unifica hífen/espaço em PRÉ-MOLDADO sem tocar em outras palavras", () => {
-    expect(normalizarEtapa("PRÉ MOLDADO")).toBe("PRÉ-MOLDADO");
-    expect(normalizarEtapa("PRÉ - MOLDADO")).toBe("PRÉ-MOLDADO");
-    expect(normalizarEtapa("PRÉ MOLDADOS")).toBe("PRÉ-MOLDADO");
-  });
-  it("não funde conceitos diferentes", () => {
-    expect(normalizarEtapa("PISO")).not.toBe(normalizarEtapa("PISO INCLINADO"));
-    expect(normalizarEtapa("ESTACA")).not.toBe(normalizarEtapa("ESTACA FUNDAÇÃO"));
-  });
-  it("retorna null pra vazio", () => {
-    expect(normalizarEtapa("")).toBeNull();
-    expect(normalizarEtapa(null)).toBeNull();
-  });
-});
-
-describe("foldarPlurais", () => {
-  it("funde plural simples só quando o singular também existe no conjunto", () => {
-    const fold = foldarPlurais(["BLOCO", "BLOCOS", "VIGA", "PAREDE"]);
-    expect(fold.get("BLOCOS")).toBe("BLOCO");
-    expect(fold.has("VIGA")).toBe(false);
-  });
-  it("não funde plural terminado em ÕES", () => {
-    const fold = foldarPlurais(["FUNDAÇÃO", "FUNDAÇÕES"]);
-    expect(fold.has("FUNDAÇÕES")).toBe(false);
-  });
-});
-
-// ---------- fixture no formato de LinhaTabela (mesmo shape de lerArquivoComoLinhas) ----------
+// ---------- fixture no formato exportado por excel-export.ts ----------
 const HEADER: LinhaTabela = [
-  "Data", "Ano", "Mês", "Semana Ano", "Cimento (KG)", "BRITA 00 mm ( KG)", "BRITA 01 mm (KG)",
-  "PO DE BRITA (KG)", "AREIA (KG)", "AGUA (L)", "ADITIVO EUCON (L)", "ADITIVO PLASTOL  (L)", "Coluna1",
-  "Peso Bruto (KG)", "USINA", "Número da Carga", "Peso Da Balança (KG)", "Quantidade (M³)", "MPA ",
-  "PROJETO", "APLICAÇÃO NA ETAPA DA OBRA", " PREÇO UNT ", " PREÇO TOTAL ", "OBSERVAÇÕES",
+  "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
+  "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "PROJETO", "ETAPA", "OBSERVAÇÕES",
+  "VALIDADO", "LANÇADO POR",
 ];
 
 function linha(over: Partial<Record<
-  "data" | "usina" | "numeroCarga" | "pesoBalanca" | "quantidade" | "mpa" | "projeto" | "etapa" | "precoUnt" | "obs",
+  "data" | "fornecedor" | "origem" | "numeroCarga" | "traco" | "quantidade" | "pesoBalanca" | "precoTotal" | "destino" | "projeto" | "etapa" | "obs" | "validado" | "lancadoPor",
   string
 >>): LinhaTabela {
-  const l: LinhaTabela = new Array(24).fill("");
-  l[0] = over.data ?? "12/08/25";
-  l[14] = over.usina ?? "RIO DO SANGUE";
-  l[15] = over.numeroCarga ?? "1";
-  l[16] = over.pesoBalanca ?? "14.939,04";
-  l[17] = over.quantidade ?? "8,00";
-  l[18] = over.mpa ?? "CONCRETO FCK 15";
-  l[19] = over.projeto ?? "MOBILIZAÇÃO";
-  l[20] = over.etapa ?? "RADIER CANTEIRO";
-  l[21] = over.precoUnt ?? " R$ 378,90 ";
-  l[23] = over.obs ?? "";
-  return l;
+  return [
+    over.data ?? "12/08/2025",
+    over.fornecedor ?? "RIO DO SANGUE",
+    over.origem ?? "Externa",
+    over.numeroCarga ?? "1",
+    over.traco ?? "CONCRETO FCK 15",
+    "15",
+    over.quantidade ?? "8,00",
+    over.pesoBalanca ?? "",
+    over.precoTotal ?? "3031,20",
+    over.destino ?? "MOBILIZAÇÃO — 8m³",
+    over.projeto ?? "MOBILIZAÇÃO",
+    over.etapa ?? "RADIER CANTEIRO",
+    over.obs ?? "",
+    over.validado ?? "Sim",
+    over.lancadoPor ?? "Importação",
+  ];
 }
 
 function montarArquivo(linhas: LinhaTabela[]): LinhaTabela[] {
-  return [[";;;;;;;;;;;;;;;;;;;Imagem;;;;;;;;;;;;;;;"], HEADER, ...linhas, new Array(24).fill(""), new Array(24).fill("")];
+  return [HEADER, ...linhas];
 }
 
-describe("parseBDConcreto", () => {
-  it("pula o banner, acha o cabeçalho real e ignora linhas em branco no fim", () => {
-    const r = parseBDConcreto(montarArquivo([linha({})]));
+describe("parseCargasConcreto", () => {
+  it("acha o cabeçalho e converte cada linha numa carga", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({})]));
     expect(r.problemas).toHaveLength(0);
-    expect(r.linhas).toHaveLength(1);
+    expect(r.cargas).toHaveLength(1);
+    const c = r.cargas[0]!;
+    expect(c.data).toBe("2025-08-12");
+    expect(c.fornecedorNome).toBe("RIO DO SANGUE");
+    expect(c.tipoOrigem).toBe("externa");
+    expect(c.tracoNome).toBe("CONCRETO FCK 15");
+    expect(c.quantidadeM3).toBe(8);
+    expect(c.destinos).toHaveLength(1);
   });
 
-  it("classifica tipo_origem e reporta problema pra usina desconhecida/vazia", () => {
-    const r = parseBDConcreto(montarArquivo([linha({ usina: "" }), linha({ usina: "OUTRA COISA" })]));
-    expect(r.linhas).toHaveLength(0);
-    expect(r.problemas).toHaveLength(2);
+  it("aceita ano com 2 dígitos (Excel reformatou a data ao reabrir/editar o arquivo exportado)", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ data: "12/08/25" })]));
+    expect(r.problemas).toHaveLength(0);
+    expect(r.cargas[0]!.data).toBe("2025-08-12");
   });
 
-  it("reporta problema pra MPA não reconhecido", () => {
-    const r = parseBDConcreto(montarArquivo([linha({ mpa: "CONCRETO FCK 999" })]));
-    expect(r.linhas).toHaveLength(0);
+  it("rejeita data com dia ou mês fora de faixa em vez de gerar uma data impossível", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ data: "32/13/2025" })]));
+    expect(r.cargas).toHaveLength(0);
+    expect(r.problemas[0]?.descricao).toContain("Data inválida");
+  });
+
+  it('recupera a data quando o Excel reformata a célula em ordem americana (pegadinha do SheetJS: célula mostra "29/07/2026" mas chega como texto "7/29/26")', () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ data: "7/29/26" })]));
+    expect(r.problemas).toHaveLength(0);
+    expect(r.cargas[0]!.data).toBe("2026-07-29");
+  });
+
+  it("mantém a ordem dia/mês quando os dois valores são ambíguos (≤12)", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ data: "05/08/2026" })]));
+    expect(r.cargas[0]!.data).toBe("2026-08-05");
+  });
+
+  it("reporta colunas obrigatórias faltando quando o arquivo não segue o formato esperado", () => {
+    const headerIncompleto: LinhaTabela = ["DATA", "ALGO"];
+    const r = parseCargasConcreto([headerIncompleto, ["12/08/2025", "x"]]);
+    expect(r.cargas).toHaveLength(0);
+    expect(r.problemas[0]?.descricao).toContain("Colunas não encontradas");
+  });
+
+  it("reporta problema pra Origem não reconhecida", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ origem: "Sei lá" })]));
+    expect(r.cargas).toHaveLength(0);
+    expect(r.problemas[0]?.descricao).toContain("Origem");
+  });
+
+  it("reporta problema pra Quantidade inválida", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ quantidade: "0" })]));
+    expect(r.cargas).toHaveLength(0);
+    expect(r.problemas[0]?.descricao).toContain("Quantidade");
+  });
+
+  it("reporta problema pra Traço em branco", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ traco: "" })]));
+    expect(r.cargas).toHaveLength(0);
     expect(r.problemas[0]?.descricao).toContain("Traço");
   });
 
-  it("aplica o fold de etapa (typo de acento) e o fold de plural entre linhas diferentes", () => {
-    const r = parseBDConcreto(montarArquivo([
-      linha({ etapa: "BLOCO FUNDAÇAO" }),
-      linha({ etapa: "BLOCO" }),
-      linha({ etapa: "BLOCOS" }),
-    ]));
-    expect(r.linhas[0]!.etapaNorm).toBe("BLOCO FUNDAÇÃO");
-    expect(r.linhas[1]!.etapaNorm).toBe("BLOCO");
-    expect(r.linhas[2]!.etapaNorm).toBe("BLOCO"); // BLOCOS dobrado em BLOCO
-  });
-});
-
-describe("agruparEmCargas", () => {
-  it("agrupa linhas com mesma Data+Usina+Número da Carga e divide a quantidade entre os destinos", () => {
-    const r = parseBDConcreto(montarArquivo([
-      linha({ numeroCarga: "1", projeto: "MOBILIZAÇÃO", etapa: "RADIER CANTEIRO", obs: "Bloco A" }),
-      linha({ numeroCarga: "1", projeto: "ARMAZÉM 01", etapa: "ESTACA FUNDAÇÃO", obs: "Bloco B" }),
-    ]));
-    const { cargas, problemas } = agruparEmCargas(r.linhas);
-    expect(problemas).toHaveLength(0);
-    expect(cargas).toHaveLength(1);
-    const carga = cargas[0]!;
-    expect(carga.destinos).toHaveLength(2);
-    expect(carga.destinos[0]!.quantidadeM3Aplicada).toBeCloseTo(4);
-    expect(carga.destinos[1]!.quantidadeM3Aplicada).toBeCloseTo(4);
-    expect(carga.destinos[0]!.observacao).toBe("Bloco A");
-    expect(carga.destinos[1]!.projetoRaw).toBe("ARMAZÉM 01");
+  it("reporta problema quando não há Projeto (destino) informado", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({ projeto: "" })]));
+    expect(r.cargas).toHaveLength(0);
+    expect(r.problemas[0]?.descricao).toContain("Projeto");
   });
 
-  it("não agrupa linhas sem Número da Carga — cada uma vira sua própria carga", () => {
-    const r = parseBDConcreto(montarArquivo([
-      linha({ numeroCarga: "" }),
-      linha({ numeroCarga: "" }),
+  it("divide a carga em vários destinos quando PROJETO/ETAPA/OBSERVAÇÕES têm vários trechos separados por ;", () => {
+    const r = parseCargasConcreto(montarArquivo([
+      linha({ quantidade: "10,00", projeto: "MOBILIZAÇÃO; ARMAZÉM 01", etapa: "RADIER; ESTACA FUNDAÇÃO", obs: "Bloco A; Bloco B" }),
     ]));
-    const { cargas } = agruparEmCargas(r.linhas);
-    expect(cargas).toHaveLength(2);
-    expect(cargas[0]!.destinos).toHaveLength(1);
+    expect(r.problemas).toHaveLength(0);
+    const c = r.cargas[0]!;
+    expect(c.destinos).toHaveLength(2);
+    expect(c.destinos[0]!.projetoRaw).toBe("MOBILIZAÇÃO");
+    expect(c.destinos[0]!.etapaNorm).toBe("RADIER");
+    expect(c.destinos[0]!.observacao).toBe("Bloco A");
+    expect(c.destinos[0]!.quantidadeM3Aplicada).toBeCloseTo(5);
+    expect(c.destinos[1]!.projetoRaw).toBe("ARMAZÉM 01");
+    expect(c.destinos[1]!.etapaNorm).toBe("ESTACA FUNDAÇÃO");
+    expect(c.destinos[1]!.observacao).toBe("Bloco B");
+    expect(c.destinos[1]!.quantidadeM3Aplicada).toBeCloseTo(5);
   });
 
-  it("sinaliza problema quando quantidade diverge entre linhas do mesmo grupo, mas ainda importa", () => {
-    const r = parseBDConcreto(montarArquivo([
-      linha({ numeroCarga: "5", quantidade: "8,00" }),
-      linha({ numeroCarga: "5", quantidade: "7,00" }),
+  it("usa o volume de cada trecho de DESTINO(S) em vez de dividir a quantidade igualmente, quando o número de trechos bate com PROJETO", () => {
+    const r = parseCargasConcreto(montarArquivo([
+      linha({
+        quantidade: "10,00",
+        projeto: "MOBILIZAÇÃO; ARMAZÉM 01",
+        etapa: "RADIER; ESTACA FUNDAÇÃO",
+        destino: "MOBILIZAÇÃO — 7,5m³; ARMAZÉM 01 — 2,5m³",
+      }),
     ]));
-    const { cargas, problemas } = agruparEmCargas(r.linhas);
-    expect(cargas).toHaveLength(1);
-    expect(problemas.length).toBeGreaterThan(0);
+    expect(r.problemas).toHaveLength(0);
+    const c = r.cargas[0]!;
+    expect(c.destinos[0]!.quantidadeM3Aplicada).toBeCloseTo(7.5);
+    expect(c.destinos[1]!.quantidadeM3Aplicada).toBeCloseTo(2.5);
   });
 
-  it("calcula computeCarga certo pra própria (perda) e externa (preço total)", () => {
-    const r = parseBDConcreto(montarArquivo([
-      linha({ usina: "728 / 729 - FS CNP", numeroCarga: "1", mpa: "CONCRETO FCK 30", quantidade: "8,00", pesoBalanca: "14.944,00" }),
-      linha({ usina: "RIO DO SANGUE", numeroCarga: "2", mpa: "CONCRETO FCK 15", quantidade: "5,00", precoUnt: " R$ 378,90 " }),
+  it("cai pra divisão igual quando DESTINO(S) não bate em quantidade de trechos com PROJETO", () => {
+    const r = parseCargasConcreto(montarArquivo([
+      linha({
+        quantidade: "10,00",
+        projeto: "MOBILIZAÇÃO; ARMAZÉM 01",
+        destino: "MOBILIZAÇÃO — 8m³",
+      }),
     ]));
-    const { cargas } = agruparEmCargas(r.linhas);
-    const propria = cargas.find((c) => c.tipoOrigem === "propria")!;
-    const externa = cargas.find((c) => c.tipoOrigem === "externa")!;
+    const c = r.cargas[0]!;
+    expect(c.destinos[0]!.quantidadeM3Aplicada).toBeCloseTo(5);
+    expect(c.destinos[1]!.quantidadeM3Aplicada).toBeCloseTo(5);
+  });
 
-    expect(propria.computed.peso_bruto_teorico_kg).toBeCloseTo(293.75 * 8 + 265 * 8 + 805 * 8 + 795 * 8, 1);
-    expect(propria.computed.perda_kg).not.toBeNull();
-    expect(propria.computed.preco_total).toBeNull();
+  it('lê VALIDADO "Não" como false e qualquer outro valor (ou coluna ausente) como true', () => {
+    const r = parseCargasConcreto(montarArquivo([
+      linha({ numeroCarga: "1", validado: "Não" }),
+      linha({ numeroCarga: "2", validado: "Sim" }),
+    ]));
+    expect(r.cargas[0]!.validado).toBe(false);
+    expect(r.cargas[1]!.validado).toBe(true);
+  });
 
-    expect(externa.computed.preco_total).toBeCloseTo(5 * 378.9, 2);
-    expect(externa.computed.peso_bruto_teorico_kg).toBeNull();
+  it("ignora linhas em branco e cabeçalho repetido", () => {
+    const r = parseCargasConcreto(montarArquivo([linha({}), ["", "", "", "", "", "", "", "", "", "", "", "", "", "", ""], HEADER]));
+    expect(r.cargas).toHaveLength(1);
   });
 });

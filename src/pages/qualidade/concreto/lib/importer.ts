@@ -1,19 +1,22 @@
-// Importação histórica da planilha "BDConcreto" (Excel/CSV legado da usina).
+// Importação de cargas de concreto — o arquivo importado segue exatamente o
+// mesmo formato de colunas do "Exportar tudo" (excel-export.ts), fechando o
+// ciclo exportar → editar em Excel → reimportar. Cada LINHA do arquivo é uma
+// CARGA inteira (não um destino por linha) — uma carga com vários destinos
+// junta PROJETO/ETAPA/OBSERVAÇÕES com "; ", um trecho por destino, na mesma
+// ordem (mesma lógica de excel-export.ts's destinosCampo()).
 //
-// Só transformação pura aqui (parse, normalização, agrupamento) — nada de
-// Supabase. As buscas/gravações reais ficam em importer-db.ts, que consome
-// o resultado de parseBDConcreto()/agruparEmCargas() daqui.
+// Só transformação pura aqui (parse, normalização) — nada de Supabase. As
+// buscas/gravações reais ficam em importer-db.ts, que consome o resultado de
+// parseCargasConcreto() daqui.
 
 import { normalizarTexto, encontrarColuna, type LinhaTabela } from "@/lib/administracao/parse-shared";
-import { computeCarga, type TracoConsumo } from "./concreto-utils";
 
-// ---------- Traços canônicos (aba "Traço" da planilha, os 6 fck usados) ----------
-// Valores conferidos linha a linha contra a aba Traço; usados pra (re)criar o
-// cadastro de tracos_concreto na organização caso ainda não exista, e pra
-// casar cada carga da BDConcreto com o traço certo via MPA. Não derivamos
-// esses consumos das colunas de Cimento/Brita/etc. da própria BDConcreto
-// porque elas têm outliers de digitação (conferido: FCK25 própria chega a
-// variar de 275 a 5772 kg/m³ de cimento em algumas linhas).
+// ---------- Traços canônicos (seed inicial do cadastro de Traços) ----------
+// Valores conferidos linha a linha contra a aba Traço da BDConcreto original;
+// usados só pra garantir que toda organização nova já tenha esses 6 traços
+// cadastrados (ver seedTracosCanonicos em importer-db.ts) — o traço de cada
+// carga importada é resolvido pelo NOME contra o cadastro de Traços da
+// organização (canônico ou próprio), nunca inventado a partir do arquivo.
 export type TracoCanonico = {
   nome: string;
   fckMpa: number;
@@ -37,58 +40,6 @@ export const TRACOS_CANONICOS: TracoCanonico[] = [
   { nome: "CONCRETO FCK 40 PRÉ-MOLDADO", fckMpa: 40, consumo_cimento_kg_m3: 368.75, consumo_brita00_kg_m3: 255, consumo_brita01_kg_m3: 790, consumo_po_brita_kg_m3: 0, consumo_areia_kg_m3: 810, consumo_agua_l_m3: 175, consumo_aditivo1_l_m3: 0.37, consumo_aditivo2_l_m3: 2.95, preco_unitario_m3: 503.63 },
 ];
 
-// ---------- Fornecedores canônicos ----------
-export const FORNECEDOR_PROPRIA_NOME = "728 / 729 - FS CNP";
-export const FORNECEDOR_EXTERNA_NOME = "RIO DO SANGUE";
-
-export function classificarUsina(usinaRaw: string | null): "propria" | "externa" | null {
-  const s = normalizarTexto(usinaRaw ?? "");
-  if (s.includes("FS CNP")) return "propria";
-  if (s.includes("RIO DO SANGUE")) return "externa";
-  return null;
-}
-
-// ---------- Normalização mecânica de Etapa (texto livre da coluna U) ----------
-// Só corrige grafia (espaço/acento/hífen/plural simples) — nunca funde
-// conceitos diferentes (ex.: "PISO" continua separado de "PISO INCLINADO").
-const ACCENT_FIX: [RegExp, string][] = [
-  [/\bFUNDA[CÇ]AO\b/g, "FUNDAÇÃO"],
-  [/\bCONTEN[CÇ]AO\b/g, "CONTENÇÃO"],
-  [/\bEMERG[EÊ]NCIA\b/g, "EMERGÊNCIA"],
-  [/\bINCL[NIJ]?NADO\b/g, "INCLINADO"],
-  [/\bINCLJNADO\b/g, "INCLINADO"],
-  [/\bINCLIADO\b/g, "INCLINADO"],
-  [/\bA?ER[AÇ]{1,2}[OÕ]ES\b/g, "AERAÇÕES"],
-  [/\bA?ERA[CÇ][AÃ]O\b/g, "AERAÇÃO"],
-  [/\bEXTRA[CÇ][AÃ]O\b/g, "EXTRAÇÃO"],
-  [/\bCLASSIFICA[CÇ][AÃ]O\b/g, "CLASSIFICAÇÃO"],
-];
-
-export function normalizarEtapa(raw: string | null): string | null {
-  if (raw == null) return null;
-  let s = String(raw).trim();
-  if (s === "") return null;
-  s = s.replace(/\s+/g, " ").toUpperCase();
-  for (const [re, rep] of ACCENT_FIX) s = s.replace(re, rep);
-  s = s.replace(/\bPR[EÉ]\s*-?\s*MOLDADOS?\b/g, "PRÉ-MOLDADO");
-  s = s.replace(/\s*-\s*/g, (m, offset: number, str: string) => (str.slice(0, offset).endsWith("PRÉ") ? "-" : " "));
-  s = s.replace(/\s+/g, " ").trim();
-  return s === "" ? null : s;
-}
-
-/** Funde plural simples (S final) com o singular já visto, quando ambos existem. */
-export function foldarPlurais(valores: string[]): Map<string, string> {
-  const set = new Set(valores);
-  const foldFor = new Map<string, string>();
-  for (const v of set) {
-    if (v.endsWith("S") && !v.endsWith("ÕES")) {
-      const singular = v.slice(0, -1);
-      if (set.has(singular)) foldFor.set(v, singular);
-    }
-  }
-  return foldFor;
-}
-
 // ---------- Parsing numérico pt-BR ----------
 export function parseNumeroPtBr(raw: string | null | undefined): number | null {
   if (raw == null) return null;
@@ -100,88 +51,184 @@ export function parseNumeroPtBr(raw: string | null | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-// ---------- Data DD/MM/AA -> ISO ----------
-export function parseDataDDMMAA(raw: string | null | undefined): string | null {
-  if (raw == null) return null;
-  const m = String(raw).trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+// ---------- Data ----------
+// O DATA exportado é sempre "DD/MM/AAAA" (texto, 4 dígitos de ano — ver
+// formatBR/HEADERS em excel-export.ts). Mas o arquivo pode ter sido reaberto
+// no Excel entre exportar e reimportar, e a célula de texto vira uma data de
+// verdade sem eu ter como evitar (Excel faz isso sozinho ao só abrir/tocar
+// numa coluna que "parece" data). Isso dispara uma pegadinha conhecida do
+// SheetJS: ao ler (raw:false) uma célula de data com o formato genérico
+// "Data Curta" (numFmtId 14), ele SEMPRE devolve o texto em ordem americana
+// M/D/AA — mesmo quando o Excel EXIBE a mesma célula em dd/mm/aaaa (locale
+// pt-BR). Não é o usuário digitando errado: é a biblioteca de leitura
+// ignorando o locale do arquivo. Exemplo real: célula mostra "29/07/2026" no
+// Excel, mas chega aqui como texto "7/29/26".
+//
+// Por isso a ordem dia/mês só é assumida quando os dois valores permitem
+// (≤12 e ≤31 nas posições certas); quando só uma ordem é matematicamente
+// possível (ex.: "7/29/26", 29 não pode ser mês), usa essa — cobre a
+// pegadinha do SheetJS sem quebrar o caso comum. Também aceita ano de 2 ou 4
+// dígitos e cai pro serial do Excel como último recurso.
+function parseDataImportada(raw: string | undefined): string | null {
+  const v = (raw ?? "").trim();
+  if (v === "") return null;
+
+  if (/^\d{4,6}$/.test(v)) {
+    const serial = parseInt(v, 10);
+    if (serial > 20000 && serial < 80000) {
+      const ms = Date.UTC(1899, 11, 30) + serial * 86400 * 1000;
+      const d = new Date(ms);
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+    }
+  }
+
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
   if (!m) return null;
-  const [, ddS, mmS, aaS] = m as unknown as [string, string, string, string];
-  const dia = Number(ddS);
-  const mes = Number(mmS);
-  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return null;
-  const ano = aaS.length === 2 ? 2000 + Number(aaS) : Number(aaS);
-  return `${ano}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
+  const [, aS, bS, anoS] = m as unknown as [string, string, string, string];
+  const a = Number(aS);
+  const b = Number(bS);
+  const ano = anoS.length === 2 ? 2000 + Number(anoS) : Number(anoS);
+
+  if (a >= 1 && a <= 31 && b >= 1 && b <= 12) {
+    return `${ano}-${String(b).padStart(2, "0")}-${String(a).padStart(2, "0")}`; // a=dia, b=mês
+  }
+  if (b >= 1 && b <= 31 && a >= 1 && a <= 12) {
+    return `${ano}-${String(a).padStart(2, "0")}-${String(b).padStart(2, "0")}`; // a=mês, b=dia
+  }
+  return null;
 }
 
 // ---------- Header/linhas reais ----------
+// Mesmos rótulos usados por HEADERS em excel-export.ts — encontrarColuna já
+// ignora acento/maiúscula/minúscula na comparação.
 const COLUNAS = {
-  data: ["Data"],
-  usina: ["USINA"],
-  numeroCarga: ["Número da Carga", "Numero da Carga"],
-  pesoBalanca: ["Peso Da Balança", "Peso Balança"],
-  quantidade: ["Quantidade"],
-  mpa: ["MPA"],
+  data: ["DATA"],
+  fornecedor: ["FORNECEDOR"],
+  origem: ["ORIGEM"],
+  numeroCarga: ["Nº CARGA", "N CARGA", "NUMERO DA CARGA", "N° CARGA"],
+  traco: ["TRAÇO", "TRACO"],
+  quantidade: ["QTD (m³)", "QTD (M3)", "QUANTIDADE"],
+  pesoBalanca: ["PESO BALANÇA (kg)", "PESO BALANCA (KG)"],
+  precoTotal: ["PREÇO TOTAL", "PRECO TOTAL"],
+  destino: ["DESTINO(S)", "DESTINO"],
   projeto: ["PROJETO"],
-  etapa: ["APLICAÇÃO NA ETAPA DA OBRA", "APLICACAO NA ETAPA DA OBRA"],
-  precoUnt: ["PREÇO UNT", "PRECO UNT"],
+  etapa: ["ETAPA"],
   observacoes: ["OBSERVAÇÕES", "OBSERVACOES"],
-};
+  validado: ["VALIDADO"],
+  lancadoPor: ["LANÇADO POR", "LANCADO POR"],
+} as const;
+
+// Colunas sem as quais não dá pra resolver a carga — as demais (Nº carga,
+// peso balança, preço total, observações, validado, lançado por) são
+// opcionais e ficam null/default quando ausentes.
+const COLUNAS_OBRIGATORIAS = ["data", "fornecedor", "origem", "traco", "quantidade", "projeto", "etapa"] as const;
 
 export type Problema = { linha: number; descricao: string };
 
-export type LinhaBDConcreto = {
-  linha: number; // 1-based, posição no arquivo original (pra mensagens de erro)
-  data: string; // ISO
-  usinaRaw: string;
-  tipoOrigem: "propria" | "externa";
-  numeroCarga: string | null;
-  quantidadeM3: number;
-  pesoBalancaKg: number | null;
-  mpaRaw: string;
-  tracoNome: string;
-  projetoRaw: string;
-  etapaNorm: string | null;
-  precoUnitario: number | null;
-  observacoes: string;
+export type DestinoImportado = {
+  projetoRaw: string; // -> vira area_id na resolução (importer-db.ts)
+  etapaNorm: string | null; // -> vira etapa_concreto_id
+  quantidadeM3Aplicada: number;
+  observacao: string;
 };
 
-export type ResultadoParseBDConcreto = {
-  linhas: LinhaBDConcreto[];
+export type CargaImportada = {
+  linha: number; // 1-based, posição no arquivo original (pra mensagens de erro)
+  data: string; // ISO
+  fornecedorNome: string;
+  tipoOrigem: "propria" | "externa";
+  numeroCarga: string | null;
+  tracoNome: string;
+  quantidadeM3: number;
+  pesoBalancaKg: number | null;
+  precoTotal: number | null;
+  validado: boolean;
+  lancadoPorNome: string | null;
+  destinos: DestinoImportado[];
+};
+
+export type ResultadoParseCargas = {
+  cargas: CargaImportada[];
   problemas: Problema[];
   totalLinhasArquivo: number;
 };
 
+function splitCampo(raw: string | undefined): string[] {
+  const s = (raw ?? "").trim();
+  if (s === "") return [];
+  return s.split(";").map((v) => v.trim());
+}
+
+function classificarOrigem(raw: string | undefined): "propria" | "externa" | null {
+  const n = normalizarTexto(raw ?? "");
+  if (n === "PROPRIA") return "propria";
+  if (n === "EXTERNA") return "externa";
+  return null;
+}
+
+// DESTINO(S) traz "Área — volume m³" por trecho (mesmo formato de
+// destinosTexto() em excel-export.ts) — cruza cada trecho com o Projeto na
+// mesma posição pra recuperar o volume real de cada destino, em vez de
+// sempre dividir a quantidade da carga em partes iguais. Só usa esse volume
+// quando o número de trechos bate exatamente com o número de Projetos e
+// todo trecho tem um volume reconhecível; qualquer divergência (coluna
+// ausente, editada à mão de forma incompatível) cai de volta pra divisão
+// igual, sem travar a importação.
+function parseVolumesDestino(raw: string | undefined, esperado: number): number[] | null {
+  const s = (raw ?? "").trim();
+  if (s === "") return null;
+  const partes = s.split(";").map((v) => v.trim());
+  if (partes.length !== esperado) return null;
+
+  const volumes: number[] = [];
+  for (const parte of partes) {
+    const m = parte.match(/—\s*([\d.,]+)\s*m³\s*$/);
+    if (!m) return null;
+    const vol = parseNumeroPtBr(m[1]);
+    if (vol == null) return null;
+    volumes.push(vol);
+  }
+  return volumes;
+}
+
 /**
- * Acha a linha de cabeçalho de verdade (a planilha tem uma linha "banner"
- * antes) e o fim dos dados reais (a exportação CSV do Excel arrasta até a
- * última linha da planilha, ~1 milhão de linhas em branco).
+ * Acha a linha de cabeçalho de verdade (procura a coluna "DATA") e lê cada
+ * linha seguinte como UMA carga completa. Uma carga com mais de um destino
+ * tem PROJETO/ETAPA/OBSERVAÇÕES com vários trechos separados por "; ", na
+ * mesma ordem — o volume de cada destino vem da coluna DESTINO(S) (formato
+ * "Área — Xm³", cruzado por posição com PROJETO); se essa coluna não existir
+ * ou não bater, cai pra dividir a quantidade da carga em partes iguais.
  */
-export function parseBDConcreto(todasLinhas: LinhaTabela[]): ResultadoParseBDConcreto {
+export function parseCargasConcreto(todasLinhas: LinhaTabela[]): ResultadoParseCargas {
   const headerIdx = todasLinhas.findIndex((l) => l.some((c) => normalizarTexto(c) === "DATA"));
   if (headerIdx === -1) {
-    return { linhas: [], problemas: [{ linha: 0, descricao: "Não encontrei a linha de cabeçalho (coluna 'Data')." }], totalLinhasArquivo: todasLinhas.length };
+    return { cargas: [], problemas: [{ linha: 0, descricao: 'Não encontrei a linha de cabeçalho (coluna "DATA").' }], totalLinhasArquivo: todasLinhas.length };
   }
   const header = todasLinhas[headerIdx]!;
 
   const idx = {
-    data: encontrarColuna(header, COLUNAS.data),
-    usina: encontrarColuna(header, COLUNAS.usina),
-    numeroCarga: encontrarColuna(header, COLUNAS.numeroCarga),
-    pesoBalanca: encontrarColuna(header, COLUNAS.pesoBalanca),
-    quantidade: encontrarColuna(header, COLUNAS.quantidade),
-    mpa: encontrarColuna(header, COLUNAS.mpa),
-    projeto: encontrarColuna(header, COLUNAS.projeto),
-    etapa: encontrarColuna(header, COLUNAS.etapa),
-    precoUnt: encontrarColuna(header, COLUNAS.precoUnt),
-    observacoes: encontrarColuna(header, COLUNAS.observacoes),
+    data: encontrarColuna(header, [...COLUNAS.data]),
+    fornecedor: encontrarColuna(header, [...COLUNAS.fornecedor]),
+    origem: encontrarColuna(header, [...COLUNAS.origem]),
+    numeroCarga: encontrarColuna(header, [...COLUNAS.numeroCarga]),
+    traco: encontrarColuna(header, [...COLUNAS.traco]),
+    quantidade: encontrarColuna(header, [...COLUNAS.quantidade]),
+    pesoBalanca: encontrarColuna(header, [...COLUNAS.pesoBalanca]),
+    precoTotal: encontrarColuna(header, [...COLUNAS.precoTotal]),
+    destino: encontrarColuna(header, [...COLUNAS.destino]),
+    projeto: encontrarColuna(header, [...COLUNAS.projeto]),
+    etapa: encontrarColuna(header, [...COLUNAS.etapa]),
+    observacoes: encontrarColuna(header, [...COLUNAS.observacoes]),
+    validado: encontrarColuna(header, [...COLUNAS.validado]),
+    lancadoPor: encontrarColuna(header, [...COLUNAS.lancadoPor]),
   };
 
-  const faltando = Object.entries(idx).filter(([, i]) => i === -1).map(([k]) => k);
+  const faltando = COLUNAS_OBRIGATORIAS.filter((k) => idx[k] === -1);
   if (faltando.length > 0) {
-    return { linhas: [], problemas: [{ linha: headerIdx + 1, descricao: `Colunas não encontradas: ${faltando.join(", ")}.` }], totalLinhasArquivo: todasLinhas.length };
+    return { cargas: [], problemas: [{ linha: headerIdx + 1, descricao: `Colunas não encontradas: ${faltando.join(", ")}. O arquivo precisa seguir o mesmo formato do "Exportar tudo".` }], totalLinhasArquivo: todasLinhas.length };
   }
 
-  const linhas: LinhaBDConcreto[] = [];
+  const cargas: CargaImportada[] = [];
   const problemas: Problema[] = [];
 
   for (let i = headerIdx + 1; i < todasLinhas.length; i++) {
@@ -190,16 +237,21 @@ export function parseBDConcreto(todasLinhas: LinhaTabela[]): ResultadoParseBDCon
     if (dataRaw === "" || normalizarTexto(dataRaw) === "DATA") continue; // linha em branco ou cabeçalho repetido
 
     const numeroLinha = i + 1;
-    const dataISO = parseDataDDMMAA(dataRaw);
+    const dataISO = parseDataImportada(dataRaw);
     if (!dataISO) {
       problemas.push({ linha: numeroLinha, descricao: `Data inválida: "${dataRaw}".` });
       continue;
     }
 
-    const usinaRaw = (row[idx.usina] ?? "").trim();
-    const tipoOrigem = classificarUsina(usinaRaw);
+    const fornecedorNome = (row[idx.fornecedor] ?? "").trim();
+    if (!fornecedorNome) {
+      problemas.push({ linha: numeroLinha, descricao: "Fornecedor em branco." });
+      continue;
+    }
+
+    const tipoOrigem = classificarOrigem(row[idx.origem]);
     if (!tipoOrigem) {
-      problemas.push({ linha: numeroLinha, descricao: `Usina não reconhecida: "${usinaRaw || "(vazio)"}".` });
+      problemas.push({ linha: numeroLinha, descricao: `Origem não reconhecida: "${row[idx.origem] || "(vazio)"}" (esperado "Própria" ou "Externa").` });
       continue;
     }
 
@@ -209,163 +261,55 @@ export function parseBDConcreto(todasLinhas: LinhaTabela[]): ResultadoParseBDCon
       continue;
     }
 
-    const mpaRaw = (row[idx.mpa] ?? "").trim();
-    const tracoNome = mpaRaw.toUpperCase();
-    const tracoConhecido = TRACOS_CANONICOS.some((t) => t.nome === tracoNome);
-    if (!tracoConhecido) {
-      problemas.push({ linha: numeroLinha, descricao: `Traço (MPA) não reconhecido: "${mpaRaw || "(vazio)"}".` });
+    const tracoNome = (row[idx.traco] ?? "").trim();
+    if (!tracoNome) {
+      problemas.push({ linha: numeroLinha, descricao: "Traço em branco." });
       continue;
     }
 
-    const numeroCarga = (row[idx.numeroCarga] ?? "").trim() || null;
-    const projetoRaw = (row[idx.projeto] ?? "").trim();
-    const etapaNorm = normalizarEtapa(row[idx.etapa] ?? "");
-    const precoUnitario = parseNumeroPtBr(row[idx.precoUnt]);
-    const pesoBalancaKg = parseNumeroPtBr(row[idx.pesoBalanca]);
-    const observacoes = (row[idx.observacoes] ?? "").trim();
+    const projetos = splitCampo(row[idx.projeto]);
+    if (projetos.length === 0) {
+      problemas.push({ linha: numeroLinha, descricao: "Nenhum Projeto (destino) informado." });
+      continue;
+    }
+    const etapas = splitCampo(row[idx.etapa]);
+    const observacoesTodas = idx.observacoes !== -1 ? splitCampo(row[idx.observacoes]) : [];
 
-    linhas.push({
-      linha: numeroLinha,
-      data: dataISO,
-      usinaRaw,
-      tipoOrigem,
-      numeroCarga,
-      quantidadeM3,
-      pesoBalancaKg,
-      mpaRaw,
-      tracoNome,
+    const volumesDestino = idx.destino !== -1 ? parseVolumesDestino(row[idx.destino], projetos.length) : null;
+    const partePorDestino = quantidadeM3 / projetos.length;
+    const destinos: DestinoImportado[] = projetos.map((projetoRaw, di) => ({
       projetoRaw,
-      etapaNorm,
-      precoUnitario,
-      observacoes,
-    });
-  }
-
-  // Fold de plural simples (BLOCO/BLOCOS etc.) — só dá pra decidir depois de
-  // ver o conjunto inteiro de valores já normalizados.
-  const fold = foldarPlurais(linhas.map((l) => l.etapaNorm).filter((v): v is string => v != null));
-  if (fold.size > 0) {
-    for (const l of linhas) {
-      if (l.etapaNorm != null && fold.has(l.etapaNorm)) l.etapaNorm = fold.get(l.etapaNorm)!;
-    }
-  }
-
-  return { linhas, problemas, totalLinhasArquivo: todasLinhas.length };
-}
-
-// ---------- Agrupamento em cargas + destinos ----------
-
-export type DestinoAgrupado = {
-  projetoRaw: string; // -> vira setor_id na resolução (importer-db.ts)
-  etapaNorm: string | null; // -> vira area_id
-  quantidadeM3Aplicada: number;
-  observacao: string;
-};
-
-export type CargaAgrupada = {
-  chave: string;
-  linhasOrigem: number[]; // linhas do arquivo original, pra rastreio em problemas
-  data: string;
-  tipoOrigem: "propria" | "externa";
-  numeroCarga: string | null;
-  tracoNome: string;
-  quantidadeM3: number;
-  pesoBalancaKg: number | null;
-  precoUnitario: number | null;
-  destinos: DestinoAgrupado[];
-  computed: ReturnType<typeof computeCarga>;
-};
-
-function tracoParaConsumo(nome: string): TracoConsumo {
-  const t = TRACOS_CANONICOS.find((x) => x.nome === nome)!;
-  return {
-    consumo_cimento_kg_m3: t.consumo_cimento_kg_m3,
-    consumo_brita00_kg_m3: t.consumo_brita00_kg_m3,
-    consumo_brita01_kg_m3: t.consumo_brita01_kg_m3,
-    consumo_po_brita_kg_m3: t.consumo_po_brita_kg_m3,
-    consumo_areia_kg_m3: t.consumo_areia_kg_m3,
-  };
-}
-
-/**
- * Linhas que compartilham Data+Usina+Número da Carga são a mesma carga
- * (o caminhão) espalhada em vários destinos — o volume é dividido em partes
- * iguais entre os destinos. Sem Número da Carga não dá pra agrupar com
- * segurança, então cada linha vira sua própria carga (1 destino).
- */
-export function agruparEmCargas(linhas: LinhaBDConcreto[]): { cargas: CargaAgrupada[]; problemas: Problema[] } {
-  const grupos = new Map<string, LinhaBDConcreto[]>();
-  let semNumeroSeq = 0;
-  for (const l of linhas) {
-    const chave = l.numeroCarga
-      ? `${l.data}|${l.tipoOrigem}|${l.numeroCarga}`
-      : `SOLO|${l.data}|${l.tipoOrigem}|${l.linha}|${semNumeroSeq++}`;
-    if (!grupos.has(chave)) grupos.set(chave, []);
-    grupos.get(chave)!.push(l);
-  }
-
-  const cargas: CargaAgrupada[] = [];
-  const problemas: Problema[] = [];
-
-  for (const [chave, grupo] of grupos.entries()) {
-    const base = grupo[0]!;
-    const linhasOrigem = grupo.map((g) => g.linha);
-
-    const quantidades = new Set(grupo.map((g) => g.quantidadeM3));
-    const tracos = new Set(grupo.map((g) => g.tracoNome));
-    const pesos = new Set(grupo.map((g) => g.pesoBalancaKg));
-    const precos = new Set(grupo.map((g) => g.precoUnitario));
-
-    if (quantidades.size > 1 || tracos.size > 1) {
-      problemas.push({
-        linha: base.linha,
-        descricao: `Carga ${chave}: linhas ${linhasOrigem.join(",")} têm quantidade ou traço divergentes entre si — usando os valores da primeira linha, revisar depois.`,
-      });
-    }
-    if (pesos.size > 1 || precos.size > 1) {
-      problemas.push({
-        linha: base.linha,
-        descricao: `Carga ${chave}: linhas ${linhasOrigem.join(",")} têm peso da balança ou preço unitário divergentes entre si — usando os valores da primeira linha, revisar depois.`,
-      });
-    }
-
-    const n = grupo.length;
-    const partePorDestino = base.quantidadeM3 / n;
-    const destinos: DestinoAgrupado[] = grupo.map((g) => ({
-      projetoRaw: g.projetoRaw,
-      etapaNorm: g.etapaNorm,
-      quantidadeM3Aplicada: partePorDestino,
-      observacao: g.observacoes,
+      etapaNorm: etapas[di]?.trim() || null,
+      quantidadeM3Aplicada: volumesDestino ? volumesDestino[di]! : partePorDestino,
+      observacao: observacoesTodas[di]?.trim() ?? "",
     }));
 
-    const computed = computeCarga({
-      data: base.data,
-      tipo_origem: base.tipoOrigem,
-      traco: tracoParaConsumo(base.tracoNome),
-      quantidade_m3: base.quantidadeM3,
-      peso_balanca_kg: base.tipoOrigem === "propria" ? base.pesoBalancaKg : base.pesoBalancaKg,
-      preco_unitario: base.tipoOrigem === "externa" ? base.precoUnitario : null,
-    });
+    const numeroCarga = idx.numeroCarga !== -1 ? (row[idx.numeroCarga] ?? "").trim() || null : null;
+    const pesoBalancaKg = idx.pesoBalanca !== -1 ? parseNumeroPtBr(row[idx.pesoBalanca]) : null;
+    const precoTotal = idx.precoTotal !== -1 ? parseNumeroPtBr(row[idx.precoTotal]) : null;
+    const validado = idx.validado === -1 || normalizarTexto(row[idx.validado] ?? "") !== "NAO";
+    const lancadoPorNome = idx.lancadoPor !== -1 ? (row[idx.lancadoPor] ?? "").trim() || null : null;
 
     cargas.push({
-      chave,
-      linhasOrigem,
-      data: base.data,
-      tipoOrigem: base.tipoOrigem,
-      numeroCarga: base.numeroCarga,
-      tracoNome: base.tracoNome,
-      quantidadeM3: base.quantidadeM3,
-      pesoBalancaKg: base.pesoBalancaKg,
-      precoUnitario: base.precoUnitario,
+      linha: numeroLinha,
+      data: dataISO,
+      fornecedorNome,
+      tipoOrigem,
+      numeroCarga,
+      tracoNome,
+      quantidadeM3,
+      pesoBalancaKg,
+      precoTotal,
+      validado,
+      lancadoPorNome,
       destinos,
-      computed,
     });
   }
 
-  return { cargas, problemas };
+  return { cargas, problemas, totalLinhasArquivo: todasLinhas.length };
 }
 
-// re-exported for the review UI (contagem de distintos por setor/área)
+// re-exported for the review UI (contagem de distintos por Projeto/Traço)
 export function distintosComContagem(valores: (string | null)[]): { valor: string | null; total: number }[] {
   const m = new Map<string | null, number>();
   for (const v of valores) m.set(v, (m.get(v) ?? 0) + 1);
