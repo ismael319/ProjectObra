@@ -179,6 +179,9 @@ export default function HistogramaMO() {
   const [aba, setAba] = useState<'semanal' | 'mensal' | 'horas'>('semanal')
   const [horasSemanais, setHorasSemanais] = useState(HORAS_SEMANAIS_PADRAO)
   const [cargoSelecionado, setCargoSelecionado] = useState<string>('__total__')
+  // "Visão mensal": média (nível típico de efetivo no mês) ou máximo (pico de
+  // efetivo — quantas pessoas/equipamentos precisou ter no mês, na pior semana).
+  const [modoAgregacaoMensal, setModoAgregacaoMensal] = useState<'media' | 'maximo'>('media')
   const [modalBaselineAberto, setModalBaselineAberto] = useState(false)
   const [motivoNovaBaseline, setMotivoNovaBaseline] = useState('')
   const [novoCargoAberto, setNovoCargoAberto] = useState(false)
@@ -522,14 +525,25 @@ export default function HistogramaMO() {
     setImportResumo(null)
   }
 
-  // Planejado x real por cargo e por mês — agregado no cliente (média das semanas
-  // do mês, mesmo critério pros dois agora que Planejado também é semanal), em vez
-  // de uma VIEW no banco: as views do Postgres rodam com o contexto de permissão do
-  // dono por padrão, e este projeto não tem nenhum padrão estabelecido de view
-  // multi-tenant segura (os únicos 2 exemplos existentes são telas de admin, não
-  // dado por organização) — agregar aqui evita esse risco.
+  // Média (nível típico de efetivo no mês) ou máximo (pico de efetivo no mês) — a
+  // mesma função de agregação alimenta mensalPorCargo (por cargo) e mensalTotal
+  // (soma da semana entre os cargos, agregada depois — não dá pra só somar as
+  // médias/máximos já calculados por cargo: soma de médias bate com a média da
+  // soma, mas soma de máximos NÃO bate com o máximo da soma, já que cargos
+  // diferentes podem picar em semanas diferentes).
+  function agregar(valores: number[], modo: 'media' | 'maximo'): number {
+    if (modo === 'maximo') return Math.max(...valores)
+    return valores.reduce((a, b) => a + b, 0) / valores.length
+  }
+
+  // Planejado x real por cargo e por mês — agregado no cliente (mesmo critério pros
+  // dois agora que Planejado também é semanal), em vez de uma VIEW no banco: as
+  // views do Postgres rodam com o contexto de permissão do dono por padrão, e este
+  // projeto não tem nenhum padrão estabelecido de view multi-tenant segura (os
+  // únicos 2 exemplos existentes são telas de admin, não dado por organização) —
+  // agregar aqui evita esse risco.
   // Planejado sempre teve um valor (0 por padrão, nunca "sem lançamento") — por
-  // isso a média usa TODAS as semanas do mês. Real só conta as semanas que
+  // isso a agregação usa TODAS as semanas do mês. Real só conta as semanas que
   // realmente têm apontamento (undefined fica de fora, ver semanasApontadas).
   const mensalPorCargo = useMemo(() => {
     const resultado = new Map<string, { monthKey: string; monthLabel: string; planejado: number; real: number | null; semanasApontadas: number; semanasTotais: number }[]>()
@@ -537,11 +551,11 @@ export default function HistogramaMO() {
       const linhas = meses.map((m) => {
         const semanasDoMes = semanas.filter((s) => s.monthKey === m.key)
         const valoresPlanejados = semanasDoMes.map((s) => planejadoEdits[`${cargo.id}__${s.iso}`] ?? planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0)
-        const planejadoVal = valoresPlanejados.length > 0 ? valoresPlanejados.reduce((a, b) => a + b, 0) / valoresPlanejados.length : 0
+        const planejadoVal = valoresPlanejados.length > 0 ? agregar(valoresPlanejados, modoAgregacaoMensal) : 0
         const valoresReais = semanasDoMes
           .map((s) => realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`))
           .filter((v): v is number => v !== undefined)
-        const real = valoresReais.length > 0 ? valoresReais.reduce((a, b) => a + b, 0) / valoresReais.length : null
+        const real = valoresReais.length > 0 ? agregar(valoresReais, modoAgregacaoMensal) : null
         return {
           monthKey: m.key,
           monthLabel: m.label,
@@ -554,7 +568,42 @@ export default function HistogramaMO() {
       resultado.set(cargo.id, linhas)
     }
     return resultado
-  }, [cargosVisiveis, meses, semanas, planejadoMap, realMap, planejadoEdits, realEdits])
+  }, [cargosVisiveis, meses, semanas, planejadoMap, realMap, planejadoEdits, realEdits, modoAgregacaoMensal])
+
+  // Total (todos os cargos): soma o efetivo de todos os cargos SEMANA a semana
+  // primeiro, e só depois agrega (média/máximo) essa soma pelas semanas do mês —
+  // ver comentário de agregar() acima sobre por que não dá pra só somar os valores
+  // já agregados por cargo quando o modo é "máximo".
+  const mensalTotal = useMemo(() => {
+    return meses.map((m) => {
+      const semanasDoMes = semanas.filter((s) => s.monthKey === m.key)
+      const totalPlanejadoPorSemana = semanasDoMes.map((s) =>
+        cargosVisiveis.reduce((soma, cargo) => soma + (planejadoEdits[`${cargo.id}__${s.iso}`] ?? planejadoMap.get(`${cargo.id}__${s.iso}`) ?? 0), 0),
+      )
+      const planejado = totalPlanejadoPorSemana.length > 0 ? agregar(totalPlanejadoPorSemana, modoAgregacaoMensal) : 0
+
+      // Só entra na agregação a semana em que PELO MENOS um cargo apontou Real —
+      // sem esse filtro, uma semana ainda não apontada contaria como "0 no total",
+      // puxando a média pra baixo ou escondendo um pico já visível pelas semanas
+      // apontadas.
+      const totalRealPorSemanaApontada: number[] = []
+      for (const s of semanasDoMes) {
+        let soma = 0
+        let algumReportou = false
+        for (const cargo of cargosVisiveis) {
+          const v = realEdits[`${cargo.id}__${s.iso}`] ?? realMap.get(`${cargo.id}__${s.iso}`)
+          if (v !== undefined) {
+            soma += v
+            algumReportou = true
+          }
+        }
+        if (algumReportou) totalRealPorSemanaApontada.push(soma)
+      }
+      const real = totalRealPorSemanaApontada.length > 0 ? agregar(totalRealPorSemanaApontada, modoAgregacaoMensal) : null
+
+      return { monthKey: m.key, monthLabel: m.label, planejado, real }
+    })
+  }, [cargosVisiveis, meses, semanas, planejadoMap, realMap, planejadoEdits, realEdits, modoAgregacaoMensal])
 
   const cargosPorCategoria = useMemo(() => {
     const grupos: Record<'D' | 'I' | 'SEM', typeof cargosVisiveis> = { D: [], I: [], SEM: [] }
@@ -564,25 +613,11 @@ export default function HistogramaMO() {
 
   const dadosGrafico = useMemo(() => {
     if (cargoSelecionado === '__total__') {
-      return meses.map((m) => {
-        let planejado = 0
-        let real = 0
-        let temReal = false
-        for (const cargo of cargosVisiveis) {
-          const linha = mensalPorCargo.get(cargo.id)?.find((l) => l.monthKey === m.key)
-          if (!linha) continue
-          planejado += linha.planejado
-          if (linha.real !== null) {
-            real += linha.real
-            temReal = true
-          }
-        }
-        return { mes: m.label, Planejado: Math.round(planejado), Real: temReal ? Math.round(real) : null }
-      })
+      return mensalTotal.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
     }
     const linhas = mensalPorCargo.get(cargoSelecionado) ?? []
     return linhas.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
-  }, [cargoSelecionado, cargosVisiveis, mensalPorCargo, meses])
+  }, [cargoSelecionado, mensalPorCargo, mensalTotal])
 
   // Total do período (soma, não média) por cargo — soma o valor de cada semana
   // lançada, Planejado e Real do mesmo jeito agora que os dois são semanais. Existe
@@ -997,8 +1032,32 @@ export default function HistogramaMO() {
         </TabsContent>
 
         <TabsContent value="mensal" className="space-y-4">
-          <div className="w-72">
-            <Combobox options={cargoOptions} value={cargoSelecionado} onChange={(v) => setCargoSelecionado(v ?? '__total__')} allowClear={false} />
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="w-72">
+              <Combobox options={cargoOptions} value={cargoSelecionado} onChange={(v) => setCargoSelecionado(v ?? '__total__')} allowClear={false} />
+            </div>
+            <div className="inline-flex rounded-lg border border-input p-1 bg-muted/30">
+              <button
+                type="button"
+                onClick={() => setModoAgregacaoMensal('media')}
+                title="Nível típico de efetivo no mês — média das semanas"
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  modoAgregacaoMensal === 'media' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Média
+              </button>
+              <button
+                type="button"
+                onClick={() => setModoAgregacaoMensal('maximo')}
+                title="Pico de efetivo no mês — maior valor entre as semanas"
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  modoAgregacaoMensal === 'maximo' ? 'bg-background shadow-sm text-foreground' : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Efetivo máximo
+              </button>
+            </div>
           </div>
 
           <Card>
@@ -1028,8 +1087,8 @@ export default function HistogramaMO() {
                   <thead>
                     <tr className="border-b bg-muted/50">
                       <th className="text-left px-3 py-2">Mês</th>
-                      <th className="px-3 py-2">Planejado (média)</th>
-                      <th className="px-3 py-2">Real (média)</th>
+                      <th className="px-3 py-2">Planejado ({modoAgregacaoMensal === 'maximo' ? 'máximo' : 'média'})</th>
+                      <th className="px-3 py-2">Real ({modoAgregacaoMensal === 'maximo' ? 'máximo' : 'média'})</th>
                       <th className="px-3 py-2">Aderência</th>
                       <th className="px-3 py-2">Semanas apontadas</th>
                     </tr>
