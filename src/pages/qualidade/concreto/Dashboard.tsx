@@ -12,7 +12,7 @@ import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { Download, FileText, Loader2 } from "lucide-react";
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
   PieChart, Pie, Cell, ResponsiveContainer,
 } from "recharts";
 
@@ -228,7 +228,10 @@ export default function ConcretoDashboard() {
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Dashboard de Concreto</h1>
-          <p className="text-sm text-muted-foreground">Volume total: {volumeTotal.toLocaleString("pt-BR")} m³</p>
+          <p className="text-sm text-muted-foreground">Volume total lançado</p>
+          <p className="text-3xl font-bold text-primary leading-tight">
+            {volumeTotal.toLocaleString("pt-BR")} <span className="text-base font-medium text-muted-foreground">m³</span>
+          </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex gap-2">
@@ -286,49 +289,53 @@ export default function ConcretoDashboard() {
         quebram linha se não couberem) e captura de forma confiável.
       */}
       <div className="flex flex-wrap gap-4">
-        <Card className="flex-1 min-w-[280px]">
+        <Card className="flex-[2] min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto/mês (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porMes}>
+              <BarChart data={porMes} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="anoMes" tick={{ fontSize: 11 }} />
                 <YAxis />
                 <Tooltip />
-                <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]}>
+                  <LabelList dataKey="total" position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="flex-1 min-w-[280px]">
+        <Card className="flex-1 min-w-[240px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto / Usina (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
               <PieChart>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <Pie data={porUsina} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={90} label={(entry: any) => `${entry.total.toLocaleString("pt-BR")}`}>
+                <Pie data={porUsina} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={90} label={(entry: any) => `${(entry.percent * 100).toFixed(1)}%`}>
                   {porUsina.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
-                <Tooltip />
+                <Tooltip formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
         </Card>
 
-        <Card className="flex-1 min-w-[280px]">
+        <Card className="flex-1 min-w-[240px]">
           <CardHeader><CardTitle className="text-base">Volume total (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porAno}>
+              <BarChart data={porAno} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="nome" />
                 <YAxis />
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {anos.map((ano, i) => (
-                  <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]} />
+                  <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]}>
+                    <LabelList dataKey={ano} position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                  </Bar>
                 ))}
               </BarChart>
             </ResponsiveContainer>
@@ -340,12 +347,13 @@ export default function ConcretoDashboard() {
         <CardHeader><CardTitle className="text-base">Concreto / Área (m³)</CardTitle></CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={Math.max(300, porArea.length * 40)}>
-            <BarChart data={porArea}>
+            <BarChart data={porArea} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="nome" tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={70} />
+              <XAxis dataKey="nome" tick={{ fontSize: 14 }} interval={0} angle={-20} textAnchor="end" height={80} />
               <YAxis />
               <Tooltip />
               <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>
+                <LabelList dataKey="total" position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 {porArea.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
