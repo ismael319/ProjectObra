@@ -195,8 +195,14 @@ export async function importar(params: {
       const lote = itens
         .slice(i, i + TAMANHO_LOTE)
         .map((item) => itemToRow(item, { organizacaoId, projetoId, importacaoId, tipo }))
-      const { error } = await supabase.from('sienge_itens').insert(lote)
-      if (error) throw new Error(error.message)
+      const resposta = (await supabase.from('sienge_itens').insert(lote)) as {
+        data: ItemRow[] | null
+        error: { message: string } | null
+      }
+      if (resposta.error) throw new Error(resposta.error.message)
+      if (!resposta.data || resposta.data.length !== lote.length) {
+        throw new Error(`Falha ao gravar a importação: esperava ${lote.length} itens, mas só ${resposta.data?.length ?? 0} foram registrados.`)
+      }
     }
   } catch (erro) {
     // Importação parcial não fica órfã: apaga a importação (cascade remove os
