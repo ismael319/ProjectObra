@@ -57,6 +57,29 @@ export async function lerArquivoComoLinhas(file: File): Promise<LinhaTabela[]> {
   return planilhaParaLinhas(await lerWorkbook(file, XLSX), XLSX);
 }
 
+// Além do grid formatado (mesmo texto que aparece na tela do Excel), devolve
+// também o grid CRU (raw:true) — essencial pra colunas de data: se uma
+// célula virou data de verdade no Excel (mesmo só de ter sido aberta/salva
+// de novo, sem ninguém editar nada), o grid formatado devolve a data como
+// TEXTO usando o formato "Data Curta" — e o SheetJS, sem saber o locale do
+// arquivo, sempre formata esse texto em ordem americana (M/D/AA), mesmo
+// quando o Excel EXIBE a mesma célula em dd/mm/aaaa. Isso troca dia por mês
+// em silêncio sempre que os dois números são ≤12 (não dá pra perceber só
+// pelo texto). O grid cru devolve o SERIAL do Excel — um número sem
+// ambiguidade de ordem nenhuma — pra quem for interpretar datas evitar essa
+// pegadinha por completo, em vez de tentar adivinhar a partir do texto.
+export async function lerArquivoComoLinhasEBruto(file: File): Promise<{ linhas: LinhaTabela[]; brutas: unknown[][] }> {
+  const XLSX = await import("xlsx");
+  const workbook = await lerWorkbook(file, XLSX);
+  const nomeAba = workbook.SheetNames[0];
+  if (!nomeAba) return { linhas: [], brutas: [] };
+  const planilha = workbook.Sheets[nomeAba]!;
+  return {
+    linhas: abaParaLinhas(workbook, nomeAba, XLSX),
+    brutas: XLSX.utils.sheet_to_json<unknown[]>(planilha, { header: 1, raw: true, defval: "" }),
+  };
+}
+
 // Lê TODAS as abas do arquivo (não só a primeira) — a planilha de Controle de
 // Efetivo costuma ter mais de uma aba (ex.: "Ativos" + "Demissões"), e a
 // ordem das abas no arquivo não é garantida. O chamador tenta cada uma até

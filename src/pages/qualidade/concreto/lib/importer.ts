@@ -69,17 +69,21 @@ export function parseNumeroPtBr(raw: string | null | undefined): number | null {
 // possível (ex.: "7/29/26", 29 não pode ser mês), usa essa — cobre a
 // pegadinha do SheetJS sem quebrar o caso comum. Também aceita ano de 2 ou 4
 // dígitos e cai pro serial do Excel como último recurso.
+//
+// MAS quando os dois valores são ≤12 (ex.: célula real é 5 de março, o
+// SheetJS entrega "3/5/26") não tem como saber qual é qual só pelo texto —
+// nesses casos o resultado pode sair errado em silêncio. Por isso
+// parseCargasConcreto() prefere o valor CRU (serial do Excel, sem ambiguidade
+// nenhuma) quando ele está disponível — ver resolverData() logo abaixo; este
+// parser de texto só entra como último recurso (célula que já era texto
+// puro, nunca virou data de verdade no Excel).
 function parseDataImportada(raw: string | undefined): string | null {
   const v = (raw ?? "").trim();
   if (v === "") return null;
 
   if (/^\d{4,6}$/.test(v)) {
     const serial = parseInt(v, 10);
-    if (serial > 20000 && serial < 80000) {
-      const ms = Date.UTC(1899, 11, 30) + serial * 86400 * 1000;
-      const d = new Date(ms);
-      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
-    }
+    if (serial > 20000 && serial < 80000) return serialExcelParaISO(serial);
   }
 
   const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/);
@@ -96,6 +100,25 @@ function parseDataImportada(raw: string | undefined): string | null {
     return `${ano}-${String(a).padStart(2, "0")}-${String(b).padStart(2, "0")}`; // a=mês, b=dia
   }
   return null;
+}
+
+function serialExcelParaISO(serial: number): string {
+  const ms = Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400 * 1000;
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
+// Resolve a data cruzando o grid CRU (raw:true — vem de
+// lerArquivoComoLinhasEBruto) com o texto formatado: se a célula é um
+// SERIAL de verdade (número), usa ele direto, sem qualquer ambiguidade de
+// dia/mês. Só cai pro texto quando não há valor cru disponível (arquivo lido
+// só com lerArquivoComoLinhas) ou a célula nunca foi um número (texto puro
+// digitado, CSV, etc.).
+function resolverData(rawTexto: string | undefined, rawBruto: unknown): string | null {
+  if (typeof rawBruto === "number" && rawBruto > 20000 && rawBruto < 80000) {
+    return serialExcelParaISO(rawBruto);
+  }
+  return parseDataImportada(rawTexto);
 }
 
 // ---------- Header/linhas reais ----------
@@ -198,8 +221,13 @@ function parseVolumesDestino(raw: string | undefined, esperado: number): number[
  * mesma ordem — o volume de cada destino vem da coluna DESTINO(S) (formato
  * "Área — Xm³", cruzado por posição com PROJETO); se essa coluna não existir
  * ou não bater, cai pra dividir a quantidade da carga em partes iguais.
+ *
+ * `todasLinhasBrutas` (grid raw:true, de lerArquivoComoLinhasEBruto) é
+ * opcional mas recomendado — sem ele, a coluna DATA cai pro parser de texto
+ * (parseDataImportada), que não consegue resolver toda ambiguidade de
+ * dia/mês sozinho.
  */
-export function parseCargasConcreto(todasLinhas: LinhaTabela[]): ResultadoParseCargas {
+export function parseCargasConcreto(todasLinhas: LinhaTabela[], todasLinhasBrutas?: unknown[][]): ResultadoParseCargas {
   const headerIdx = todasLinhas.findIndex((l) => l.some((c) => normalizarTexto(c) === "DATA"));
   if (headerIdx === -1) {
     return { cargas: [], problemas: [{ linha: 0, descricao: 'Não encontrei a linha de cabeçalho (coluna "DATA").' }], totalLinhasArquivo: todasLinhas.length };
@@ -237,7 +265,7 @@ export function parseCargasConcreto(todasLinhas: LinhaTabela[]): ResultadoParseC
     if (dataRaw === "" || normalizarTexto(dataRaw) === "DATA") continue; // linha em branco ou cabeçalho repetido
 
     const numeroLinha = i + 1;
-    const dataISO = parseDataImportada(dataRaw);
+    const dataISO = resolverData(dataRaw, todasLinhasBrutas?.[i]?.[idx.data]);
     if (!dataISO) {
       problemas.push({ linha: numeroLinha, descricao: `Data inválida: "${dataRaw}".` });
       continue;

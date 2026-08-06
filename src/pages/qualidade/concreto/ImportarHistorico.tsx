@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Upload, AlertTriangle, CheckCircle2, Ban } from "lucide-react";
 import { toast } from "sonner";
@@ -7,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { lerArquivoComoLinhas, normalizarTexto } from "@/lib/administracao/parse-shared";
+import { lerArquivoComoLinhasEBruto, normalizarTexto } from "@/lib/administracao/parse-shared";
 import {
   parseCargasConcreto,
   distintosComContagem,
@@ -101,6 +102,7 @@ function ExportarConcreto() {
 function ImportarHistoricoConcreto() {
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const qc = useQueryClient();
 
   const [estagio, setEstagio] = useState<Estagio>("idle");
   const [fileName, setFileName] = useState("");
@@ -127,8 +129,8 @@ function ImportarHistoricoConcreto() {
     setEstagio("processando");
 
     try {
-      const linhasArquivo = await lerArquivoComoLinhas(file);
-      const parse = parseCargasConcreto(linhasArquivo);
+      const { linhas: linhasArquivo, brutas: linhasBrutas } = await lerArquivoComoLinhasEBruto(file);
+      const parse = parseCargasConcreto(linhasArquivo, linhasBrutas);
 
       const tracosDistintos = distintosComContagem(parse.cargas.map((c) => c.tracoNome));
       const tracosCarregados = await carregarTracos(organizacaoId);
@@ -184,6 +186,14 @@ function ImportarHistoricoConcreto() {
         mapeamentoTracos: mapeamentoTracosFinal,
         tracosCatalogo: tracos,
       });
+
+      qc.invalidateQueries({ queryKey: ["cargas-concreto"] });
+      qc.invalidateQueries({ queryKey: ["fornecedores_concreto"] });
+      qc.invalidateQueries({ queryKey: ["tracos_concreto"] });
+      qc.invalidateQueries({ queryKey: ["etapas_concreto"] });
+      qc.invalidateQueries({ queryKey: ["areas"] });
+      qc.invalidateQueries({ queryKey: ["setores"] });
+
       setResumo(r);
       setEstagio("concluido");
       toast.success(`${r.cargasCriadas} carga(s) importada(s).`);

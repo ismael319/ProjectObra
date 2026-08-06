@@ -88,6 +88,25 @@ describe("parseCargasConcreto", () => {
     expect(r.cargas[0]!.data).toBe("2026-08-05");
   });
 
+  it("usa o serial do Excel (grid cru) em vez do texto quando os dois estão disponíveis, evitando a ambiguidade dia/mês que o texto sozinho não resolve", () => {
+    // Texto "3/5/26" sozinho seria lido como dia=3/mês=5 (03/05/2026, ambíguo,
+    // ambos ≤12) — mas o serial 46232 é 29/07/2026 de verdade (célula que virou
+    // data real no Excel). O valor cru tem prioridade por não ter ambiguidade.
+    const arquivo = montarArquivo([linha({ data: "3/5/26" })]);
+    const brutas: unknown[][] = arquivo.map((l) => [...l]);
+    brutas[1]![0] = 46232;
+    const r = parseCargasConcreto(arquivo, brutas);
+    expect(r.problemas).toHaveLength(0);
+    expect(r.cargas[0]!.data).toBe("2026-07-29");
+  });
+
+  it("cai pro texto quando o grid cru não tem valor numérico na coluna DATA (célula sempre foi texto)", () => {
+    const arquivo = montarArquivo([linha({ data: "05/08/2026" })]);
+    const brutas: unknown[][] = arquivo.map((l) => [...l]);
+    const r = parseCargasConcreto(arquivo, brutas);
+    expect(r.cargas[0]!.data).toBe("2026-08-05");
+  });
+
   it("reporta colunas obrigatórias faltando quando o arquivo não segue o formato esperado", () => {
     const headerIncompleto: LinhaTabela = ["DATA", "ALGO"];
     const r = parseCargasConcreto([headerIncompleto, ["12/08/2025", "x"]]);
