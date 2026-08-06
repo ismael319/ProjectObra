@@ -12,6 +12,24 @@ export function paraData(dataStr: string): Date | null {
   return Number.isNaN(data.getTime()) ? null : data
 }
 
+/** Data de hoje no fuso local em formato ISO (YYYY-MM-DD), sem os bugs de UTC do toISOString. */
+export function hojeISO(): string {
+  const hoje = new Date()
+  const mes = String(hoje.getMonth() + 1).padStart(2, '0')
+  const dia = String(hoje.getDate()).padStart(2, '0')
+  return `${hoje.getFullYear()}-${mes}-${dia}`
+}
+
+/** Converte "YYYY-MM-DD" em Date local (meia-noite) — sem o deslocamento de UTC do new Date(iso). */
+export function paraDataISO(iso: string): Date | null {
+  const partes = iso?.trim().split('-')
+  if (!partes || partes.length !== 3) return null
+  const [y, m, d] = partes.map((p) => parseInt(p, 10))
+  if (!y || !m || !d) return null
+  const data = new Date(y, m - 1, d)
+  return Number.isNaN(data.getTime()) ? null : data
+}
+
 /** dias = hoje - data (formato DD/MM/YYYY). Nunca é persistido — sempre recalculado na exibição. */
 export function calcularDias(dataStr: string, hoje: Date = new Date()): number {
   const data = paraData(dataStr)

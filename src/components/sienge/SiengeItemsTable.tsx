@@ -7,7 +7,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils'
 import type { ColunaConfig } from '@/lib/sienge/report-config'
 import { STATUS_LABEL, type Anotacao, type ItemComClassificacao, type SiengeItem } from '@/lib/sienge/types'
-import { CLASSIFICACAO_BADGE, CLASSIFICACAO_ROW, CLASSIFICACAO_TEXTO } from '@/lib/sienge/classify'
+import { CLASSIFICACAO_BADGE, CLASSIFICACAO_ROW, CLASSIFICACAO_TEXTO, paraData } from '@/lib/sienge/classify'
 import { formatarMoeda, parseMoeda } from '@/lib/sienge/money'
 import { valorColuna } from '@/lib/sienge/column-filters'
 import SiengeAnnotationPopover from './SiengeAnnotationPopover'
@@ -59,6 +59,10 @@ function valorExibicao(item: ItemComClassificacao, col: ColunaConfig): ReactNode
 function valorOrdenavel(item: ItemComClassificacao, col: ColunaConfig): number | string {
   if (col.key === 'dias') return item.classificacao.dias
   if (col.moeda) return parseMoeda(valorColuna(item, col.key))
+  if (col.filtro?.kind === 'data') {
+    const data = paraData(valorColuna(item, col.key))
+    return data ? data.getTime() : -Infinity
+  }
   return valorColuna(item, col.key).toLowerCase()
 }
 
