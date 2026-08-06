@@ -46,6 +46,7 @@ export default function CadEtapas() {
         organizacaoScoped
         timestamps={false}
         blockRefs={[{ table: "destinos_carga", fk: "etapa_concreto_id", label: "lançamentos de concreto" }]}
+        moduloKey="qualidade"
       />
     </div>
   );

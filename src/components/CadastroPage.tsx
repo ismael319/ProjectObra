@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,6 +58,12 @@ interface CadastroPageProps {
   codigoPrefix?: string;
   /** Grava criado_em/atualizado_em (tabelas legadas). Padrão true. */
   timestamps?: boolean;
+  /** Chave do módulo (ex.: "qualidade") pra desabilitar as ações de escrita
+   * quando o papel EFETIVO do usuário nesse módulo (global ou override) não
+   * for "edicao" — RLS já barra no banco, isso só evita o usuário tentar e
+   * levar um erro genérico sem aviso. Ausente = sem essa checagem (não muda
+   * nada pros consumidores que ainda não usam papel por módulo). */
+  moduloKey?: string;
 }
 
 export function CadastroPage({
@@ -73,11 +79,14 @@ export function CadastroPage({
   blockRefs = [],
   codigoPrefix,
   timestamps = true,
+  moduloKey,
 }: CadastroPageProps) {
   const qc = useQueryClient();
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const hasOrg = !organizacaoScoped || !!organizacaoId;
+  const { podeEditar } = usePapelModulo(moduloKey ?? "");
+  const bloqueadoPorPapel = !!moduloKey && !podeEditar;
 
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -291,15 +300,23 @@ export function CadastroPage({
           <h1 className="text-2xl font-bold">{title}</h1>
           {description && <p className="text-sm text-muted-foreground">{description}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          {selectMode ? (
-            <Button variant="outline" onClick={cancelSelectMode}><X className="h-4 w-4" /> Cancelar seleção</Button>
-          ) : (
-            <Button variant="outline" onClick={() => setSelectMode(true)}><ListChecks className="h-4 w-4" /> Selecionar</Button>
-          )}
-          <Button onClick={openNew}><Plus className="h-4 w-4" /> Novo</Button>
-        </div>
+        {!bloqueadoPorPapel && (
+          <div className="flex items-center gap-2">
+            {selectMode ? (
+              <Button variant="outline" onClick={cancelSelectMode}><X className="h-4 w-4" /> Cancelar seleção</Button>
+            ) : (
+              <Button variant="outline" onClick={() => setSelectMode(true)}><ListChecks className="h-4 w-4" /> Selecionar</Button>
+            )}
+            <Button onClick={openNew}><Plus className="h-4 w-4" /> Novo</Button>
+          </div>
+        )}
       </div>
+
+      {bloqueadoPorPapel && (
+        <div className="rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-sm text-amber-700 dark:text-amber-300">
+          Você só tem visualização neste módulo — não é possível cadastrar, editar ou excluir.
+        </div>
+      )}
 
       {selectMode && (
         <Card className="border-destructive/40 bg-destructive/5">
@@ -361,14 +378,14 @@ export function CadastroPage({
                       <TableCell className="font-medium">{row[orderBy] ?? row.nome}</TableCell>
                       {extraColumns.map((c) => <TableCell key={c.key}>{c.render ? c.render(row) : (row[c.key] ?? "—")}</TableCell>)}
                       <TableCell>
-                        <Switch checked={row.ativo} onCheckedChange={() => toggleMut.mutate({ id: row.id, ativo: !row.ativo })} />
+                        <Switch checked={row.ativo} disabled={bloqueadoPorPapel} onCheckedChange={() => toggleMut.mutate({ id: row.id, ativo: !row.ativo })} />
                       </TableCell>
                       <TableCell>
                         <div className="flex gap-1">
-                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => openEdit(row)}><Pencil className="h-3.5 w-3.5" /></Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8" disabled={bloqueadoPorPapel} onClick={() => openEdit(row)}><Pencil className="h-3.5 w-3.5" /></Button>
                           <Button
                             size="icon" variant="ghost" className="h-8 w-8 text-destructive disabled:opacity-30"
-                            disabled={bloqueado}
+                            disabled={bloqueado || bloqueadoPorPapel}
                             title={bloqueado ? `Possui ${blockLabel} vinculados — inative em vez de excluir` : "Excluir"}
                             onClick={() => handleDelete(row)}
                           >

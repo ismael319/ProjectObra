@@ -13,9 +13,24 @@ interface UserProfile {
   is_super_admin: boolean
   organizacao_piloto: boolean
   modulos: string[]
+  // Overrides de papel por módulo (chave = modulo_key) — ausência de chave
+  // pra um módulo = usa `papel` (o padrão global). Ver papelEfetivo().
+  papelPorModulo: Record<string, PapelUsuario>
   funcao: string | null
   termos_aceitos_em: string | null
   versao_termos: string | null
+}
+
+// Papel que vale de fato NUM módulo específico: o override, se existir, senão
+// o papel global — mesma regra de public.user_papel_modulo() no banco (a UI
+// só usa isso pra decidir o que mostrar/habilitar; a RLS é quem barra de
+// verdade).
+export function papelEfetivo(userProfile: UserProfile | null, moduloKey: string): PapelUsuario | null {
+  if (!userProfile) return null
+  // Optional chaining: perfil vindo do cache local (IndexedDB, sem rede) pode
+  // ser de uma sessão anterior à existência de papelPorModulo — trata como
+  // "sem override" em vez de quebrar a tela.
+  return userProfile.papelPorModulo?.[moduloKey] ?? userProfile.papel
 }
 
 interface AuthContextType {
@@ -59,7 +74,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // v2: bump depois da migração de papel pra edicao/visualizacao/insercao_pontual
   // — um usuário offline com cache antigo (papel: 'admin' etc.) força um
   // fetch novo em vez de reusar um valor que não existe mais.
-  const profileCacheKey = (userId: string) => `auth:profile:v2:${userId}`
+  // v3: bump depois de adicionar papelPorModulo — cache antigo não tem esse
+  // campo (papelEfetivo() também tem optional chaining como segunda proteção).
+  const profileCacheKey = (userId: string) => `auth:profile:v3:${userId}`
 
   // O Supabase costuma disparar onAuthStateChange mais de uma vez logo no
   // boot (INITIAL_SESSION, depois outro evento) mesmo pro MESMO usuário —
@@ -82,24 +99,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // em vez de uma segunda consulta em série depois de saber o organizacao_id.
     // user_modulos_visiveis é a restrição adicional por usuário (além do
     // contrato da empresa) — ausência de linhas = sem restrição.
-    let { data, error } = await supabase
-      .from('user_profiles')
-      .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)')
-      .eq('id', userId)
-      .single()
+    // user_papel_modulos são os overrides de papel por módulo — ausência de
+    // linhas = usa o papel global em todo módulo (comportamento de hoje).
+    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
+    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
+    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
+
+    let { data, error } = await supabase.from('user_profiles').select(SELECT_COMPLETO).eq('id', userId).single()
 
     // PGRST205 = PostgREST não achou a tabela — acontece se o frontend novo
-    // subiu antes de rodar modulos-visiveis-migration.sql no Supabase. Sem
-    // esse retry, TODO login quebrava (a consulta inteira falhava por causa
-    // de uma tabela que só afeta uma restrição opcional). Repete sem o
-    // embed, tratando como "sem restrição de módulo" até a migração rodar.
+    // subiu antes de rodar a migration correspondente no Supabase. Sem esse
+    // retry, TODO login quebrava (a consulta inteira falhava por causa de
+    // uma tabela que só afeta uma restrição/override opcional). Cai em
+    // cascata: primeiro tenta sem user_papel_modulos (a mais nova das duas,
+    // caso mais provável de ainda faltar), depois sem nenhum dos dois embeds.
+    if (error?.code === 'PGRST205') {
+      console.warn('user_papel_modulos ainda não existe no banco (rode papel-por-modulo-fundacao-migration.sql) — perfil carregado sem overrides de papel por módulo.')
+      ;({ data, error } = await supabase.from('user_profiles').select(SELECT_SEM_PAPEL_MODULO).eq('id', userId).single())
+    }
     if (error?.code === 'PGRST205') {
       console.warn('user_modulos_visiveis ainda não existe no banco (rode modulos-visiveis-migration.sql) — perfil carregado sem restrição de módulo por usuário.')
-      ;({ data, error } = await supabase
-        .from('user_profiles')
-        .select('papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))')
-        .eq('id', userId)
-        .single())
+      ;({ data, error } = await supabase.from('user_profiles').select(SELECT_SEM_MODULOS_VISIVEIS).eq('id', userId).single())
     }
 
     if (requestId !== profileRequestId.current) return // uma chamada mais nova já respondeu — descarta esta
@@ -114,6 +134,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const modulos = restricoesUsuario.length > 0
         ? modulosContratados.filter((m) => restricoesUsuario.some((r) => r.modulo_key === m))
         : modulosContratados
+      const overridesPapel = (data.user_papel_modulos ?? []) as { modulo_key: string; papel: PapelUsuario }[]
+      const papelPorModulo = Object.fromEntries(overridesPapel.map((o) => [o.modulo_key, o.papel]))
       const profile: UserProfile = {
         papel: data.papel,
         status_solicitacao: data.status_solicitacao,
@@ -121,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
+        papelPorModulo,
         funcao: data.funcao,
         termos_aceitos_em: data.termos_aceitos_em,
         versao_termos: data.versao_termos,
@@ -236,4 +259,18 @@ export function useAuth() {
     throw new Error('useAuth must be used within an AuthProvider')
   }
   return context
+}
+
+// Papel efetivo do usuário logado NUM módulo específico, pra telas de
+// lançamento decidirem o que habilitar/mostrar (RLS continua sendo quem
+// barra de verdade — isso é só pra não deixar visualizacao tentar salvar e
+// levar um erro genérico sem aviso prévio).
+export function usePapelModulo(moduloKey: string) {
+  const { userProfile } = useAuth()
+  const papel = papelEfetivo(userProfile, moduloKey)
+  return {
+    papel,
+    podeEditar: papel === 'edicao',
+    podeInserir: papel === 'edicao' || papel === 'insercao_pontual',
+  }
 }

@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2 } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2, Settings2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { enviarConviteEmail } from '@/lib/convite-email'
-import { useAuth, type PapelUsuario } from '@/lib/auth-context'
+import { useAuth, usePapelModulo, type PapelUsuario } from '@/lib/auth-context'
+import PapelPorModuloModal from '@/components/PapelPorModuloModal'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -35,7 +36,7 @@ interface ConviteRow {
   criado_em: string
 }
 
-const PAPEL_LABELS: Record<PapelUsuario, string> = {
+export const PAPEL_LABELS: Record<PapelUsuario, string> = {
   edicao: 'Edição',
   visualizacao: 'Visualização',
   insercao_pontual: 'Inserção Pontual',
@@ -70,7 +71,10 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   // empresa. E solicitações "órfãs" (sem organizacao_id, de antes do convite
   // por email existir) só aparecem pra quem administra a empresa piloto.
   const orgPiloto = organizacaoId !== undefined ? (organizacaoPiloto ?? false) : (userProfile?.organizacao_piloto ?? false)
-  const podeGerenciar = organizacaoId !== undefined ? true : userProfile?.papel === 'edicao' || userProfile?.is_super_admin === true
+  // Papel efetivo NO módulo "sistema" (override, se existir, senão o global)
+  // — permite dar a alguém edicao só aqui, sem soltar edicao no resto.
+  const { podeEditar: podeEditarSistema } = usePapelModulo('sistema')
+  const podeGerenciar = organizacaoId !== undefined ? true : podeEditarSistema || userProfile?.is_super_admin === true
   const papeisBase: PapelUsuario[] = ['edicao', 'visualizacao', 'insercao_pontual']
   const papeisDisponiveis = orgPiloto ? papeisBase : papeisBase.filter((p) => p !== 'insercao_pontual')
 
@@ -92,6 +96,8 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const [excluirAlvo, setExcluirAlvo] = useState<SolicitacaoRow | null>(null)
   const [excluirConfirm, setExcluirConfirm] = useState('')
   const [isExcluindo, setIsExcluindo] = useState(false)
+
+  const [papelModuloAlvo, setPapelModuloAlvo] = useState<SolicitacaoRow | null>(null)
 
   const load = useCallback(async () => {
     if (!orgAlvo) return
@@ -514,6 +520,16 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                       </div>
                     ) : (
                       <div className="flex justify-end gap-2">
+                        {row.status_solicitacao === 'aprovado' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Configurar um papel diferente do padrão em módulos específicos"
+                            onClick={() => setPapelModuloAlvo(row)}
+                          >
+                            <Settings2 size={14} /> Papéis por módulo
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -585,6 +601,17 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {papelModuloAlvo && orgAlvo && (
+        <PapelPorModuloModal
+          open={!!papelModuloAlvo}
+          onOpenChange={(o) => !o && setPapelModuloAlvo(null)}
+          usuarioId={papelModuloAlvo.id}
+          usuarioEmail={papelModuloAlvo.email}
+          papelGlobal={papelModuloAlvo.papel}
+          organizacaoId={orgAlvo}
+        />
+      )}
     </div>
   )
 }

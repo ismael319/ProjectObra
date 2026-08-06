@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { todayISO, computeCarga } from "./lib/concreto-utils";
 import { useFornecedoresConcreto, useTracosConcreto } from "./lib/catalog";
 import { enqueue, listPending, remove as removePending, drain } from "./lib/offline-queue";
@@ -41,6 +41,7 @@ export default function ConcretoLancamentoPage() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const { podeInserir, podeEditar } = usePapelModulo("qualidade");
   const [form, setForm] = useState<FormState>(emptyForm());
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
@@ -297,6 +298,10 @@ export default function ConcretoLancamentoPage() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!podeInserir) {
+      toast.error("Você só tem visualização neste módulo — não é possível lançar cargas.");
+      return;
+    }
     if (!form.fornecedor_id || !form.traco_id || !form.data) {
       toast.error("Preencha data, fornecedor e traço");
       return;
@@ -464,9 +469,15 @@ export default function ConcretoLancamentoPage() {
               )}
             </div>
 
+            {!podeInserir && (
+              <p className="sm:col-span-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-700 dark:text-amber-300">
+                Você só tem visualização neste módulo — não é possível lançar cargas.
+              </p>
+            )}
+
             <div className="sm:col-span-2 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setForm(emptyForm())}>Limpar</Button>
-              <Button type="submit" disabled={insertMut.isPending}>
+              <Button type="submit" disabled={insertMut.isPending || !podeInserir}>
                 {insertMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
                 Adicionar
               </Button>
@@ -479,7 +490,7 @@ export default function ConcretoLancamentoPage() {
         <CardHeader>
           <CardTitle className="text-base">Cargas de {form.data}</CardTitle>
           <p className="text-sm text-muted-foreground">
-            {rows.length} carga(s) · Total {rows.reduce((s, r) => s + (r.quantidade_m3 ?? 0), 0)} m³
+            {rows.length} carga(s) · Total {rows.reduce((s, r) => s + Number(r.quantidade_m3 ?? 0), 0)} m³
           </p>
         </CardHeader>
         <CardContent className="space-y-2 max-h-[600px] overflow-y-auto">
@@ -496,7 +507,8 @@ export default function ConcretoLancamentoPage() {
                 </div>
                 <button
                   onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
-                  className="text-muted-foreground hover:text-destructive"
+                  disabled={!r._pending && !podeEditar}
+                  className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:hover:text-muted-foreground"
                   aria-label="Remover"
                 >
                   <Trash2 className="h-4 w-4" />

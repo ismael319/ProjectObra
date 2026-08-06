@@ -25,6 +25,7 @@ export default function CadFornecedores() {
       organizacaoScoped
       timestamps={false}
       blockRefs={[{ table: "cargas_concreto", fk: "fornecedor_id", label: "cargas de concreto" }]}
+      moduloKey="qualidade"
     />
   );
 }

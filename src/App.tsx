@@ -214,7 +214,7 @@ function App() {
                       <Route path="seguranca/novo" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
                       <Route path="seguranca/registros" element={<RequireModulo modulo="seguranca"><RdrRegistros /></RequireModulo>} />
                       <Route path="seguranca/registros/:id" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
-                      <Route path="admin/users" element={<RequirePapel papeis={['edicao']}><UserApprovalManagement /></RequirePapel>} />
+                      <Route path="admin/users" element={<RequireModulo modulo="sistema"><UserApprovalManagement /></RequireModulo>} />
                       <Route path="admin/seguranca" element={<RequirePapel papeis={[]}><SecurityMonitoring /></RequirePapel>} />
                     </Route>
 

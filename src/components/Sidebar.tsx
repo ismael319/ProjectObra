@@ -151,14 +151,17 @@ interface SidebarProps {
   onMobileClose: () => void
   papel?: PapelUsuario
   modulos?: string[]
+  // Papel efetivo NO módulo "sistema" (calculado no DashboardLayout, que tem
+  // acesso a papelPorModulo) — não dá pra derivar aqui só do `papel` global,
+  // já que alguém pode ter um override edicao só em "sistema".
+  podeGerenciarUsuarios?: boolean
 }
 
 export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
-  modulos = [],
+  modulos = [], podeGerenciarUsuarios = false,
 }: SidebarProps) {
   const isInsercaoPontual = papel === 'insercao_pontual'
-  const podeGerenciarUsuarios = papel === 'edicao'
 
   const navSections = isInsercaoPontual ? navSectionsInsercaoPontual : buildNavSections(modulos)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(

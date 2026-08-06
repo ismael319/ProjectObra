@@ -8,7 +8,7 @@ import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 
 export default function DashboardLayout() {
@@ -19,7 +19,9 @@ export default function DashboardLayout() {
   const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
   const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
-  const podeGerenciarUsuarios = userProfile?.papel === 'edicao'
+  // Papel efetivo no módulo "sistema" (override, se existir, senão o global) —
+  // controla quem vê o link "Sistema" e o selo de pendências.
+  const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
@@ -223,6 +225,7 @@ export default function DashboardLayout() {
           onMobileClose={() => setMobileMenuOpen(false)}
           papel={userProfile?.papel ?? undefined}
           modulos={userProfile?.modulos}
+          podeGerenciarUsuarios={podeGerenciarUsuarios}
         />
       )}
 
