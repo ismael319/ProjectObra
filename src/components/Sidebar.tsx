@@ -9,7 +9,7 @@ import {
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog, FileText,
-  Truck, LineChart, Database,
+  Truck, LineChart, Database, FlaskConical,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -73,6 +73,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
         { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
+        { icon: FlaskConical, label: 'Ensaios', path: '/dashboard/qualidade/concreto/ensaios' },
         { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
         { icon: Database, label: 'Dados', path: '/dashboard/qualidade/concreto/importar-historico' },
       ],

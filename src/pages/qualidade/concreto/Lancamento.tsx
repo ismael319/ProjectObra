@@ -3,7 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { todayISO, computeCarga } from "./lib/concreto-utils";
-import { useFornecedoresConcreto, useTracosConcreto } from "./lib/catalog";
+import { useFornecedoresConcreto, useTracosConcreto, useLaboratorios, useConfigEnsaio } from "./lib/catalog";
+import { distribuirCorposProva, parseIdadesEnsaio } from "./lib/rastreabilidade";
 import { enqueue, listPending, remove as removePending, drain } from "./lib/offline-queue";
 import { useOnlineStatus, isNetworkError } from "@/lib/offline-query";
 import { DestinoRow, novoDestino, type DestinoForm } from "./components/DestinoRow";
@@ -13,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2, Wifi, WifiOff, RefreshCw } from "lucide-react";
+import { Plus, Loader2, Trash2, Wifi, WifiOff, RefreshCw, Copy } from "lucide-react";
 
 type FormState = {
   data: string;
@@ -24,6 +25,10 @@ type FormState = {
   preco_unitario: number | null;
   nota_fiscal: string;
   destinos: DestinoForm[];
+  laboratorio_id: string | null;
+  peca_concretada: string;
+  idades_ensaio_texto: string;
+  qtd_cps: number | "";
 };
 
 const emptyForm = (keep?: Partial<FormState>): FormState => ({
@@ -35,6 +40,10 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
   preco_unitario: null,
   nota_fiscal: "",
   destinos: [novoDestino()],
+  laboratorio_id: null,
+  peca_concretada: "",
+  idades_ensaio_texto: keep?.idades_ensaio_texto ?? "",
+  qtd_cps: keep?.qtd_cps ?? "",
 });
 
 export default function ConcretoLancamentoPage() {
@@ -46,6 +55,20 @@ export default function ConcretoLancamentoPage() {
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
   const { data: tracos = [] } = useTracosConcreto(organizacaoId);
+  const { data: laboratorios = [] } = useLaboratorios(organizacaoId);
+  const { data: configEnsaio } = useConfigEnsaio(organizacaoId);
+
+  // Pré-preenche idades/quantidade de CPs com o padrão da organização assim
+  // que ele carrega — só na primeira vez (campos ainda vazios), pra não
+  // sobrescrever o que o usuário já tiver digitado.
+  useEffect(() => {
+    if (!configEnsaio) return;
+    setForm((p) =>
+      p.idades_ensaio_texto === "" && p.qtd_cps === ""
+        ? { ...p, idades_ensaio_texto: configEnsaio.idades_padrao_dias.join(", "), qtd_cps: configEnsaio.qtd_cps_padrao }
+        : p,
+    );
+  }, [configEnsaio]);
 
   const fornecedorSelecionado = useMemo(
     () => fornecedores.find((f) => f.id === form.fornecedor_id) ?? null,
@@ -216,23 +239,39 @@ export default function ConcretoLancamentoPage() {
           observacao: d.observacao || null,
         }));
 
+      const corposProva = distribuirCorposProva(parseIdadesEnsaio(f.idades_ensaio_texto), Number(f.qtd_cps) || 0, f.data).map((cp) => ({
+        id: crypto.randomUUID(),
+        organizacao_id: organizacaoId,
+        carga_id: id,
+        laboratorio_id: f.laboratorio_id,
+        peca_concretada: f.peca_concretada || null,
+        idade_prevista_dias: cp.idade_prevista_dias,
+        data_moldagem: cp.data_moldagem,
+        data_ruptura_prevista: cp.data_ruptura_prevista,
+      }));
+
       // `id` gerado sempre (mesmo online) é a chave de idempotência — se o
       // envio "aparentemente" falhar por rede mas na verdade já tiver
       // chegado no servidor, o retry (imediato ou via fila) usa o mesmo id e
       // o upsert com ignoreDuplicates absorve a duplicata sem violar RLS.
       // Mesmo padrão de apontamento/lib/offline-queue.ts.
       if (!navigator.onLine) {
-        await enqueue(payload, destinosValidos);
-        return { queued: true };
+        await enqueue(payload, destinosValidos, corposProva);
+        return { queued: true, codigoRastreabilidade: null };
       }
 
-      const { error: cargaError, status: cargaStatus } = await supabase
+      // .select() pra trazer de volta o codigo_rastreabilidade gerado pelo
+      // trigger BEFORE INSERT (o payload enviado não tem essa coluna) — dá
+      // pra exibir/copiar assim que a carga é salva, sem round-trip extra.
+      const { data: cargaSalva, error: cargaError, status: cargaStatus } = await supabase
         .from("cargas_concreto")
-        .upsert(payload, { onConflict: "id", ignoreDuplicates: true });
+        .upsert(payload, { onConflict: "id", ignoreDuplicates: true })
+        .select("codigo_rastreabilidade")
+        .maybeSingle();
       if (cargaError) {
         if (isNetworkError(cargaError, cargaStatus)) {
-          await enqueue(payload, destinosValidos);
-          return { queued: true };
+          await enqueue(payload, destinosValidos, corposProva);
+          return { queued: true, codigoRastreabilidade: null };
         }
         throw cargaError;
       }
@@ -245,22 +284,41 @@ export default function ConcretoLancamentoPage() {
           if (isNetworkError(destinosError, destinosStatus)) {
             // A carga já chegou no servidor — reenfileirar o item inteiro é
             // seguro porque o upsert da carga é idempotente (só os destinos
-            // efetivamente entram no retry).
-            await enqueue(payload, destinosValidos);
-            return { queued: true };
+            // e os corpos de prova efetivamente entram no retry).
+            await enqueue(payload, destinosValidos, corposProva);
+            return { queued: true, codigoRastreabilidade: null };
           }
           throw destinosError;
         }
       }
 
-      return { queued: false };
+      if (corposProva.length > 0) {
+        const { error: corposError, status: corposStatus } = await supabase
+          .from("corpos_prova")
+          .upsert(corposProva, { onConflict: "id", ignoreDuplicates: true });
+        if (corposError) {
+          if (isNetworkError(corposError, corposStatus)) {
+            await enqueue(payload, destinosValidos, corposProva);
+            return { queued: true, codigoRastreabilidade: null };
+          }
+          throw corposError;
+        }
+      }
+
+      return { queued: false, codigoRastreabilidade: cargaSalva?.codigo_rastreabilidade ?? null };
     },
     // Sem isso, o React Query nem chama mutationFn offline — mesmo motivo já
     // documentado em apontamento/Lancamento.tsx.
     networkMode: "always",
     onSuccess: (r) => {
-      toast.success(r.queued ? "Salvo no dispositivo — será enviado quando houver conexão" : "Carga registrada");
-      setForm((p) => emptyForm({ data: p.data }));
+      if (r.queued) {
+        toast.success("Salvo no dispositivo — será enviado quando houver conexão");
+      } else if (r.codigoRastreabilidade) {
+        toast.success(`Carga registrada — código ${r.codigoRastreabilidade}`);
+      } else {
+        toast.success("Carga registrada");
+      }
+      setForm((p) => emptyForm({ data: p.data, idades_ensaio_texto: p.idades_ensaio_texto, qtd_cps: p.qtd_cps }));
       refetch();
       qc.invalidateQueries({ queryKey: ["cargas-concreto-dia"] });
       refetchPendentes();
@@ -469,6 +527,50 @@ export default function ConcretoLancamentoPage() {
               )}
             </div>
 
+            <div className="sm:col-span-2 space-y-3 rounded-md border p-3">
+              <Label className="text-sm">Rastreabilidade — corpos de prova</Label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-1.5">
+                  <Label>Laboratório</Label>
+                  <Combobox
+                    options={laboratorios.map((l) => ({ value: l.id, label: l.nome }))}
+                    value={form.laboratorio_id}
+                    onChange={(v) => setForm((p) => ({ ...p, laboratorio_id: v }))}
+                    placeholder="Selecione o laboratório"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Peça concretada</Label>
+                  <Input
+                    value={form.peca_concretada}
+                    onChange={(e) => setForm((p) => ({ ...p, peca_concretada: e.target.value }))}
+                    placeholder='Ex.: "RAMPA DO AZ02"'
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Idades de ensaio (dias)</Label>
+                  <Input
+                    value={form.idades_ensaio_texto}
+                    onChange={(e) => setForm((p) => ({ ...p, idades_ensaio_texto: e.target.value }))}
+                    placeholder="7, 28, 63"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Quantidade de CPs</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    value={form.qtd_cps}
+                    onChange={(e) => setForm((p) => ({ ...p, qtd_cps: e.target.value === "" ? "" : Number(e.target.value) }))}
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Opcional — se preenchido, cria automaticamente {Number(form.qtd_cps) || 0} corpo(s) de prova pendente(s)
+                de ensaio, distribuídos entre as idades informadas.
+              </p>
+            </div>
+
             {!podeInserir && (
               <p className="sm:col-span-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-700 dark:text-amber-300">
                 Você só tem visualização neste módulo — não é possível lançar cargas.
@@ -504,6 +606,19 @@ export default function ConcretoLancamentoPage() {
                   <div className="text-xs text-muted-foreground">
                     {r.tipo_origem === "propria" ? "Usina própria" : "Fornecedor externo"} · {r.quantidade_m3} m³
                   </div>
+                  {r.codigo_rastreabilidade && (
+                    <button
+                      type="button"
+                      className="mt-1 inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        navigator.clipboard.writeText(r.codigo_rastreabilidade);
+                        toast.success("Código copiado");
+                      }}
+                      title="Copiar código de rastreabilidade"
+                    >
+                      {r.codigo_rastreabilidade} <Copy className="h-3 w-3" />
+                    </button>
+                  )}
                 </div>
                 <button
                   onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}

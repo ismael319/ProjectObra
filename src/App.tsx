@@ -52,6 +52,8 @@ const ConcretoLancamento = lazy(() => import('@/pages/qualidade/concreto/Lancame
 const ConcretoDashboard = lazy(() => import('@/pages/qualidade/concreto/Dashboard'))
 const ConcretoImportarHistorico = lazy(() => import('@/pages/qualidade/concreto/ImportarHistorico'))
 const ConcretoConsulta = lazy(() => import('@/pages/qualidade/concreto/Consulta'))
+const ConcretoEnsaios = lazy(() => import('@/pages/qualidade/concreto/Ensaios'))
+const ConcretoImportarEnsaios = lazy(() => import('@/pages/qualidade/concreto/ImportarEnsaios'))
 
 // Segurança / RDR
 const RdrHome = lazy(() => import('@/pages/seguranca/RdrHome'))
@@ -209,6 +211,8 @@ function App() {
                       <Route path="qualidade/concreto/dashboard" element={<RequireModulo modulo="qualidade"><ConcretoDashboard /></RequireModulo>} />
                       <Route path="qualidade/concreto/importar-historico" element={<RequireModulo modulo="qualidade"><ConcretoImportarHistorico /></RequireModulo>} />
                       <Route path="qualidade/concreto/consulta" element={<RequireModulo modulo="qualidade"><ConcretoConsulta /></RequireModulo>} />
+                      <Route path="qualidade/concreto/ensaios" element={<RequireModulo modulo="qualidade"><ConcretoEnsaios /></RequireModulo>} />
+                      <Route path="qualidade/concreto/ensaios/importar" element={<RequireModulo modulo="qualidade"><ConcretoImportarEnsaios /></RequireModulo>} />
                       <Route path="seguranca" element={<RequireModulo modulo="seguranca"><RdrHome /></RequireModulo>} />
                       <Route path="seguranca/dashboard" element={<RequireModulo modulo="seguranca"><RdrDashboard /></RequireModulo>} />
                       <Route path="seguranca/novo" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />

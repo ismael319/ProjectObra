@@ -11,17 +11,23 @@ export type QueuedCarga = {
   id: string; // crypto.randomUUID(), também usado como id do insert em cargas_concreto
   payload: Record<string, any>; // linha de cargas_concreto, congelada no momento do submit
   destinos: Record<string, any>[]; // linhas de destinos_carga (carga_id = payload.id), cada uma com seu próprio id gerado no cliente
+  corposProva: Record<string, any>[]; // linhas de corpos_prova (carga_id = payload.id), cada uma com seu próprio id gerado no cliente
   createdAt: string; // hora de captura em campo
   status: "pending" | "error";
   attempts: number;
   lastError?: string;
 };
 
-export async function enqueue(payload: Record<string, any>, destinos: Record<string, any>[]): Promise<QueuedCarga> {
+export async function enqueue(
+  payload: Record<string, any>,
+  destinos: Record<string, any>[],
+  corposProva: Record<string, any>[] = [],
+): Promise<QueuedCarga> {
   const item: QueuedCarga = {
     id: payload.id,
     payload,
     destinos,
+    corposProva,
     createdAt: new Date().toISOString(),
     status: "pending",
     attempts: 0,
@@ -86,6 +92,19 @@ export async function drain(): Promise<DrainResult> {
       if (destinosError) {
         if (isNetworkError(destinosError, destinosStatus)) continue;
         await markError(item, destinosError.message ?? "Erro desconhecido ao sincronizar destinos da carga");
+        errored.push(item);
+        continue;
+      }
+    }
+
+    if (item.corposProva.length > 0) {
+      const { error: corposError, status: corposStatus } = await supabase
+        .from("corpos_prova")
+        .upsert(item.corposProva, { onConflict: "id", ignoreDuplicates: true });
+
+      if (corposError) {
+        if (isNetworkError(corposError, corposStatus)) continue;
+        await markError(item, corposError.message ?? "Erro desconhecido ao sincronizar corpos de prova da carga");
         errored.push(item);
         continue;
       }

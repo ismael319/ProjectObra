@@ -29,9 +29,27 @@ function formatAnoMes(anoMes: string): string {
 // Nome de área é texto livre e pode ser longo ("CASA DE MÁQUINAS /
 // RECEBIMENTO") — truncado no rótulo do eixo (o nome completo continua no
 // tooltip ao passar o mouse) pra não estourar a largura da coluna girada,
-// não importa o ângulo/altura reservados.
-function truncarNome(nome: string, max = 18): string {
-  return nome.length > max ? `${nome.slice(0, max - 1)}…` : nome;
+// não importa o ângulo/altura reservados. Palavras inteiras que cabem antes
+// de `max` aparecem completas ("CASA DE MÁQUINAS /"); só a palavra em que o
+// limite é estourado é cortada no meio ("RECEBIMENTO" -> "RECEB…") — em vez
+// de descartar a palavra inteira, como um slice ingênuo faria.
+function truncarNome(nome: string, max = 24): string {
+  if (nome.length <= max) return nome;
+  const palavras = nome.split(" ");
+  let resultado = "";
+  for (const palavra of palavras) {
+    const proximo = resultado ? `${resultado} ${palavra}` : palavra;
+    if (proximo.length <= max) {
+      resultado = proximo;
+      continue;
+    }
+    const espacoRestante = max - resultado.length - (resultado ? 1 : 0);
+    if (espacoRestante > 2) {
+      resultado = `${resultado}${resultado ? " " : ""}${palavra.slice(0, espacoRestante)}`;
+    }
+    break;
+  }
+  return `${resultado}…`;
 }
 
 // O PostgREST devolve colunas numeric como string (não number) — converter com
@@ -359,10 +377,16 @@ export default function ConcretoDashboard() {
       <Card>
         <CardHeader><CardTitle className="text-base">Concreto / Área (m³)</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={Math.max(340, porArea.length * 40)}>
-            <BarChart data={porArea} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+          {/* Ângulo -90 (vertical), não -30: rotacionado em diagonal, o rótulo
+              se estende bastante pra ESQUERDA do próprio tick — nas barras
+              mais à esquerda essa extensão passa da borda do SVG e é cortada
+              (o <svg> raiz tem overflow:hidden implícito). Na vertical o
+              rótulo só cresce pra CIMA a partir do tick, sem nenhum avanço
+              horizontal — não estoura a borda não importa a posição. */}
+          <ResponsiveContainer width="100%" height={Math.max(380, porArea.length * 40)}>
+            <BarChart data={porArea} margin={{ top: 24, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="nome" tick={{ fontSize: 14 }} interval={0} angle={-30} textAnchor="end" height={120} tickFormatter={truncarNome} />
+              <XAxis dataKey="nome" tick={{ fontSize: 10 }} interval={0} angle={-90} textAnchor="end" height={170} tickFormatter={truncarNome} />
               <YAxis />
               <Tooltip />
               <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>

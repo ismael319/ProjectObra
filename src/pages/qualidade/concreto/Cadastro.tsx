@@ -2,11 +2,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import CadFornecedores from "./CadFornecedores";
 import CadTracos from "./CadTracos";
 import CadEtapas from "./CadEtapas";
+import CadLaboratorios from "./CadLaboratorios";
 
 const TABS = [
   { value: "fornecedores", label: "Fornecedores", Component: CadFornecedores },
   { value: "tracos", label: "Traços", Component: CadTracos },
   { value: "etapas", label: "Etapas", Component: CadEtapas },
+  { value: "laboratorios", label: "Laboratórios", Component: CadLaboratorios },
 ];
 
 export default function CadastroConcretoPage() {
