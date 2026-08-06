@@ -1,6 +1,6 @@
 import type { ColunaConfig } from './report-config'
 import type { ItemComClassificacao } from './types'
-import { paraData } from './classify'
+import { hojeISO, paraData, paraDataISO } from './classify'
 
 export interface FiltroValor {
   texto?: string
@@ -56,12 +56,12 @@ export function aplicarBusca(itens: ItemComClassificacao[], busca: string): Item
 /** Filtros rápidos por anotação/classificação (sinalizados, lembretes, etc.). Todos os ativos precisam casar. */
 export function aplicarFiltrosRapidos(itens: ItemComClassificacao[], ativos: ReadonlySet<FiltroRapido>): ItemComClassificacao[] {
   if (ativos.size === 0) return itens
-  const hojeISO = new Date().toISOString().slice(0, 10)
+  const hoje = hojeISO()
   return itens.filter((item) => {
     const a = item.anotacao
     const condicao: Record<FiltroRapido, boolean> = {
       sinalizado: a.sinalizado,
-      lembrete: Boolean(a.lembreteData && a.lembreteData <= hojeISO),
+      lembrete: Boolean(a.lembreteData && a.lembreteData <= hoje),
       resolvido: a.status === 'resolvido',
       critico: item.classificacao.classe === 'critical',
       nao_autorizado: item.autorizado === false,
@@ -105,8 +105,14 @@ export function aplicarFiltrosColuna(
         if (!filtro.de && !filtro.ate) return true
         const data = paraData(valorColuna(item, col.key))
         if (!data) return true
-        if (filtro.de && data < new Date(filtro.de)) return false
-        if (filtro.ate && data > new Date(filtro.ate)) return false
+        if (filtro.de) {
+          const desde = paraDataISO(filtro.de)
+          if (desde && data < desde) return false
+        }
+        if (filtro.ate) {
+          const ate = paraDataISO(filtro.ate)
+          if (ate && data > ate) return false
+        }
         return true
       }
 

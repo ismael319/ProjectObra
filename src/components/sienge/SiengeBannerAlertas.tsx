@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { AlertTriangle, Bell, Flag, PackageX } from 'lucide-react'
 import type { ItemComClassificacao } from '@/lib/sienge/types'
 import type { FiltroRapido } from '@/lib/sienge/column-filters'
+import { hojeISO } from '@/lib/sienge/classify'
 
 interface Props {
   itens: ItemComClassificacao[]
@@ -19,7 +20,7 @@ interface Alerta {
 }
 
 export default function SiengeBannerAlertas({ itens, ativos, onToggle }: Props) {
-  const hojeISO = new Date().toISOString().slice(0, 10)
+  const hoje = hojeISO()
 
   const alertas: Alerta[] = [
     {
@@ -34,7 +35,7 @@ export default function SiengeBannerAlertas({ itens, ativos, onToggle }: Props) 
       filtro: 'lembrete',
       rotulo: 'Lembrete vencido',
       icone: <Bell size={13} />,
-      contagem: itens.filter((i) => i.anotacao.lembreteData && i.anotacao.lembreteData <= hojeISO).length,
+      contagem: itens.filter((i) => i.anotacao.lembreteData && i.anotacao.lembreteData <= hoje).length,
       classesAtivo: 'bg-amber-600 text-white border-amber-600',
       classesInativo: 'border-amber-300 dark:border-amber-800 text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-950/30',
     },

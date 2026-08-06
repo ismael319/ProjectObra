@@ -6,6 +6,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Switch } from '@/components/ui/switch'
 import { STATUS_LABEL, type Anotacao } from '@/lib/sienge/types'
+import { hojeISO } from '@/lib/sienge/classify'
 
 const STATUS_OPCOES = (Object.keys(STATUS_LABEL) as Array<keyof typeof STATUS_LABEL>).map((valor) => ({
   valor,
@@ -45,8 +46,8 @@ export default function SiengeAnnotationPopover({ anotacao, onSave }: Props) {
     }
   }
 
-  const hojeISO = new Date().toISOString().slice(0, 10)
-  const lembreteVencido = Boolean(anotacao.lembreteData && anotacao.lembreteData <= hojeISO)
+  const hoje = hojeISO()
+  const lembreteVencido = Boolean(anotacao.lembreteData && anotacao.lembreteData <= hoje)
   const temAlgo = anotacao.sinalizado || Boolean(anotacao.nota) || anotacao.status !== 'pendente' || Boolean(anotacao.lembreteData)
 
   return (
