@@ -279,8 +279,14 @@ export default function ConcretoDashboard() {
         {" · "}Usina: {usinaFiltro ? fornecedorNomePorId.get(usinaFiltro) ?? usinaFiltro : "todas"}
       </p>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card>
+      {/*
+        flex, não grid: html2canvas tem suporte histórico incompleto pra
+        display:grid (às vezes reflui pra coluna única na captura) — flexbox
+        com largura mínima por card é visualmente equivalente (3 colunas que
+        quebram linha se não couberem) e captura de forma confiável.
+      */}
+      <div className="flex flex-wrap gap-4">
+        <Card className="flex-1 min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto/mês (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -295,7 +301,7 @@ export default function ConcretoDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="flex-1 min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto / Usina (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -311,7 +317,7 @@ export default function ConcretoDashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="flex-1 min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume total (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>

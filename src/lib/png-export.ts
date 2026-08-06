@@ -20,11 +20,34 @@ import html2canvas from 'html2canvas-pro'
 // Programação, ver paleta.ts) — outros chamadores (dashboards com tema claro/
 // escuro) devem passar a própria cor de fundo explicitamente.
 async function nodeToCanvas(node: HTMLElement, scale = 3, backgroundColor = '#f3efe9'): Promise<HTMLCanvasElement> {
-  return html2canvas(node, {
-    scale,
-    backgroundColor,
-    useCORS: true,
-  })
+  // A opção backgroundColor do html2canvas só preenche área REALMENTE
+  // transparente — se o próprio nó capturado tiver um background-color
+  // explícito (ex.: bg-background do Tailwind, que segue o tema e fica
+  // escuro no dark mode), esse estilo vale mais e a opção é ignorada.
+  // Sobrescreve como inline temporário (maior prioridade que qualquer
+  // classe) só durante a captura, restaurando logo em seguida — garante o
+  // fundo pedido de verdade, sem alterar a tela pro usuário.
+  const bgAnterior = node.style.backgroundColor
+  node.style.backgroundColor = backgroundColor
+  try {
+    // html2canvas desenha o conteúdo numa janela/iframe clonada — sem passar
+    // windowWidth/windowHeight explícitos, o padrão da lib é window.innerWidth/
+    // innerHeight no momento da chamada, o que DEVERIA bater com a tela real,
+    // mas na prática (ex.: telas com grid responsivo, breakpoint lg:) o clone
+    // às vezes acaba menor e reflui pra layout de coluna única. Fixando
+    // explicitamente pro tamanho atual do documento, garante que toda regra
+    // responsiva (ex.: grid-cols-3 a partir de lg:) resolve igual no clone e
+    // na tela.
+    return await html2canvas(node, {
+      scale,
+      backgroundColor,
+      useCORS: true,
+      windowWidth: document.documentElement.clientWidth,
+      windowHeight: document.documentElement.clientHeight,
+    })
+  } finally {
+    node.style.backgroundColor = bgAnterior
+  }
 }
 
 async function nodeToBlob(node: HTMLElement, scale = 3, backgroundColor = '#f3efe9'): Promise<Blob> {
