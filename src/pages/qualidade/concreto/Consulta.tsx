@@ -2,7 +2,8 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { useFornecedoresConcreto, useTracosConcreto } from "./lib/catalog";
+import { useFornecedoresConcreto, useTracosConcreto, useEtapasConcreto } from "./lib/catalog";
+import { useAreas } from "@/pages/apontamento/lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,6 +34,8 @@ type Filters = {
   dataFim: string;
   fornecedorId: string | null;
   tracoId: string | null;
+  projetoId: string | null;
+  etapaId: string | null;
   numeroCarga: string;
 };
 
@@ -41,7 +44,7 @@ const PAGE_SIZE = 25;
 // Sem filtro de data por padrão — a tela deve abrir mostrando TODOS os
 // lançamentos do sistema, não só o mês atual.
 function defaultFilters(): Filters {
-  return { dataInicio: "", dataFim: "", fornecedorId: null, tracoId: null, numeroCarga: "" };
+  return { dataInicio: "", dataFim: "", fornecedorId: null, tracoId: null, projetoId: null, etapaId: null, numeroCarga: "" };
 }
 
 export default function ConcretoConsulta() {
@@ -55,19 +58,28 @@ export default function ConcretoConsulta() {
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, false);
   const { data: tracos = [] } = useTracosConcreto(organizacaoId, false);
+  const { data: projetos = [] } = useAreas();
+  const { data: etapas = [] } = useEtapasConcreto(organizacaoId, false);
 
   const queryKey = ["cargas-concreto-consulta", organizacaoId, filters, page];
 
   const { data, isLoading } = useQuery({
     queryKey,
     queryFn: async () => {
+      // Filtrar por Projeto/Etapa é filtrar pelo destino da carga (tabela filha) —
+      // o embed só precisa virar inner join (!inner) quando um desses filtros
+      // está ativo; do contrário cargas sem nenhum destino sumiriam da listagem
+      // toda vez que a tela abre sem filtro nenhum.
+      const filtraPorDestino = !!filters.projetoId || !!filters.etapaId;
+      const destinosEmbed = `destinos_carga${filtraPorDestino ? "!inner" : ""}(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`;
+
       let q = supabase
         .from("cargas_concreto")
         .select(
           `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
            fornecedores_concreto(nome),
            tracos_concreto(nome, fck_mpa),
-           destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`,
+           ${destinosEmbed}`,
           { count: "exact" }
         )
         .eq("organizacao_id", organizacaoId!)
@@ -76,6 +88,8 @@ export default function ConcretoConsulta() {
       if (filters.dataFim) q = q.lte("data", filters.dataFim);
       if (filters.fornecedorId) q = q.eq("fornecedor_id", filters.fornecedorId);
       if (filters.tracoId) q = q.eq("traco_id", filters.tracoId);
+      if (filters.projetoId) q = q.eq("destinos_carga.area_id", filters.projetoId);
+      if (filters.etapaId) q = q.eq("destinos_carga.etapa_concreto_id", filters.etapaId);
       if (filters.numeroCarga.trim()) q = q.ilike("numero_carga", `%${filters.numeroCarga.trim()}%`);
       q = q.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
 
@@ -144,7 +158,7 @@ export default function ConcretoConsulta() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
             <div className="space-y-1.5">
               <Label>Data início</Label>
               <Input type="date" value={filters.dataInicio} onChange={(e) => setF("dataInicio", e.target.value)} />
@@ -160,6 +174,14 @@ export default function ConcretoConsulta() {
             <div className="space-y-1.5">
               <Label>Traço</Label>
               <Combobox options={tracos.map((t) => ({ value: t.id, label: t.nome }))} value={filters.tracoId} onChange={(v) => setF("tracoId", v)} placeholder="Todos" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Projeto</Label>
+              <Combobox options={projetos.map((a) => ({ value: a.id, label: a.nome }))} value={filters.projetoId} onChange={(v) => setF("projetoId", v)} placeholder="Todos" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Etapa</Label>
+              <Combobox options={etapas.map((e) => ({ value: e.id, label: e.nome }))} value={filters.etapaId} onChange={(v) => setF("etapaId", v)} placeholder="Todas" />
             </div>
             <div className="space-y-1.5">
               <Label>Número da carga</Label>
