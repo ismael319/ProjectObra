@@ -26,6 +26,14 @@ function formatAnoMes(anoMes: string): string {
   return `${mes}/${ano}`;
 }
 
+// Nome de área é texto livre e pode ser longo ("CASA DE MÁQUINAS /
+// RECEBIMENTO") — truncado no rótulo do eixo (o nome completo continua no
+// tooltip ao passar o mouse) pra não estourar a largura da coluna girada,
+// não importa o ângulo/altura reservados.
+function truncarNome(nome: string, max = 18): string {
+  return nome.length > max ? `${nome.slice(0, max - 1)}…` : nome;
+}
+
 // O PostgREST devolve colunas numeric como string (não number) — converter com
 // Number() antes de qualquer soma, senão "6.5" + "12.3" vira "06.512.3".
 function m3(v: number | string): number {
@@ -293,13 +301,14 @@ export default function ConcretoDashboard() {
           <CardHeader><CardTitle className="text-base">Volume de concreto/mês (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porMes} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={porMes} margin={{ top: 24, right: 24, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="anoMes" tick={{ fontSize: 11 }} />
+                {/* interval=1: mostra 1, pula 1 — um rótulo a cada 2 meses */}
+                <XAxis dataKey="anoMes" tick={{ fontSize: 11 }} interval={1} />
                 <YAxis />
                 <Tooltip />
                 <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="total" position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                  <LabelList dataKey="total" position="top" fontSize={11} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -326,7 +335,7 @@ export default function ConcretoDashboard() {
           <CardHeader><CardTitle className="text-base">Volume total (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porAno} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+              <BarChart data={porAno} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="nome" />
                 <YAxis />
@@ -334,7 +343,11 @@ export default function ConcretoDashboard() {
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 {anos.map((ano, i) => (
                   <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]}>
-                    <LabelList dataKey={ano} position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                    {/* center, não top: num segmento empilhado "top" cai bem em
+                        cima da linha de divisão com o próximo segmento, ilegível
+                        contra qualquer uma das duas cores — centralizado no meio
+                        do próprio segmento, com texto branco, sempre lê bem. */}
+                    <LabelList dataKey={ano} position="center" fontSize={12} fill="#fff" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                   </Bar>
                 ))}
               </BarChart>
@@ -346,14 +359,14 @@ export default function ConcretoDashboard() {
       <Card>
         <CardHeader><CardTitle className="text-base">Concreto / Área (m³)</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={Math.max(300, porArea.length * 40)}>
-            <BarChart data={porArea} margin={{ top: 20, right: 8, left: 0, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={Math.max(340, porArea.length * 40)}>
+            <BarChart data={porArea} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="nome" tick={{ fontSize: 14 }} interval={0} angle={-20} textAnchor="end" height={80} />
+              <XAxis dataKey="nome" tick={{ fontSize: 14 }} interval={0} angle={-30} textAnchor="end" height={120} tickFormatter={truncarNome} />
               <YAxis />
               <Tooltip />
               <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="total" position="top" fontSize={11} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                <LabelList dataKey="total" position="top" fontSize={12} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 {porArea.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
