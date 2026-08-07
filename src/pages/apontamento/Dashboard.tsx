@@ -198,9 +198,22 @@ function ResumoDiarioTab() {
     return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [apontamentos]);
 
-  const porEncarregado = useMemo(
-    () => groupSum(apontamentos, (a) => a.lideranca_nome).sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
-    [apontamentos]
+  // Encarregados da BDR (empresa própria) separados do restante das
+  // empreiteiras — dois quadros em vez de uma lista só misturada, mais fácil
+  // de bater o efetivo próprio contra o terceirizado de relance.
+  const ehBDR = (a: Apontamento) => a.empresa_nome?.trim().toUpperCase().includes("BDR") ?? false;
+  const apontamentosBDR = useMemo(() => apontamentos.filter(ehBDR), [apontamentos]);
+  const apontamentosOutrasEmpresas = useMemo(() => apontamentos.filter((a) => !ehBDR(a)), [apontamentos]);
+
+  const porEncarregadoBDR = useMemo(
+    () => groupSum(apontamentosBDR, (a) => a.lideranca_nome).sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
+    [apontamentosBDR]
+  );
+  // Outras empresas: por empresa (nome + quantidade), não por encarregado —
+  // BDR já tem o quadro próprio de encarregados ao lado.
+  const porEmpresaOutras = useMemo(
+    () => groupSum(apontamentosOutrasEmpresas, (a) => a.empresa_nome).sort((a, b) => b.total - a.total),
+    [apontamentosOutrasEmpresas]
   );
 
   const porArea = useMemo(
@@ -340,9 +353,9 @@ function ResumoDiarioTab() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ResumoTable
-          titulo="Funcionários por Encarregado"
+          titulo="Encarregados BDR"
           coluna="Encarregado"
-          rows={porEncarregado}
+          rows={porEncarregadoBDR}
           tooltipFor={(key) => {
             const det = detalheEncarregado.get(key);
             if (!det) return null;
@@ -363,24 +376,32 @@ function ResumoDiarioTab() {
             );
           }}
         />
-        <ResumoTable
-          titulo="Funcionários por Área"
-          coluna="Área"
-          rows={porArea}
-          tooltipFor={(key) => {
-            const det = detalheArea.get(key);
-            if (!det || det.size === 0) return null;
-            const encarregados = [...det.entries()].sort((a, b) => b[1] - a[1]);
-            return (
-              <div>
-                <p className="font-semibold">Encarregados</p>
-                <ul className="list-disc pl-4">
-                  {encarregados.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
-                </ul>
-              </div>
-            );
-          }}
-        />
+
+        <div className="space-y-6">
+          <ResumoTable
+            titulo="Funcionários por Área"
+            coluna="Área"
+            rows={porArea}
+            tooltipFor={(key) => {
+              const det = detalheArea.get(key);
+              if (!det || det.size === 0) return null;
+              const encarregados = [...det.entries()].sort((a, b) => b[1] - a[1]);
+              return (
+                <div>
+                  <p className="font-semibold">Encarregados</p>
+                  <ul className="list-disc pl-4">
+                    {encarregados.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
+                  </ul>
+                </div>
+              );
+            }}
+          />
+          <ResumoTable
+            titulo="Outras Empresas"
+            coluna="Empresa"
+            rows={porEmpresaOutras}
+          />
+        </div>
       </div>
     </div>
   );
