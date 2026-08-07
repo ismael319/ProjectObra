@@ -380,7 +380,7 @@ export default function RdrDashboard() {
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
-          <div className="w-36 space-y-1.5">
+          <div className="w-full sm:w-36 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Ano</Label>
             <Combobox
               options={anos.map((a) => ({ value: a, label: a }))}
@@ -389,7 +389,7 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-32 space-y-1.5">
+          <div className="w-full sm:w-32 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Mês</Label>
             <Combobox
               options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))}
@@ -398,7 +398,7 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-44 space-y-1.5">
+          <div className="w-full sm:w-44 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Responsável</Label>
             <Combobox
               options={responsaveis.map((r) => ({ value: r, label: r }))}
@@ -407,7 +407,7 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-40 space-y-1.5">
+          <div className="w-full sm:w-40 space-y-1.5">
             <Label className="text-xs text-muted-foreground">Categoria</Label>
             <Combobox
               options={CATEGORIAS.map((c) => ({ value: c, label: c }))}

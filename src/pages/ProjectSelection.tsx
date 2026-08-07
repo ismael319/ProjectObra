@@ -244,7 +244,7 @@ export default function ProjectSelection() {
                 className="bg-transparent border-none outline-none ml-2 text-sm text-gray-700 dark:text-gray-200 w-full"
               />
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               {(['todos', 'ativo', 'inativo', 'arquivado'] as const).map((status) => (
                 <button
                   key={status}

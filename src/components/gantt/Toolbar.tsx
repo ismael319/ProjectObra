@@ -29,7 +29,7 @@ export function Toolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="flex items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+    <div className="flex flex-wrap items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
       <Tooltip>
         <TooltipTrigger asChild>
           <button

@@ -40,7 +40,7 @@ export default function ChatWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[360px] max-h-[560px] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
+        <div className="fixed bottom-24 right-6 z-50 w-[min(360px,calc(100vw-1.5rem))] max-h-[min(560px,calc(100vh-6rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
           <div className="flex items-center gap-2.5 px-4 py-3.5 bg-gray-900 dark:bg-gray-950 text-white">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
             <div className="min-w-0">

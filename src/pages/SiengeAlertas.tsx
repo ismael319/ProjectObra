@@ -229,7 +229,7 @@ export default function SiengeAlertas() {
       )}
 
       <Tabs value={tipoAtivo} onValueChange={(v) => setTipoAtivo(v as TipoRelatorio)}>
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           {TIPOS.map((tipo) => (
             <TabsTrigger key={tipo} value={tipo}>
               {REPORT_CONFIGS[tipo].titulo}

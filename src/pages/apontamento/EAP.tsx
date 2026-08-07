@@ -1033,7 +1033,7 @@ export default function EapPage() {
 
       <Card>
         <CardHeader>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar na árvore..." className="max-w-sm" />
             <Button variant="outline" size="sm" onClick={handleToggleExpandAll} className="ml-auto">
               {treeExpanded ? <ChevronsDownUp className="h-4 w-4" /> : <ChevronsUpDown className="h-4 w-4" />}

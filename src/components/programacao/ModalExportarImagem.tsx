@@ -223,7 +223,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${alvo.tipo === 'semana' ? 'max-w-[1200px]' : 'max-w-4xl'} max-h-[90vh] flex flex-col`}>
+      <DialogContent className={`${alvo.tipo === 'semana' ? 'max-w-[1200px]' : 'max-w-4xl'} max-h-[90vh] flex flex-col overflow-x-auto`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Image size={18} /> {tipoLabel}

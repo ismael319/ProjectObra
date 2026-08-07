@@ -594,7 +594,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         </div>
       )}
 
-      <div className="flex items-center justify-between px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Gantt Livre</h3>
           <div className="relative">
