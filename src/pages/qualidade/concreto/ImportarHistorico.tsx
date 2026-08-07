@@ -191,8 +191,8 @@ function ImportarHistoricoConcreto() {
       qc.invalidateQueries({ queryKey: ["fornecedores_concreto"] });
       qc.invalidateQueries({ queryKey: ["tracos_concreto"] });
       qc.invalidateQueries({ queryKey: ["etapas_concreto"] });
-      qc.invalidateQueries({ queryKey: ["areas"] });
-      qc.invalidateQueries({ queryKey: ["setores"] });
+      qc.invalidateQueries({ queryKey: ["areas_concreto"] });
+      qc.invalidateQueries({ queryKey: ["setores_concreto"] });
 
       setResumo(r);
       setEstagio("concluido");
@@ -216,7 +216,7 @@ function ImportarHistoricoConcreto() {
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        Envie um arquivo XLSX ou CSV com as mesmas colunas do "Exportar" (DATA, FORNECEDOR, ORIGEM, TRAÇO, QTD (m³), PROJETO, ETAPA...). Cada linha é uma carga inteira — uma carga com mais de um destino junta Projeto/Etapa/Observações com ";" na mesma célula. Fornecedor, Área/Setor (Projeto) e Etapa são criados automaticamente com o nome do arquivo quando não existem — só Traço precisa já estar cadastrado.
+        Envie um arquivo XLSX ou CSV com as mesmas colunas do "Exportar" (DATA, FORNECEDOR, ORIGEM, TRAÇO, QTD (m³), PROJETO, ETAPA...). Cada linha é uma carga inteira — uma carga com mais de um destino junta Projeto/Etapa/Observações com ";" na mesma célula. Fornecedor, Setor/Área do Concreto (Projeto) e Etapa são criados automaticamente com o nome do arquivo quando não existem — só Traço precisa já estar cadastrado.
       </p>
 
       <Card>
@@ -254,7 +254,7 @@ function ImportarHistoricoConcreto() {
             <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
-                Ao confirmar, <strong>TODOS os lançamentos de concreto já existentes desta organização serão apagados</strong> (inclusive os feitos manualmente) e substituídos pelo conteúdo deste arquivo. Os cadastros de Fornecedores, Traços, Áreas/Setores e Etapas não são apagados.
+                Ao confirmar, <strong>TODOS os lançamentos de concreto já existentes desta organização serão apagados</strong> (inclusive os feitos manualmente) e substituídos pelo conteúdo deste arquivo. Os cadastros de Fornecedores, Traços, Setores/Áreas do Concreto e Etapas não são apagados.
               </span>
             </div>
           )}

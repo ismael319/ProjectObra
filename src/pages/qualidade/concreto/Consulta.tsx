@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
-import { useFornecedoresConcreto, useTracosConcreto, useEtapasConcreto } from "./lib/catalog";
-import { useAreas } from "@/pages/apontamento/lib/catalog";
+import { useFornecedoresConcreto, useTracosConcreto, useEtapasConcreto, useAreasConcreto } from "./lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -58,7 +57,7 @@ export default function ConcretoConsulta() {
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, false);
   const { data: tracos = [] } = useTracosConcreto(organizacaoId, false);
-  const { data: projetos = [] } = useAreas();
+  const { data: projetos = [] } = useAreasConcreto(null, organizacaoId);
   const { data: etapas = [] } = useEtapasConcreto(organizacaoId, false);
 
   const queryKey = ["cargas-concreto-consulta", organizacaoId, filters, page];
@@ -69,9 +68,11 @@ export default function ConcretoConsulta() {
       // Filtrar por Projeto/Etapa é filtrar pelo destino da carga (tabela filha) —
       // o embed só precisa virar inner join (!inner) quando um desses filtros
       // está ativo; do contrário cargas sem nenhum destino sumiriam da listagem
-      // toda vez que a tela abre sem filtro nenhum.
+      // toda vez que a tela abre sem filtro nenhum. areas_concreto é o catálogo
+      // próprio do Concreto; areas (global do Apontamento) é só fallback pra
+      // destinos lançados antes da separação.
       const filtraPorDestino = !!filters.projetoId || !!filters.etapaId;
-      const destinosEmbed = `destinos_carga${filtraPorDestino ? "!inner" : ""}(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`;
+      const destinosEmbed = `destinos_carga${filtraPorDestino ? "!inner" : ""}(quantidade_m3_aplicada, observacao, areas_concreto(nome), areas(nome), etapa_concreto:etapas_concreto(nome))`;
 
       let q = supabase
         .from("cargas_concreto")
@@ -88,7 +89,7 @@ export default function ConcretoConsulta() {
       if (filters.dataFim) q = q.lte("data", filters.dataFim);
       if (filters.fornecedorId) q = q.eq("fornecedor_id", filters.fornecedorId);
       if (filters.tracoId) q = q.eq("traco_id", filters.tracoId);
-      if (filters.projetoId) q = q.eq("destinos_carga.area_id", filters.projetoId);
+      if (filters.projetoId) q = q.eq("destinos_carga.area_concreto_id", filters.projetoId);
       if (filters.etapaId) q = q.eq("destinos_carga.etapa_concreto_id", filters.etapaId);
       if (filters.numeroCarga.trim()) q = q.ilike("numero_carga", `%${filters.numeroCarga.trim()}%`);
       q = q.range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
@@ -239,7 +240,7 @@ export default function ConcretoConsulta() {
                         ? "—"
                         : r.destinos_carga.map((d, i) => (
                             <div key={i} className="whitespace-nowrap">
-                              {d.areas?.nome ?? "Sem área"} — {d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³
+                              {d.areas_concreto?.nome ?? d.areas?.nome ?? "Sem área"} — {d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³
                             </div>
                           ))}
                     </TableCell>
@@ -247,7 +248,7 @@ export default function ConcretoConsulta() {
                       {r.destinos_carga.length === 0
                         ? "—"
                         : r.destinos_carga.map((d, i) => (
-                            <div key={i} className="whitespace-nowrap">{d.areas?.nome ?? "—"}</div>
+                            <div key={i} className="whitespace-nowrap">{d.areas_concreto?.nome ?? d.areas?.nome ?? "—"}</div>
                           ))}
                     </TableCell>
                     <TableCell className="text-xs max-w-[160px]">

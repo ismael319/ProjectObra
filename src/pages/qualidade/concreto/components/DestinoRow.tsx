@@ -1,6 +1,5 @@
-import { useSetores, useAreas } from "@/pages/apontamento/lib/catalog";
 import { useAuth } from "@/lib/auth-context";
-import { useEtapasConcreto } from "../lib/catalog";
+import { useEtapasConcreto, useSetoresConcreto, useAreasConcreto } from "../lib/catalog";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -9,8 +8,8 @@ import { X } from "lucide-react";
 
 export type DestinoForm = {
   key: string; // só uso local (key de lista em React) — não vai pro banco
-  setor_id: string | null;
-  area_id: string | null;
+  setor_concreto_id: string | null;
+  area_concreto_id: string | null;
   etapa_concreto_id: string | null;
   quantidade_m3_aplicada: number | null;
   observacao: string;
@@ -19,19 +18,20 @@ export type DestinoForm = {
 export function novoDestino(): DestinoForm {
   return {
     key: crypto.randomUUID(),
-    setor_id: null,
-    area_id: null,
+    setor_concreto_id: null,
+    area_concreto_id: null,
     etapa_concreto_id: null,
     quantidade_m3_aplicada: null,
     observacao: "",
   };
 }
 
-// Setor→Área reaproveita a cascata global do Apontamento de Mão de Obra. Já
-// Etapa é um catálogo próprio do Concreto, por organização, independente de
-// Área/Setor (ver 20260806010000_etapas-concreto-migration.sql). Cada linha
-// de destino chama os hooks pra si mesma, por isso é um componente à parte
-// em vez de um loop dentro do formulário principal.
+// Setor→Área usa o catálogo PRÓPRIO do Concreto (setores_concreto/
+// areas_concreto), separado do Apontamento de efetivo — ver
+// 20260807060000_concreto-setores-areas-migration.sql. Etapa é outro
+// catálogo próprio por organização (etapas_concreto, ver 20260806010000).
+// Cada linha de destino chama os hooks pra si mesma, por isso é um componente
+// à parte em vez de um loop dentro do formulário principal.
 export function DestinoRow({
   destino,
   onChange,
@@ -42,9 +42,10 @@ export function DestinoRow({
   onRemove?: () => void;
 }) {
   const { userProfile } = useAuth();
-  const { data: setores = [] } = useSetores();
-  const { data: areas = [] } = useAreas(destino.setor_id);
-  const { data: etapas = [] } = useEtapasConcreto(userProfile?.organizacao_id ?? undefined);
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const { data: setores = [] } = useSetoresConcreto(organizacaoId);
+  const { data: areas = [] } = useAreasConcreto(destino.setor_concreto_id, organizacaoId);
+  const { data: etapas = [] } = useEtapasConcreto(organizacaoId);
 
   return (
     <div className="grid gap-3 sm:grid-cols-6 items-end rounded-md border p-3">
@@ -52,8 +53,8 @@ export function DestinoRow({
         <Label className="text-xs text-muted-foreground">Setor</Label>
         <Combobox
           options={setores.map((s) => ({ value: s.id, label: s.nome }))}
-          value={destino.setor_id}
-          onChange={(v) => onChange({ ...destino, setor_id: v, area_id: null })}
+          value={destino.setor_concreto_id}
+          onChange={(v) => onChange({ ...destino, setor_concreto_id: v, area_concreto_id: null })}
           placeholder="Setor"
         />
       </div>
@@ -61,10 +62,10 @@ export function DestinoRow({
         <Label className="text-xs text-muted-foreground">Área</Label>
         <Combobox
           options={areas.map((a) => ({ value: a.id, label: a.nome }))}
-          value={destino.area_id}
-          onChange={(v) => onChange({ ...destino, area_id: v })}
-          placeholder={destino.setor_id ? "Área" : "Setor primeiro"}
-          disabled={!destino.setor_id}
+          value={destino.area_concreto_id}
+          onChange={(v) => onChange({ ...destino, area_concreto_id: v })}
+          placeholder={destino.setor_concreto_id ? "Área" : "Setor primeiro"}
+          disabled={!destino.setor_concreto_id}
         />
       </div>
       <div className="space-y-1.5 sm:col-span-1">

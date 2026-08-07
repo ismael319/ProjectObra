@@ -27,6 +27,19 @@ export type EtapaConcreto = {
   ativo: boolean;
 };
 
+export type SetorConcreto = {
+  id: string;
+  nome: string;
+  ativo: boolean;
+};
+
+export type AreaConcreto = {
+  id: string;
+  setor_concreto_id: string;
+  nome: string;
+  ativo: boolean;
+};
+
 export type TracoConcreto = {
   id: string;
   nome: string;
@@ -77,6 +90,49 @@ export function useEtapasConcreto(organizacaoId?: string, onlyActive = true) {
 
 export async function seedEtapasConcretoPadrao(organizacaoId: string): Promise<void> {
   const { error } = await supabase.rpc("seed_etapas_concreto_padrao", { p_organizacao_id: organizacaoId });
+  if (error) throw new Error(error.message);
+}
+
+// Setores/Áreas do Lançamento de Concreto — catálogo PRÓPRIO por organização,
+// separado dos setores/areas globais do Apontamento de efetivo (ver
+// 20260807060000_concreto-setores-areas-migration.sql). Copiar o catálogo do
+// Apontamento (seed_setores_areas_concreto_padrao) é opcional — o botão
+// "Copiar do Apontamento" no Cadastro só traz as opções existentes pra dentro
+// do Concreto; dali em diante cada módulo edita os próprios nomes.
+export function useSetoresConcreto(organizacaoId?: string, onlyActive = true) {
+  return useQuery({
+    queryKey: ["setores_concreto", organizacaoId, onlyActive],
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:setores_concreto:${organizacaoId}:${onlyActive}`, async () => {
+        let q = supabase.from("setores_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as SetorConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
+    enabled: !!organizacaoId,
+    ...OFFLINE_CATALOG_OPTS,
+  });
+}
+
+// setorConcretoId filtra em memória sobre a lista JÁ cacheada (mesmo padrão
+// de useAreas no apontamento/lib/catalog.ts) — trocar de setor não dispara
+// nova busca e qualquer setor funciona offline depois de abrir a tela online.
+export function useAreasConcreto(setorConcretoId?: string | null, organizacaoId?: string, onlyActive = true) {
+  return useQuery({
+    queryKey: ["areas_concreto", organizacaoId, onlyActive],
+    queryFn: () =>
+      fetchWithOfflineCache(`catalog:areas_concreto:${organizacaoId}:${onlyActive}`, async () => {
+        let q = supabase.from("areas_concreto").select("id,setor_concreto_id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+        if (onlyActive) q = q.eq("ativo", true);
+        return await q;
+      }).then((data) => (data as AreaConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
+    select: (data) => (setorConcretoId ? data.filter((a) => a.setor_concreto_id === setorConcretoId) : data),
+    enabled: !!organizacaoId,
+    ...OFFLINE_CATALOG_OPTS,
+  });
+}
+
+export async function seedSetoresAreasConcretoDoApontamento(organizacaoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_setores_areas_concreto_padrao", { p_organizacao_id: organizacaoId });
   if (error) throw new Error(error.message);
 }
 

@@ -3,10 +3,14 @@ import CadFornecedores from "./CadFornecedores";
 import CadTracos from "./CadTracos";
 import CadEtapas from "./CadEtapas";
 import CadLaboratorios from "./CadLaboratorios";
+import CadSetoresConcreto from "./CadSetoresConcreto";
+import CadAreasConcreto from "./CadAreasConcreto";
 
 const TABS = [
   { value: "fornecedores", label: "Fornecedores", Component: CadFornecedores },
   { value: "tracos", label: "Traços", Component: CadTracos },
+  { value: "setores", label: "Setores", Component: CadSetoresConcreto },
+  { value: "areas", label: "Áreas", Component: CadAreasConcreto },
   { value: "etapas", label: "Etapas", Component: CadEtapas },
   { value: "laboratorios", label: "Laboratórios", Component: CadLaboratorios },
 ];

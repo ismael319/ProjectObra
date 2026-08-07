@@ -149,7 +149,7 @@ const COLUNAS_OBRIGATORIAS = ["data", "fornecedor", "origem", "traco", "quantida
 export type Problema = { linha: number; descricao: string };
 
 export type DestinoImportado = {
-  projetoRaw: string; // -> vira area_id na resolução (importer-db.ts)
+  projetoRaw: string; // -> vira area_concreto_id na resolução (importer-db.ts)
   etapaNorm: string | null; // -> vira etapa_concreto_id
   quantidadeM3Aplicada: number;
   observacao: string;

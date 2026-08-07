@@ -27,6 +27,7 @@ type FormState = {
   destinos: DestinoForm[];
   laboratorio_id: string | null;
   peca_concretada: string;
+  cod_lab_tecnologico: string;
   idades_ensaio_texto: string;
   qtd_cps: number | "";
 };
@@ -42,6 +43,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
   destinos: [novoDestino()],
   laboratorio_id: null,
   peca_concretada: "",
+  cod_lab_tecnologico: "",
   idades_ensaio_texto: keep?.idades_ensaio_texto ?? "",
   qtd_cps: keep?.qtd_cps ?? "",
 });
@@ -227,13 +229,13 @@ export default function ConcretoLancamentoPage() {
       };
 
       const destinosValidos = f.destinos
-        .filter((d) => !!d.setor_id)
+        .filter((d) => !!d.setor_concreto_id)
         .map((d) => ({
           id: crypto.randomUUID(),
           organizacao_id: organizacaoId,
           carga_id: id,
-          setor_id: d.setor_id,
-          area_id: d.area_id,
+          setor_concreto_id: d.setor_concreto_id,
+          area_concreto_id: d.area_concreto_id,
           etapa_concreto_id: d.etapa_concreto_id,
           quantidade_m3_aplicada: d.quantidade_m3_aplicada ?? quantidade,
           observacao: d.observacao || null,
@@ -244,6 +246,7 @@ export default function ConcretoLancamentoPage() {
         organizacao_id: organizacaoId,
         carga_id: id,
         laboratorio_id: f.laboratorio_id,
+        numero_lab: f.cod_lab_tecnologico || null,
         peca_concretada: f.peca_concretada || null,
         idade_prevista_dias: cp.idade_prevista_dias,
         data_moldagem: cp.data_moldagem,
@@ -522,7 +525,7 @@ export default function ConcretoLancamentoPage() {
                   />
                 ))}
               </div>
-              {form.destinos.every((d) => !d.setor_id) && (
+              {form.destinos.every((d) => !d.setor_concreto_id) && (
                 <p className="text-xs text-muted-foreground">Opcional — pode informar depois.</p>
               )}
             </div>
@@ -545,6 +548,14 @@ export default function ConcretoLancamentoPage() {
                     value={form.peca_concretada}
                     onChange={(e) => setForm((p) => ({ ...p, peca_concretada: e.target.value }))}
                     placeholder='Ex.: "RAMPA DO AZ02"'
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cod. Laboratório Tecnológico</Label>
+                  <Input
+                    value={form.cod_lab_tecnologico}
+                    onChange={(e) => setForm((p) => ({ ...p, cod_lab_tecnologico: e.target.value }))}
+                    placeholder="Opcional"
                   />
                 </div>
                 <div className="space-y-1.5">

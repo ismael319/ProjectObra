@@ -1,13 +1,14 @@
 // Chamadas ao Supabase usadas pela importação de cargas (ImportarHistorico.tsx).
 // Transformação pura fica em importer.ts — aqui só é resolução de catálogo
-// (Área/Setor real do Apontamento / Fornecedor / Traço / Etapa) e gravação em
-// lote.
+// (Setor/Área do Concreto / Fornecedor / Traço / Etapa) e gravação em lote.
 //
 // Mapeamento (confirmado com o cliente): PROJETO do arquivo é uma ÁREA do
-// Apontamento (não um Setor) — cada Área já pertence a um Setor real, então
-// ao casar por nome herdamos o Setor dela automaticamente. ETAPA vira uma
-// Etapa do catálogo próprio do Concreto (etapas_concreto) — independente de
-// Área/Setor, só por organização (ver 20260806010000_etapas-concreto-
+// Concreto (não um Setor) — cada Área já pertence a um Setor do Concreto,
+// então ao casar por nome herdamos o Setor dela automaticamente. ETAPA vira
+// uma Etapa do catálogo próprio do Concreto (etapas_concreto) — independente
+// de Área/Setor, só por organização. Setores/Áreas aqui são sempre do
+// catálogo PRÓPRIO do Concreto (setores_concreto/areas_concreto), separado
+// do Apontamento de efetivo (ver 20260807060000_concreto-setores-areas-
 // migration.sql).
 
 import { supabase } from "@/lib/supabase";
@@ -17,59 +18,61 @@ import { TRACOS_CANONICOS, type CargaImportada } from "./importer";
 
 const TAMANHO_LOTE = 500;
 
-// ---------- Áreas/Setores (catálogo global do Apontamento) ----------
+// ---------- Setores/Áreas (catálogo próprio do Concreto, por organização) ----------
 // O arquivo importado só tem PROJETO (o nome da Área) — não tem Setor. Pra
 // não exigir revisão manual a cada Área nova, quando o PROJETO não bate com
-// nenhuma Área já cadastrada (em qualquer Setor), o próprio nome do Projeto
-// vira o Setor também (resolve-ou-cria os dois): "ALMOXARIFADO" sem
-// correspondência cria o Setor "ALMOXARIFADO" e a Área "ALMOXARIFADO" dentro
-// dele. Áreas que já existem (de qualquer Setor) só são casadas pelo nome,
-// nunca duplicadas.
+// nenhuma Área do Concreto já cadastrada (em qualquer Setor), o próprio nome
+// do Projeto vira o Setor também (resolve-ou-cria os dois): "ALMOXARIFADO"
+// sem correspondência cria o Setor do Concreto "ALMOXARIFADO" e a Área do
+// Concreto "ALMOXARIFADO" dentro dele. Áreas que já existem (de qualquer
+// Setor) só são casadas pelo nome, nunca duplicadas.
 
-type AreaResolvida = { areaId: string; setorId: string };
+type AreaConcretoResolvida = { areaConcretoId: string; setorConcretoId: string };
 
-class ResolvedorDeAreas {
-  private porNomeArea = new Map<string, AreaResolvida>(); // normNome área -> {areaId, setorId}
-  private porNomeSetor = new Map<string, string>(); // normNome setor -> setorId
-  private carregado = false;
+class ResolvedorDeAreasConcreto {
+  private porNomeArea = new Map<string, AreaConcretoResolvida>(); // normNome área -> {areaConcretoId, setorConcretoId}
+  private porNomeSetor = new Map<string, string>(); // normNome setor -> setorConcretoId
+  private organizacaoCarregada: string | null = null;
   areasCriadas = 0;
   setoresCriados = 0;
 
-  private async carregarSeNecessario() {
-    if (this.carregado) return;
+  private async carregarSeNecessario(organizacaoId: string) {
+    if (this.organizacaoCarregada === organizacaoId) return;
     const [{ data: areas, error: errAreas }, { data: setores, error: errSetores }] = await Promise.all([
-      supabase.from("areas").select("id,setor_id,nome").eq("ativo", true),
-      supabase.from("setores").select("id,nome").eq("ativo", true),
+      supabase.from("areas_concreto").select("id,setor_concreto_id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
+      supabase.from("setores_concreto").select("id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
     ]);
     if (errAreas) throw new Error(errAreas.message);
     if (errSetores) throw new Error(errSetores.message);
-    for (const a of (areas ?? []) as { id: string; setor_id: string; nome: string }[]) {
-      this.porNomeArea.set(normalizarTexto(a.nome), { areaId: a.id, setorId: a.setor_id });
+    this.porNomeArea.clear();
+    this.porNomeSetor.clear();
+    for (const a of (areas ?? []) as { id: string; setor_concreto_id: string; nome: string }[]) {
+      this.porNomeArea.set(normalizarTexto(a.nome), { areaConcretoId: a.id, setorConcretoId: a.setor_concreto_id });
     }
     for (const s of (setores ?? []) as { id: string; nome: string }[]) {
       this.porNomeSetor.set(normalizarTexto(s.nome), s.id);
     }
-    this.carregado = true;
+    this.organizacaoCarregada = organizacaoId;
   }
 
-  async resolverOuCriar(nome: string): Promise<AreaResolvida> {
-    await this.carregarSeNecessario();
+  async resolverOuCriar(organizacaoId: string, nome: string): Promise<AreaConcretoResolvida> {
+    await this.carregarSeNecessario(organizacaoId);
     const chave = normalizarTexto(nome);
     const existente = this.porNomeArea.get(chave);
     if (existente) return existente;
 
-    let setorId = this.porNomeSetor.get(chave);
-    if (!setorId) {
-      const { data, error } = await supabase.from("setores").insert({ nome }).select("id").single();
+    let setorConcretoId = this.porNomeSetor.get(chave);
+    if (!setorConcretoId) {
+      const { data, error } = await supabase.from("setores_concreto").insert({ organizacao_id: organizacaoId, nome }).select("id").single();
       if (error || !data) throw new Error(error?.message ?? `Falha ao criar setor "${nome}".`);
-      setorId = (data as { id: string }).id;
-      this.porNomeSetor.set(chave, setorId);
+      setorConcretoId = (data as { id: string }).id;
+      this.porNomeSetor.set(chave, setorConcretoId);
       this.setoresCriados++;
     }
 
-    const { data, error } = await supabase.from("areas").insert({ setor_id: setorId, nome }).select("id").single();
+    const { data, error } = await supabase.from("areas_concreto").insert({ organizacao_id: organizacaoId, setor_concreto_id: setorConcretoId, nome }).select("id").single();
     if (error || !data) throw new Error(error?.message ?? `Falha ao criar área "${nome}".`);
-    const resolvida: AreaResolvida = { areaId: (data as { id: string }).id, setorId };
+    const resolvida: AreaConcretoResolvida = { areaConcretoId: (data as { id: string }).id, setorConcretoId };
     this.porNomeArea.set(chave, resolvida);
     this.areasCriadas++;
     return resolvida;
@@ -267,7 +270,7 @@ export async function commitarImportacaoConcreto(params: {
   const { organizacaoId, userId, userNome, cargas, mapeamentoTracos, tracosCatalogo } = params;
 
   const tracoPorId = new Map(tracosCatalogo.map((t) => [t.id, t]));
-  const resolvedorAreas = new ResolvedorDeAreas();
+  const resolvedorAreas = new ResolvedorDeAreasConcreto();
   const resolvedorEtapas = new ResolvedorDeEtapas();
   const resolvedorFornecedores = new ResolvedorDeFornecedores();
 
@@ -288,7 +291,7 @@ export async function commitarImportacaoConcreto(params: {
     const destinosResolvidos: DestinoRow[] = [];
     for (const destino of carga.destinos) {
       if (!destino.projetoRaw.trim()) continue;
-      const { areaId, setorId } = await resolvedorAreas.resolverOuCriar(destino.projetoRaw);
+      const { areaConcretoId, setorConcretoId } = await resolvedorAreas.resolverOuCriar(organizacaoId, destino.projetoRaw);
 
       let etapaConcretoId: string | null = null;
       if (destino.etapaNorm) {
@@ -299,8 +302,8 @@ export async function commitarImportacaoConcreto(params: {
         id: crypto.randomUUID(),
         organizacao_id: organizacaoId,
         carga_id: "", // preenchido abaixo, depois que o id da carga é gerado
-        setor_id: setorId,
-        area_id: areaId,
+        setor_concreto_id: setorConcretoId,
+        area_concreto_id: areaConcretoId,
         etapa_concreto_id: etapaConcretoId,
         quantidade_m3_aplicada: destino.quantidadeM3Aplicada,
         observacao: destino.observacao || null,

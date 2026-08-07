@@ -4,6 +4,10 @@ import { supabase } from "@/lib/supabase";
 export type DestinoRow = {
   quantidade_m3_aplicada: number;
   observacao: string | null;
+  // áreas_concreto é o catálogo próprio do Concreto; areas (global do
+  // Apontamento) fica só como fallback pra destinos lançados antes da
+  // separação (ver 20260807060000_concreto-setores-areas-migration.sql).
+  areas_concreto: { nome: string } | null;
   areas: { nome: string } | null;
   etapa_concreto: { nome: string } | null;
 };
@@ -26,7 +30,7 @@ export type CargaRow = {
 const CARGA_SELECT = `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
   fornecedores_concreto(nome),
   tracos_concreto(nome, fck_mpa),
-  destinos_carga(quantidade_m3_aplicada, observacao, areas(nome), etapa_concreto:etapas_concreto(nome))`;
+  destinos_carga(quantidade_m3_aplicada, observacao, areas_concreto(nome), areas(nome), etapa_concreto:etapas_concreto(nome))`;
 
 // Busca TODAS as cargas da organização, sem filtro nem paginação — usada só pelo
 // botão "Exportar tudo" (o banco completo, não o recorte filtrado da tela). Pagina
@@ -62,11 +66,11 @@ function destinosCampo(destinos: DestinoRow[], extrair: (d: DestinoRow) => strin
 }
 
 function destinosTexto(destinos: DestinoRow[]): string {
-  return destinosCampo(destinos, (d) => `${d.areas?.nome ?? "Sem área"} — ${d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³`);
+  return destinosCampo(destinos, (d) => `${d.areas_concreto?.nome ?? d.areas?.nome ?? "Sem área"} — ${d.quantidade_m3_aplicada.toLocaleString("pt-BR")}m³`);
 }
 
 function projetosTexto(destinos: DestinoRow[]): string {
-  return destinosCampo(destinos, (d) => d.areas?.nome ?? "Sem área");
+  return destinosCampo(destinos, (d) => d.areas_concreto?.nome ?? d.areas?.nome ?? "Sem área");
 }
 
 function etapasTexto(destinos: DestinoRow[]): string {
