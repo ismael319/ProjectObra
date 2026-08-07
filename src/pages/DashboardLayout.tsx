@@ -231,7 +231,7 @@ export default function DashboardLayout() {
 
       {/* Conteúdo principal */}
       <main className={`pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <Outlet />
         </div>
       </main>

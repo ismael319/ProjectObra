@@ -688,7 +688,7 @@ export default function SCurve() {
           {openPanel === 'filtros' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-              <div className="absolute top-full left-0 mt-1 w-[380px] max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
+              <div className="absolute top-full left-0 mt-1 w-[min(380px,calc(100vw-1rem))] max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
                 {activeCronogramas.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">

@@ -168,7 +168,7 @@ export function CronogramaSelector({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="text-base">Selecionar itens do cronograma</CardTitle>
           <div className="flex gap-2">
             <Button size="sm" variant="ghost" onClick={() => { setSelectedL1(new Set()); setSelectedL2(new Set()); setSelectedL3(new Set()); }}>

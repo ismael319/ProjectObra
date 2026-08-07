@@ -774,7 +774,7 @@ export default function HistogramaMO() {
       )}
 
       <Tabs value={aba} onValueChange={(v) => setAba(v as 'semanal' | 'mensal' | 'horas')}>
-        <TabsList>
+        <TabsList className="h-auto flex-wrap">
           <TabsTrigger value="semanal">Lançamento semanal</TabsTrigger>
           <TabsTrigger value="mensal"><Table2 className="h-4 w-4" /> Visão mensal</TabsTrigger>
           <TabsTrigger value="horas"><LineChartIcon className="h-4 w-4" /> Curva de Horas</TabsTrigger>

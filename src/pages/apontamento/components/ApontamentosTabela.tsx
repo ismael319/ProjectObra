@@ -96,7 +96,7 @@ export function ApontamentosTabela({
             <Button size="sm" variant="outline" onClick={() => { void buildExcel(items, atividades) }}><Download className="h-3.5 w-3.5" /></Button>
           </div>
         </div>
-        <div className="flex gap-4 text-xs text-muted-foreground mt-2">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-2">
           <span>HH Total: <strong>{totalHhTotal.toFixed(1)}</strong></span>
           <span>HH Ganho: <strong>{totalHhGanho.toFixed(1)}</strong></span>
           <span>HH Consumido: <strong>{totalHhConsumido.toFixed(1)}</strong></span>

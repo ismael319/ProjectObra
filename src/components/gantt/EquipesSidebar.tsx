@@ -33,7 +33,7 @@ export function EquipesSidebar({ onCollapse }: Props) {
   };
 
   return (
-    <div className="w-52 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full">
+    <div className="w-44 sm:w-52 bg-white dark:bg-slate-900 border-r border-gray-200 dark:border-slate-700 flex flex-col h-full">
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-slate-700">
         <h2 className="text-xs font-semibold text-gray-900 dark:text-white tracking-wide uppercase">Equipes</h2>
         <div className="flex items-center gap-1">

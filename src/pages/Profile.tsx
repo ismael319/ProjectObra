@@ -133,7 +133,7 @@ export default function Profile() {
           Escolha a cor principal que será aplicada na barra lateral.
         </p>
 
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {PRESET_COLORS.map((preset) => (
             <button
               key={preset.value}

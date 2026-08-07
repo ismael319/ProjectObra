@@ -290,7 +290,7 @@ export default function ImportarXmlPage() {
           <Card>
             <CardHeader>
               <CardTitle className="text-base">3. Revise e importe</CardTitle>
-              <div className="flex gap-4 text-xs text-muted-foreground mt-1">
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground mt-1">
                 <span>Total: {stats.total}</span>
                 <span>Selecionados: {stats.selected}</span>
                 <span>Projetos: {stats.projetos}</span>
@@ -303,7 +303,7 @@ export default function ImportarXmlPage() {
               <div className="max-h-[400px] overflow-y-auto space-y-0.5">
                 {tasks.map((task) => <TreeNode key={task.uid} node={task} levelMap={levelMap} onToggleSelect={toggleSelect} />)}
               </div>
-              <div className="flex items-center gap-3 pt-2 border-t">
+              <div className="flex flex-wrap items-center gap-3 pt-2 border-t">
                 <label className="flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={saveAsCronograma} onChange={(e) => setSaveAsCronograma(e.target.checked)} className="rounded" />
                   Salvar como cronograma

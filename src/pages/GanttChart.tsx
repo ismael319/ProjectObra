@@ -52,7 +52,7 @@ export default function GanttChartPage() {
   const [granularidade, setGranularidade] = useState<Granularidade>('semana');
   const [showImportModal, setShowImportModal] = useState(false);
   const [equipesOpen, setEquipesOpen] = useState(true);
-  const [labelWidth, setLabelWidth] = useState(DEFAULT_LABEL_WIDTH);
+  const [labelWidth, setLabelWidth] = useState(() => Math.min(DEFAULT_LABEL_WIDTH, Math.max(200, window.innerWidth - 160)));
   const { presentationMode, setPresentationMode } = usePresentationMode();
   const ganttScrollRef = useRef<HTMLDivElement>(null);
   const histogramaScrollRef = useRef<HTMLDivElement>(null);

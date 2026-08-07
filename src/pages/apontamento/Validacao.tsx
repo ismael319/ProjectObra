@@ -615,7 +615,7 @@ export default function ValidacaoPage() {
                             />
                           </div>
                         </div>
-                        <div className="grid gap-3 grid-cols-4">
+                        <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
                           <div className="space-y-1">
                             <Label className="text-xs text-muted-foreground">Pedreiro</Label>
                             <Input

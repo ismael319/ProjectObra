@@ -68,10 +68,10 @@ export function Combobox({
           </div>
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[calc(100vw-1rem)]" align="start">
         <Command>
           <CommandInput placeholder="Buscar..." />
-          <CommandList>
+          <CommandList className="max-h-[50vh] overflow-y-auto">
             <CommandEmpty>{emptyText}</CommandEmpty>
             {grouped.map(([group, opts]) => (
               <CommandGroup key={group} heading={group || undefined}>
@@ -142,10 +142,10 @@ export function MultiCombobox({
           <ChevronsUpDown className="h-4 w-4 opacity-50 shrink-0" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="p-0 w-[--radix-popover-trigger-width]" align="start">
+      <PopoverContent className="p-0 w-[--radix-popover-trigger-width] max-w-[calc(100vw-1rem)]" align="start">
         <Command>
           <CommandInput placeholder="Buscar..." />
-          <CommandList>
+          <CommandList className="max-h-[50vh] overflow-y-auto">
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {value.length > 0 && (
