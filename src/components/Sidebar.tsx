@@ -8,7 +8,7 @@ import {
   ClipboardList, CheckSquare, Search, BarChart,
   FolderCog,
   FolderTree, FileSpreadsheet, CloudRain,
-  Settings, PackageSearch, UserCog, FileText,
+  Settings, PackageSearch, UserCog,
   Truck, LineChart, Database, FlaskConical,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
@@ -451,22 +451,6 @@ export default function Sidebar({
             </Link>
           </div>
         )}
-
-        {/* Legal */}
-        <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-          <Link
-            to="/legal/privacy"
-            onClick={() => onMobileClose()}
-            target="_blank"
-            className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
-              collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-            } text-white/60 hover:text-white/80`}
-            title="Privacidade"
-          >
-            <FileText size={18} />
-            {!collapsed && <span>Privacidade e Termos</span>}
-          </Link>
-        </div>
       </aside>
 
       <button

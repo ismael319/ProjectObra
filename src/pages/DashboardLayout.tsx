@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2 } from 'lucide-react'
+import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2, FileText } from 'lucide-react'
 import Sidebar from '@/components/Sidebar'
 import fgiLogo from '@/assets/fgi-logo.png'
 import ChatWidget from '@/components/ChatWidget'
@@ -197,6 +197,13 @@ export default function DashboardLayout() {
                     >
                       {isDark ? <Sun size={16} /> : <Moon size={16} />}
                       {isDark ? 'Modo Claro' : 'Modo Escuro'}
+                    </button>
+                    <button
+                      onClick={() => { window.open('/legal/privacy', '_blank'); setUserMenuOpen(false) }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <FileText size={16} />
+                      Privacidade e Termos
                     </button>
                   </div>
                   <div className="border-t border-gray-100 dark:border-gray-700 py-1">
