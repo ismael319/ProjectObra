@@ -195,8 +195,8 @@ export async function importar(params: {
       const lote = itens
         .slice(i, i + TAMANHO_LOTE)
         .map((item) => itemToRow(item, { organizacaoId, projetoId, importacaoId, tipo }))
-      const resposta = (await supabase.from('sienge_itens').insert(lote)) as {
-        data: ItemRow[] | null
+      const resposta = (await supabase.from('sienge_itens').insert(lote).select('id')) as {
+        data: { id: string }[] | null
         error: { message: string } | null
       }
       if (resposta.error) throw new Error(resposta.error.message)
@@ -214,6 +214,30 @@ export async function importar(params: {
   return mapImportacao(importacaoData as ImportacaoRow)
 }
 
+const TAMANHO_PAGINA_ITENS = 1000
+const COLUNAS_ITEM = 'chave, insumo, obra, data, solicitante, solicitacao, autorizado, dt_aut, qt_pendente, unidade, qt_atendida, sd, dt_previsao, dt_atend, fornecedor, numero_pedido, preco_unitario, total_item, contrato, objeto, empresa, obras, situacao, saldo, total, importacao_id'
+
+async function buscarTodosOsItens(projetoId: string, tipo: TipoRelatorio, importacaoId?: string): Promise<ItemRow[]> {
+  const linhas: ItemRow[] = []
+  let de = 0
+  for (;;) {
+    let query = supabase
+      .from('sienge_itens')
+      .select(COLUNAS_ITEM)
+      .eq('projeto_id', projetoId)
+      .eq('tipo_relatorio', tipo)
+      .order('criado_em', { ascending: true })
+    if (importacaoId) query = query.eq('importacao_id', importacaoId)
+    const { data, error } = await query.range(de, de + TAMANHO_PAGINA_ITENS - 1)
+    if (error) throw new Error(error.message)
+    const pagina = data as ItemRow[]
+    linhas.push(...pagina)
+    if (pagina.length < TAMANHO_PAGINA_ITENS) break
+    de += TAMANHO_PAGINA_ITENS
+  }
+  return linhas
+}
+
 /**
  * "Visão atual" de um tipo de relatório: pra tipos em modo "substituir"
  * (Solicitações), só os itens da importação mais recente; pra modo
@@ -227,35 +251,22 @@ export async function itensAtuais(projetoId: string, tipo: TipoRelatorio): Promi
 
   if (modo === 'substituir') {
     const maisRecente = importacoes[0]!
-    const { data, error } = await supabase
-      .from('sienge_itens')
-      .select(
-        'chave, insumo, obra, data, solicitante, solicitacao, autorizado, dt_aut, qt_pendente, unidade, qt_atendida, sd, dt_previsao, dt_atend, fornecedor, numero_pedido, preco_unitario, total_item, contrato, objeto, empresa, obras, situacao, saldo, total, importacao_id'
-      )
-      .eq('importacao_id', maisRecente.id)
-    if (error) throw new Error(error.message)
-    return (data as ItemRow[]).map(rowToItem)
+    const linhas = await buscarTodosOsItens(projetoId, tipo, maisRecente.id)
+    return linhas.map(rowToItem)
   }
 
   const importadoEmPorId = new Map(importacoes.map((imp) => [imp.id, imp.importadoEm]))
 
-  const { data, error } = await supabase
-    .from('sienge_itens')
-    .select(
-      'chave, insumo, obra, data, solicitante, solicitacao, autorizado, dt_aut, qt_pendente, unidade, qt_atendida, sd, dt_previsao, dt_atend, fornecedor, numero_pedido, preco_unitario, total_item, contrato, objeto, empresa, obras, situacao, saldo, total, importacao_id'
-    )
-    .eq('projeto_id', projetoId)
-    .eq('tipo_relatorio', tipo)
-  if (error) throw new Error(error.message)
+  const linhas = await buscarTodosOsItens(projetoId, tipo)
 
-  const linhas = [...(data as ItemRow[])].sort((a, b) => {
+  const ordenadas = [...linhas].sort((a, b) => {
     const da = importadoEmPorId.get(a.importacao_id) ?? ''
     const dbEm = importadoEmPorId.get(b.importacao_id) ?? ''
     return da.localeCompare(dbEm)
   })
 
   const porChave = new Map<string, SiengeItem>()
-  for (const linha of linhas) {
+  for (const linha of ordenadas) {
     porChave.set(linha.chave, rowToItem(linha))
   }
   return [...porChave.values()]
