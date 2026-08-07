@@ -52,7 +52,11 @@ export default function ConcretoLancamentoPage() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
-  const { podeInserir, podeEditar } = usePapelModulo("qualidade");
+  const { podeInserir: podeInserirPadrao, podeEditar, papel } = usePapelModulo("qualidade");
+  // Igual a insercao_pontual, visualizacao também pode lançar carga aqui —
+  // só nesta tela (ver 20260807090000_visualizacao-insere-apontamento-
+  // concreto-migration.sql); update/exclusão continuam exclusivos de edicao.
+  const podeInserir = podeInserirPadrao || papel === "visualizacao";
   const [form, setForm] = useState<FormState>(emptyForm());
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
