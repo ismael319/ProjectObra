@@ -1,14 +1,16 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, CheckCircle2, FileSpreadsheet, Loader2, Upload } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, FileSpreadsheet, FileText, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { lerArquivoComoLinhas } from "@/lib/administracao/parse-shared";
 import { parseEnsaiosConcreto, type EnsaioImportado, type Problema } from "./lib/importer-ensaios";
 import { importarEnsaiosConcreto, type ResumoImportacaoEnsaios } from "./lib/importer-ensaios-db";
+import { extrairTabelaPdfEstrutec } from "./lib/pdf-ensaios-estrutec";
 
 type Estagio = "idle" | "processando" | "revisao" | "importando" | "concluido";
 
@@ -39,7 +41,8 @@ export default function ImportarEnsaiosConcreto() {
     setEstagio("processando");
 
     try {
-      const linhas = await lerArquivoComoLinhas(file);
+      const ehPdf = file.name.toLowerCase().endsWith(".pdf");
+      const linhas = ehPdf ? (await extrairTabelaPdfEstrutec(file)).linhas : await lerArquivoComoLinhas(file);
       const parse = parseEnsaiosConcreto(linhas);
       setItens(parse.itens);
       setProblemasParse(parse.problemas);
@@ -86,10 +89,11 @@ export default function ImportarEnsaiosConcreto() {
         </Link>
         <h1 className="text-2xl font-bold mt-1">Importar resultados de ensaio</h1>
         <p className="text-sm text-muted-foreground">
-          Envie a planilha do laboratório com uma linha por corpo de prova (Nº CARGA ou NOTA FISCAL, DATA MOLDAGEM,
-          LABORATÓRIO, Nº CP, PEÇA CONCRETADA, IDADE, DATA RUPTURA, FCJ, TIPO DE RUPTURA...). Cada linha é casada
-          contra a carga já lançada pela identificação + data de moldagem — o laboratório precisa já estar
-          cadastrado em Cadastro &gt; Laboratórios.
+          Envie a planilha do laboratório (uma linha por corpo de prova: Nº CARGA ou NOTA FISCAL, DATA MOLDAGEM,
+          LABORATÓRIO, Nº CP, PEÇA CONCRETADA, IDADE, DATA RUPTURA, FCJ, TIPO DE RUPTURA...) — ou o PDF do relatório de
+          ensaio da Estrutec direto, sem precisar converter pra planilha. Cada linha é casada contra a carga já
+          lançada pela identificação + data de moldagem. Revise a prévia antes de confirmar, principalmente num PDF —
+          a leitura da tabela é automática e pode errar em relatórios com layout fora do padrão.
         </p>
       </div>
 
@@ -104,7 +108,7 @@ export default function ImportarEnsaiosConcreto() {
           <input
             ref={fileRef}
             type="file"
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xls,.csv,.pdf"
             onChange={handleFile}
             className="hidden"
             disabled={estagio === "processando" || estagio === "importando"}
@@ -118,11 +122,50 @@ export default function ImportarEnsaiosConcreto() {
             {estagio === "processando" ? (
               <><Loader2 size={18} className="animate-spin" /> Processando {fileName}...</>
             ) : fileName ? (
-              <><FileSpreadsheet size={18} className="text-blue-500" /> {fileName}</>
+              fileName.toLowerCase().endsWith(".pdf") ? (
+                <><FileText size={18} className="text-red-500" /> {fileName}</>
+              ) : (
+                <><FileSpreadsheet size={18} className="text-blue-500" /> {fileName}</>
+              )
             ) : (
-              <><Upload size={18} /> Selecionar arquivo XLSX ou CSV</>
+              <><Upload size={18} /> Selecionar planilha (XLSX/CSV) ou PDF do relatório</>
             )}
           </button>
+
+          {(estagio === "revisao" || estagio === "importando") && itens.length > 0 && (
+            <div className="rounded-lg border border-gray-200 dark:border-gray-700 overflow-x-auto max-h-64 overflow-y-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Nº Carga/NF</TableHead>
+                    <TableHead>Laboratório</TableHead>
+                    <TableHead>Nº CP</TableHead>
+                    <TableHead>Peça concretada</TableHead>
+                    <TableHead>Moldagem</TableHead>
+                    <TableHead>Ruptura</TableHead>
+                    <TableHead className="text-right">Idade</TableHead>
+                    <TableHead className="text-right">Fcj (MPa)</TableHead>
+                    <TableHead>Tipo</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {itens.map((item, i) => (
+                    <TableRow key={i}>
+                      <TableCell className="whitespace-nowrap">{item.identificacaoCarga}</TableCell>
+                      <TableCell className="whitespace-nowrap">{item.laboratorioNome ?? "—"}</TableCell>
+                      <TableCell>{item.numeroLab ?? "—"}</TableCell>
+                      <TableCell className="max-w-[160px] truncate" title={item.pecaConcretada ?? undefined}>{item.pecaConcretada ?? "—"}</TableCell>
+                      <TableCell className="whitespace-nowrap">{item.dataMoldagem}</TableCell>
+                      <TableCell className="whitespace-nowrap">{item.dataRupturaReal}</TableCell>
+                      <TableCell className="text-right">{item.idadePrevistaDias}</TableCell>
+                      <TableCell className="text-right">{item.resultadoMpa}</TableCell>
+                      <TableCell>{item.tipoRuptura ?? "—"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
 
           {(estagio === "revisao" || estagio === "importando") && (
             <div className="rounded-lg border border-gray-200 dark:border-gray-700 p-4 text-sm space-y-3">
