@@ -250,7 +250,7 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Tipo</label>
               <select

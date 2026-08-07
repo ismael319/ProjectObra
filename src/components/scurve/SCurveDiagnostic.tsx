@@ -287,7 +287,7 @@ export function SCurveDiagnostic({ onClose }: Props) {
           )}
 
           {baselineBreakdown.length > 0 && (
-            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto">
               <div className="px-4 py-2 bg-gray-50 dark:bg-gray-750 text-sm font-medium text-gray-800 dark:text-gray-200">
                 Type 4 (Baseline Work) por número de linha de base
               </div>

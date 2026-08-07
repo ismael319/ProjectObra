@@ -629,7 +629,7 @@ export default function SCurve() {
       )}
 
       {/* S-Curve Chart */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-1">
           <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
             Curva S - Percentual Acumulado (%)

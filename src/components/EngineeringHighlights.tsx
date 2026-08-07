@@ -54,7 +54,7 @@ export default function EngineeringHighlights({ activities: activitiesProp }: Pr
   if (leafActivities.length === 0) return null
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
       <div className="flex items-center gap-2 mb-4">
         <Layers size={18} className="text-blue-600 dark:text-blue-400" />
         <h2 className="text-lg font-bold text-gray-900 dark:text-white">Pontos de Engenharia</h2>

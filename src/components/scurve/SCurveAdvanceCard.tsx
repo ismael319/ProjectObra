@@ -51,7 +51,7 @@ export function SCurveAdvanceCard({ statusDate, statusDateFormatted, statusEndDa
       </div>
       <div className="flex flex-wrap divide-y md:divide-y-0 divide-gray-200 dark:divide-gray-700">
         {/* AVANÇO REAL */}
-        <div className="flex-1 min-w-[220px] p-5 bg-[#9933FF]/[0.06] dark:bg-[#9933FF]/[0.1] md:border-r border-gray-200 dark:border-gray-700">
+        <div className="flex-1 min-w-full sm:min-w-[220px] p-4 sm:p-5 bg-[#9933FF]/[0.06] dark:bg-[#9933FF]/[0.1] md:border-r border-gray-200 dark:border-gray-700">
           <div className="flex items-center gap-2 mb-3">
             <div className="w-1 h-6 rounded-full bg-[#9933FF]" />
             <h4 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Avanço Real</h4>
@@ -65,7 +65,7 @@ export function SCurveAdvanceCard({ statusDate, statusDateFormatted, statusEndDa
         {baselines.map((bl, i) => (
           <div
             key={bl.id}
-            className={`flex-1 min-w-[220px] p-5 ${i < baselines.length - 1 ? 'md:border-r border-gray-200 dark:border-gray-700' : ''}`}
+            className={`flex-1 min-w-full sm:min-w-[220px] p-4 sm:p-5 ${i < baselines.length - 1 ? 'md:border-r border-gray-200 dark:border-gray-700' : ''}`}
             style={{ backgroundColor: bl.color + '0d' }}
           >
             <div className="flex items-center gap-2 mb-3">

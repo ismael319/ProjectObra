@@ -960,7 +960,7 @@ function ExtraForm({
   return (
     <div className="rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-3">
       <p className="mb-2 text-xs font-medium text-gray-500 dark:text-gray-400">Nova atividade avulsa</p>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div className="col-span-2">
           <label className="text-xs font-medium text-gray-700 dark:text-gray-300">Nome *</label>
           <input

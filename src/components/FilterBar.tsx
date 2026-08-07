@@ -132,7 +132,7 @@ export function FilterBar({ activities, resources, filters, onFiltersChange }: F
       {showAdvanced && (
         <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl p-4 space-y-4">
           {/* Date range */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">Data Início</label>
               <input

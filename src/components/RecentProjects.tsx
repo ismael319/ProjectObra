@@ -45,7 +45,7 @@ const recentProjects = [
 
 export default function RecentProjects() {
   return (
-    <div className="bg-white rounded-xl p-6 shadow-sm border border-gray-100">
+    <div className="bg-white rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-gray-900">Projetos Recentes</h3>
         <button className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1">
