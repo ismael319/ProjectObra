@@ -77,7 +77,7 @@ export default function ConcretoConsulta() {
       let q = supabase
         .from("cargas_concreto")
         .select(
-          `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
+          `id, codigo_rastreabilidade, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
            fornecedores_concreto(nome),
            tracos_concreto(nome, fck_mpa),
            ${destinosEmbed}`,

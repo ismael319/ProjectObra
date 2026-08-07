@@ -12,8 +12,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox } from "@/components/ui/combobox";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
-import { Plus, Loader2, Trash2, Wifi, WifiOff, RefreshCw, Copy } from "lucide-react";
+import { Plus, Loader2, Trash2, Wifi, WifiOff, RefreshCw, Copy, Pencil, Save, X } from "lucide-react";
 
 type FormState = {
   data: string;
@@ -30,6 +31,10 @@ type FormState = {
   // é importado em Ensaios > Importar resultados (casa por Nota Fiscal +
   // Data de Moldagem, cria os CPs sob demanda).
   cod_laboratorio: string;
+  // Nem toda carga precisa de ensaio (depende do uso do concreto) — marcada
+  // assim, a carga não conta como pendência no calendário de rastreabilidade
+  // de Ensaios, mesmo sem nenhum corpo de prova vinculado.
+  dispensa_ensaio: boolean;
 };
 
 const emptyForm = (keep?: Partial<FormState>): FormState => ({
@@ -42,6 +47,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
   nota_fiscal: "",
   destinos: [novoDestino()],
   cod_laboratorio: "",
+  dispensa_ensaio: false,
 });
 
 export default function ConcretoLancamentoPage() {
@@ -54,6 +60,8 @@ export default function ConcretoLancamentoPage() {
   // concreto-migration.sql); update/exclusão continuam exclusivos de edicao.
   const podeInserir = podeInserirPadrao || papel === "visualizacao";
   const [form, setForm] = useState<FormState>(emptyForm());
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [carregandoEdicao, setCarregandoEdicao] = useState(false);
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
   const { data: tracos = [] } = useTracosConcreto(organizacaoId);
@@ -115,6 +123,54 @@ export default function ConcretoLancamentoPage() {
 
   function removerDestino(key: string) {
     setForm((p) => ({ ...p, destinos: p.destinos.filter((d) => d.key !== key) }));
+  }
+
+  // Carrega a carga + destinos dela (não vêm na lista, só as colunas de
+  // cargas_concreto) e joga tudo no formulário — "Salvar" vira UPDATE
+  // enquanto editandoId estiver setado.
+  async function iniciarEdicao(row: any) {
+    setCarregandoEdicao(true);
+    try {
+      const { data: destinosExistentes, error } = await supabase
+        .from("destinos_carga")
+        .select("*")
+        .eq("carga_id", row.id);
+      if (error) throw error;
+
+      setEditandoId(row.id);
+      setForm({
+        data: row.data,
+        fornecedor_id: row.fornecedor_id,
+        traco_id: row.traco_id,
+        quantidade_m3: row.quantidade_m3,
+        peso_balanca_kg: row.peso_balanca_kg,
+        preco_unitario: row.preco_unitario,
+        nota_fiscal: row.nota_fiscal ?? "",
+        cod_laboratorio: row.cod_laboratorio ?? "",
+        dispensa_ensaio: row.dispensa_ensaio ?? false,
+        destinos:
+          (destinosExistentes ?? []).length > 0
+            ? (destinosExistentes as any[]).map((d) => ({
+                key: d.id,
+                setor_concreto_id: d.setor_concreto_id,
+                area_concreto_id: d.area_concreto_id,
+                etapa_concreto_id: d.etapa_concreto_id,
+                quantidade_m3_aplicada: d.quantidade_m3_aplicada,
+                observacao: d.observacao ?? "",
+              }))
+            : [novoDestino()],
+      });
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Erro ao carregar carga para edição");
+    } finally {
+      setCarregandoEdicao(false);
+    }
+  }
+
+  function cancelarEdicao() {
+    setEditandoId(null);
+    setForm((p) => emptyForm({ data: p.data }));
   }
 
   const { data: doDia, refetch } = useQuery({
@@ -205,6 +261,7 @@ export default function ConcretoLancamentoPage() {
         preco_total: computed.preco_total,
         nota_fiscal: origem === "externa" ? (f.nota_fiscal || null) : null,
         cod_laboratorio: f.cod_laboratorio || null,
+        dispensa_ensaio: f.dispensa_ensaio,
         ano_mes: computed.ano_mes,
         ano_semana: computed.ano_semana,
         validado: false,
@@ -290,6 +347,88 @@ export default function ConcretoLancamentoPage() {
     onError: (e: Error) => toast.error(e.message),
   });
 
+  // Edição é só online (uma correção administrativa, diferente do
+  // lançamento em campo que precisa funcionar sem sinal) — troca o
+  // conteúdo da carga + substitui os destinos por completo (apaga os
+  // antigos, grava os atuais do formulário) em vez de tentar diferenciar
+  // linha a linha. criado_por/criado_por_nome são sobrescritos pra refletir
+  // quem editou, marcado "(editado)" — decisão consciente, diferente do RDR
+  // (que preserva o autor original); aqui o pedido foi mostrar quem mexeu
+  // por último.
+  const updateMut = useMutation({
+    mutationFn: async (f: FormState) => {
+      if (!editandoId) throw new Error("Nenhuma carga selecionada para editar");
+      const fornecedor = fornecedores.find((x) => x.id === f.fornecedor_id);
+      const traco = tracos.find((x) => x.id === f.traco_id);
+      if (!fornecedor || !traco) throw new Error("Selecione fornecedor e traço");
+      const origem = fornecedor.tipo;
+      const quantidade = Number(f.quantidade_m3);
+
+      const computed = computeCarga({
+        data: f.data,
+        tipo_origem: origem,
+        traco,
+        quantidade_m3: quantidade,
+        peso_balanca_kg: origem === "propria" ? f.peso_balanca_kg : null,
+        preco_unitario: origem === "externa" ? f.preco_unitario : null,
+      });
+
+      const patch = {
+        data: f.data,
+        fornecedor_id: fornecedor.id,
+        tipo_origem: origem,
+        traco_id: traco.id,
+        quantidade_m3: quantidade,
+        peso_bruto_teorico_kg: computed.peso_bruto_teorico_kg,
+        peso_balanca_kg: computed.peso_balanca_kg,
+        perda_kg: computed.perda_kg,
+        perda_pct: computed.perda_pct,
+        preco_unitario: computed.preco_unitario,
+        preco_total: computed.preco_total,
+        nota_fiscal: origem === "externa" ? (f.nota_fiscal || null) : null,
+        cod_laboratorio: f.cod_laboratorio || null,
+        dispensa_ensaio: f.dispensa_ensaio,
+        ano_mes: computed.ano_mes,
+        ano_semana: computed.ano_semana,
+        criado_por: user?.id ?? null,
+        criado_por_nome: user?.email ? `${user.email} (editado)` : null,
+        atualizado_em: new Date().toISOString(),
+      };
+
+      const { error: updError } = await supabase.from("cargas_concreto").update(patch).eq("id", editandoId);
+      if (updError) throw updError;
+
+      const { error: delError } = await supabase.from("destinos_carga").delete().eq("carga_id", editandoId);
+      if (delError) throw delError;
+
+      const destinosValidos = f.destinos
+        .filter((d) => !!d.setor_concreto_id)
+        .map((d) => ({
+          id: crypto.randomUUID(),
+          organizacao_id: organizacaoId,
+          carga_id: editandoId,
+          setor_concreto_id: d.setor_concreto_id,
+          area_concreto_id: d.area_concreto_id,
+          etapa_concreto_id: d.etapa_concreto_id,
+          quantidade_m3_aplicada: d.quantidade_m3_aplicada ?? quantidade,
+          observacao: d.observacao || null,
+        }));
+      if (destinosValidos.length > 0) {
+        const { error: insError } = await supabase.from("destinos_carga").insert(destinosValidos);
+        if (insError) throw insError;
+      }
+    },
+    onSuccess: () => {
+      toast.success("Carga atualizada");
+      setEditandoId(null);
+      setForm((p) => emptyForm({ data: p.data }));
+      refetch();
+      qc.invalidateQueries({ queryKey: ["cargas-concreto-dia"] });
+      qc.invalidateQueries({ queryKey: ["vw_rastreabilidade_concreto"] });
+    },
+    onError: (e: Error) => toast.error(e.message),
+  });
+
   const delMut = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("cargas_concreto").delete().eq("id", id);
@@ -320,7 +459,16 @@ export default function ConcretoLancamentoPage() {
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!podeInserir) {
+    if (editandoId) {
+      if (!podeEditar) {
+        toast.error("Você não tem nível de acesso Edição — não é possível salvar alterações.");
+        return;
+      }
+      if (!online) {
+        toast.error("Editar uma carga exige conexão — sem sinal, tente de novo mais tarde.");
+        return;
+      }
+    } else if (!podeInserir) {
       toast.error("Você só tem visualização neste módulo — não é possível lançar cargas.");
       return;
     }
@@ -332,7 +480,8 @@ export default function ConcretoLancamentoPage() {
       toast.error("Informe a quantidade em m³");
       return;
     }
-    insertMut.mutate(form);
+    if (editandoId) updateMut.mutate(form);
+    else insertMut.mutate(form);
   };
 
   return (
@@ -367,9 +516,14 @@ export default function ConcretoLancamentoPage() {
 
       <Card className="lg:col-span-2">
         <CardHeader>
-          <CardTitle className="text-xl">Nova carga de concreto</CardTitle>
+          <CardTitle className="text-xl flex items-center gap-2">
+            {editandoId ? "Editar carga de concreto" : "Nova carga de concreto"}
+            {carregandoEdicao && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+          </CardTitle>
           <p className="text-sm text-muted-foreground">
-            Lance uma carga por vez. Você pode adicionar várias para o mesmo dia.
+            {editandoId
+              ? "Alterando um lançamento já salvo — o autor original é substituído pelo seu, marcado como editado."
+              : "Lance uma carga por vez. Você pode adicionar várias para o mesmo dia."}
           </p>
         </CardHeader>
         <CardContent>
@@ -491,7 +645,7 @@ export default function ConcretoLancamentoPage() {
               )}
             </div>
 
-            <div className="sm:col-span-2 space-y-2 rounded-md border p-3">
+            <div className="sm:col-span-2 space-y-3 rounded-md border p-3">
               <Label className="text-sm">Rastreabilidade</Label>
               <div className="space-y-1.5">
                 <Label>Cod. Laboratório</Label>
@@ -499,25 +653,45 @@ export default function ConcretoLancamentoPage() {
                   value={form.cod_laboratorio}
                   onChange={(e) => setForm((p) => ({ ...p, cod_laboratorio: e.target.value }))}
                   placeholder="Opcional — protocolo/pedido do laboratório"
+                  disabled={form.dispensa_ensaio}
                 />
               </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.dispensa_ensaio}
+                  onCheckedChange={(v) => setForm((p) => ({ ...p, dispensa_ensaio: v }))}
+                />
+                <Label className="font-normal">Dispensa ensaio tecnológico — esta carga não precisa de ensaio</Label>
+              </div>
               <p className="text-xs text-muted-foreground">
-                Os corpos de prova e resultados de ensaio são criados a partir do PDF do laboratório, em
-                Ensaios &gt; Importar resultados — casado com esta carga por Nota Fiscal + Data de Moldagem.
+                {form.dispensa_ensaio
+                  ? "Marcada como dispensada: não vai aparecer como pendência no calendário de Ensaios."
+                  : "Os corpos de prova e resultados de ensaio são criados a partir do PDF do laboratório, em Ensaios > Importar resultados — casado com esta carga por Nota Fiscal + Data de Moldagem."}
               </p>
             </div>
 
-            {!podeInserir && (
+            {!editandoId && !podeInserir && (
               <p className="sm:col-span-2 rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-3 text-xs text-amber-700 dark:text-amber-300">
                 Você só tem visualização neste módulo — não é possível lançar cargas.
               </p>
             )}
 
             <div className="sm:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setForm(emptyForm())}>Limpar</Button>
-              <Button type="submit" disabled={insertMut.isPending || !podeInserir}>
-                {insertMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
-                Adicionar
+              <Button type="button" variant="ghost" onClick={editandoId ? cancelarEdicao : () => setForm(emptyForm())}>
+                {editandoId ? <><X className="h-4 w-4" /> Cancelar edição</> : "Limpar"}
+              </Button>
+              <Button
+                type="submit"
+                disabled={editandoId ? updateMut.isPending || !podeEditar : insertMut.isPending || !podeInserir}
+              >
+                {editandoId ? (
+                  updateMut.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />
+                ) : insertMut.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                {editandoId ? "Salvar alterações" : "Adicionar"}
               </Button>
             </div>
           </form>
@@ -555,15 +729,31 @@ export default function ConcretoLancamentoPage() {
                       {r.codigo_rastreabilidade} <Copy className="h-3 w-3" />
                     </button>
                   )}
+                  {r.criado_por_nome && (
+                    <div className="mt-1 text-[11px] text-muted-foreground">Lançado por: {r.criado_por_nome}</div>
+                  )}
                 </div>
-                <button
-                  onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
-                  disabled={!r._pending && !podeEditar}
-                  className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:hover:text-muted-foreground"
-                  aria-label="Remover"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-1 shrink-0">
+                  {!r._pending && (
+                    <button
+                      onClick={() => iniciarEdicao(r)}
+                      disabled={!podeEditar || editandoId === r.id}
+                      className="text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                      aria-label="Editar"
+                      title="Editar lançamento"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
+                    disabled={!r._pending && !podeEditar}
+                    className="text-muted-foreground hover:text-destructive disabled:opacity-30 disabled:hover:text-muted-foreground"
+                    aria-label="Remover"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {r._pending && r._status === "error" ? (
@@ -574,6 +764,7 @@ export default function ConcretoLancamentoPage() {
                 {r.tipo_origem === "externa" && r.preco_total != null && (
                   <Chip>R$ {Number(r.preco_total).toFixed(2)}</Chip>
                 )}
+                {r.dispensa_ensaio && <Chip>Dispensa ensaio</Chip>}
               </div>
             </div>
           ))}

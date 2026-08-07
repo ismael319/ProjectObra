@@ -662,3 +662,162 @@ export async function deleteEngenheiroArea(id: string): Promise<void> {
   const { error } = await supabase.from('programacao_engenheiros_area').delete().eq('id', id)
   if (error) throw new Error(error.message)
 }
+
+// ============ Baseline da Programação Semanal ============
+// Snapshot das atividades no momento do bloqueio — usado pra calcular
+// a "Aderência do Cronograma" (plano original vs atual).
+
+export interface BaselineActivity {
+  activity_id: string
+  name: string
+  company: string | null
+  discipline: string | null
+  area: string | null
+  stage: string | null
+  foreman: string | null
+  planned_date: string
+  planned_pct: number
+  status: ActivityStatus
+  is_extra: boolean
+  source_cronograma: string | null
+  task_uid: string | null
+}
+
+// Salvar baseline: copia todas as atividades da semana para week_baseline
+export async function saveWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
+  // Primeiro limpa baseline anterior
+  const { error: delError } = await supabase
+    .from('week_baseline')
+    .delete()
+    .eq('week_id', weekId)
+    .eq('organizacao_id', organizacaoId)
+  if (delError) throw new Error(delError.message)
+
+  // Busca atividades atuais
+  const PAGE_SIZE = 1000
+  const activities: ActivityRow[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('week_id', weekId)
+      .eq('organizacao_id', organizacaoId)
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    activities.push(...((data ?? []) as ActivityRow[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+
+  if (activities.length === 0) return
+
+  // Insere em lotes
+  const rows = activities.map(a => ({
+    week_id: weekId,
+    organizacao_id: organizacaoId,
+    activity_id: a.id,
+    name: a.name,
+    company: a.company,
+    discipline: a.discipline,
+    area: a.area,
+    stage: a.stage,
+    foreman: a.foreman,
+    planned_date: a.planned_date,
+    planned_pct: a.planned_pct,
+    status: a.status,
+    is_extra: a.is_extra,
+    source_cronograma: a.source_cronograma,
+    task_uid: a.task_uid,
+  }))
+
+  const CHUNK = 500
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const lote = rows.slice(i, i + CHUNK)
+    const { error } = await supabase.from('week_baseline').insert(lote)
+    if (error) throw new Error(error.message)
+  }
+}
+
+// Limpar baseline (chamada ao desbloquear)
+export async function clearWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
+  const { error } = await supabase
+    .from('week_baseline')
+    .delete()
+    .eq('week_id', weekId)
+    .eq('organizacao_id', organizacaoId)
+  if (error) throw new Error(error.message)
+}
+
+// Buscar baseline da semana
+export async function getWeekBaseline(organizacaoId: string, weekId: string): Promise<BaselineActivity[]> {
+  const PAGE_SIZE = 1000
+  const items: BaselineActivity[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from('week_baseline')
+      .select('*')
+      .eq('week_id', weekId)
+      .eq('organizacao_id', organizacaoId)
+      .order('planned_date', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+    if (error) throw new Error(error.message)
+    items.push(...((data ?? []) as BaselineActivity[]))
+    if (!data || data.length < PAGE_SIZE) break
+  }
+  return items
+}
+
+// ============ Análise Semanal ============
+
+export interface WeekAnalysisItem {
+  activity_id: string
+  activity_name: string
+  planned_date: string | null
+  baseline_date: string | null
+  baseline_status: string | null
+  current_status: string
+  is_extra: boolean
+  was_reprogrammed: boolean
+  was_added_after_lock: boolean
+  was_removed_after_lock: boolean
+}
+
+// Buscar análise da semana via function SQL
+export async function getWeekAnalysis(organizacaoId: string, weekId: string): Promise<WeekAnalysisItem[]> {
+  const { data, error } = await supabase
+    .rpc('get_week_analysis', {
+      p_week_id: weekId,
+      p_organizacao_id: organizacaoId,
+    })
+  if (error) throw new Error(error.message)
+  return (data ?? []) as WeekAnalysisItem[]
+}
+
+// Atualizar campo de análise semanal
+export async function updateWeekAnalise(organizacaoId: string, weekId: string, analise: string | null): Promise<void> {
+  const { data, error } = await supabase
+    .from('weeks')
+    .update({ analise_semanal: analise })
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível salvar a análise — verifique se seu nível de acesso é Edição')
+}
+
+// Modificar lockWeek para salvar baseline
+const _originalLockWeek = lockWeek
+export async function lockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
+  // Salva baseline antes de bloquear
+  await saveWeekBaseline(organizacaoId, weekId)
+  // Bloqueia a semana
+  await _originalLockWeek(organizacaoId, weekId)
+}
+
+// Modificar unlockWeek para limpar baseline
+const _originalUnlockWeek = unlockWeek
+export async function unlockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
+  // Desbloqueia a semana
+  await _originalUnlockWeek(organizacaoId, weekId)
+  // Limpa baseline
+  await clearWeekBaseline(organizacaoId, weekId)
+}

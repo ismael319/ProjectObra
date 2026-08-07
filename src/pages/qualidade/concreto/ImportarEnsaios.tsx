@@ -1,25 +1,90 @@
 import { useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { ArrowLeft, AlertTriangle, CheckCircle2, FileSpreadsheet, FileText, Loader2, Upload } from "lucide-react";
+import { ArrowLeft, AlertTriangle, CheckCircle2, Download, FileSpreadsheet, FileText, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { lerArquivoComoLinhas } from "@/lib/administracao/parse-shared";
 import { parseEnsaiosConcreto, type EnsaioImportado, type Problema } from "./lib/importer-ensaios";
 import { importarEnsaiosConcreto, type ResumoImportacaoEnsaios } from "./lib/importer-ensaios-db";
 import { extrairTabelaPdfEstrutec } from "./lib/pdf-ensaios-estrutec";
+import { listarTodosEnsaiosConcreto, buildEnsaiosConcretoWorkbook, downloadEnsaiosConcretoWorkbook } from "./lib/excel-export";
 
 type Estagio = "idle" | "processando" | "revisao" | "importando" | "concluido";
 
-// Importação em lote de resultados de ensaio — cada linha do arquivo é UM
-// corpo de prova rompido. Diferente da importação de cargas (Dados >
-// Importar histórico), esta é ADITIVA: não apaga nada, só resolve cada linha
-// contra a carga já existente (Nº Carga/Nota Fiscal + Data de Moldagem) e
-// grava (ou completa) o corpo de prova e o resultado.
+// Hub de ensaios de concreto: importação de resultados de laboratório e
+// exportação do banco completo de ensaios — as duas pontas de entrada/saída
+// de dados em massa do módulo de rastreabilidade.
 export default function ImportarEnsaiosConcreto() {
+  return (
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div>
+        <Link to="/dashboard/qualidade/concreto/ensaios" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft size={14} /> Ensaios / Rastreabilidade
+        </Link>
+        <h1 className="text-2xl font-bold mt-1">Ensaios</h1>
+        <p className="text-sm text-muted-foreground">Importação de resultados de ensaio e exportação do banco completo de ensaios.</p>
+      </div>
+
+      <Tabs defaultValue="importar" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="importar">Importar</TabsTrigger>
+          <TabsTrigger value="exportar">Exportar</TabsTrigger>
+        </TabsList>
+        <TabsContent value="importar">
+          <ImportarEnsaiosTab />
+        </TabsContent>
+        <TabsContent value="exportar">
+          <ExportarEnsaios />
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}
+
+function ExportarEnsaios() {
+  const { userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const [exportando, setExportando] = useState(false);
+
+  async function handleExportar() {
+    if (!organizacaoId) return;
+    setExportando(true);
+    try {
+      const rows = await listarTodosEnsaiosConcreto(organizacaoId);
+      if (rows.length === 0) {
+        toast.warning("Nenhum ensaio no banco pra exportar.");
+        return;
+      }
+      const wb = await buildEnsaiosConcretoWorkbook(rows);
+      await downloadEnsaiosConcretoWorkbook(wb);
+      toast.success(`${rows.length} ensaio(s) exportado(s)`);
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExportando(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardContent className="pt-6 space-y-4">
+        <p className="text-sm text-muted-foreground">
+          Baixa em Excel TODOS os resultados de ensaio da organização, no mesmo formato aceito pelo importador (uma linha por corpo de prova).
+        </p>
+        <Button onClick={handleExportar} disabled={exportando || !organizacaoId}>
+          {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar ensaios
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ImportarEnsaiosTab() {
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const qc = useQueryClient();
@@ -82,20 +147,14 @@ export default function ImportarEnsaiosConcreto() {
   }
 
   return (
-    <div className="space-y-4 max-w-3xl mx-auto">
-      <div>
-        <Link to="/dashboard/qualidade/concreto/ensaios" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft size={14} /> Ensaios / Rastreabilidade
-        </Link>
-        <h1 className="text-2xl font-bold mt-1">Importar resultados de ensaio</h1>
-        <p className="text-sm text-muted-foreground">
-          Envie a planilha do laboratório (uma linha por corpo de prova: Nº CARGA ou NOTA FISCAL, DATA MOLDAGEM,
-          LABORATÓRIO, Nº CP, PEÇA CONCRETADA, IDADE, DATA RUPTURA, FCJ, TIPO DE RUPTURA...) — ou o PDF do relatório de
-          ensaio da Estrutec direto, sem precisar converter pra planilha. Cada linha é casada contra a carga já
-          lançada pela identificação + data de moldagem. Revise a prévia antes de confirmar, principalmente num PDF —
-          a leitura da tabela é automática e pode errar em relatórios com layout fora do padrão.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Envie a planilha do laboratório (uma linha por corpo de prova: Nº CARGA ou NOTA FISCAL, DATA MOLDAGEM,
+        LABORATÓRIO, Nº CP, PEÇA CONCRETADA, IDADE, DATA RUPTURA, FCJ, TIPO DE RUPTURA...) — ou o PDF do relatório de
+        ensaio da Estrutec direto, sem precisar converter pra planilha. Cada linha é casada contra a carga já
+        lançada pela identificação + data de moldagem. Revise a prévia antes de confirmar, principalmente num PDF —
+        a leitura da tabela é automática e pode errar em relatórios com layout fora do padrão.
+      </p>
 
       <Card>
         <CardContent className="pt-6 space-y-4">

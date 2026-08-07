@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -30,6 +30,7 @@ interface Props {
   onClearWeek: () => void
   onManageEngenheiros: () => void
   onExportSemanal: () => void
+  onAnalysis: () => void
 }
 
 export default function WeekBar({
@@ -52,6 +53,7 @@ export default function WeekBar({
   onClearWeek,
   onManageEngenheiros,
   onExportSemanal,
+  onAnalysis,
 }: Props) {
   const start = parseISODateStr(startDate)
   const end = parseISODateStr(endDate)
@@ -251,6 +253,20 @@ export default function WeekBar({
                 </TooltipTrigger>
                 <TooltipContent side="left" className="max-w-xs">Gera uma imagem com a semana inteira por Engenheiro, pra compartilhar no WhatsApp.</TooltipContent>
               </Tooltip>
+              {locked && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={() => { setActionsOpen(false); onAnalysis() }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                    >
+                      <ClipboardCheck size={14} className="text-green-600" />
+                      Análise Semanal
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="left" className="max-w-xs">Visualiza itens não concluídos, reprogramações e permite registrar observações sobre a semana.</TooltipContent>
+                </Tooltip>
+              )}
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button

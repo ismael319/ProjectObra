@@ -3,7 +3,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 
-export type StatusConformidade = "pendente" | "conforme" | "nao_conforme" | "nao_aplica";
+export type StatusConformidade = "pendente" | "conforme" | "nao_conforme" | "nao_aplica" | "dispensado";
 
 export type RastreabilidadeCarga = {
   carga_id: string;
@@ -13,12 +13,16 @@ export type RastreabilidadeCarga = {
   numero_carga: string | null;
   nota_fiscal: string | null;
   cod_laboratorio: string | null;
+  dispensa_ensaio: boolean;
   quantidade_m3: number;
   traco_id: string;
   traco_nome: string;
   fck_mpa: number;
   fornecedor_id: string;
   fornecedor_nome: string;
+  setor_nome: string | null;
+  area_nome: string | null;
+  etapa_nome: string | null;
   total_cps: number;
   cps_pendentes: number;
   cps_atrasados: number;
@@ -58,7 +62,8 @@ export type EnsaioCorpoProva = {
 
 /** Status agregado de uma carga pra exibir na lista/filtro — deriva das
  * colunas já calculadas na view, sem repetir a lógica de conformidade. */
-export function statusGeralCarga(r: RastreabilidadeCarga): "sem_cps" | "nao_conforme" | "atrasado" | "pendente" | "conforme" {
+export function statusGeralCarga(r: RastreabilidadeCarga): "dispensado" | "sem_cps" | "nao_conforme" | "atrasado" | "pendente" | "conforme" {
+  if (r.dispensa_ensaio) return "dispensado";
   if (r.total_cps === 0) return "sem_cps";
   if (r.status_conformidade_geral === "nao_conforme") return "nao_conforme";
   if (r.tem_ensaio_atrasado) return "atrasado";
@@ -66,17 +71,34 @@ export function statusGeralCarga(r: RastreabilidadeCarga): "sem_cps" | "nao_conf
   return "pendente";
 }
 
+/** Uma carga "está em dia" pro calendário de rastreabilidade quando ela já
+ * tem pelo menos um corpo de prova vinculado (algum PDF/planilha foi
+ * importado pra ela) OU foi marcada como dispensada de ensaio — usado pra
+ * colorir o dia de verde/vermelho (ver useStatusCalendarioMes). */
+export function cargaEstaEmDia(r: Pick<RastreabilidadeCarga, "dispensa_ensaio" | "total_cps">): boolean {
+  return r.dispensa_ensaio || r.total_cps > 0;
+}
+
 export function useRastreabilidadeCargas(organizacaoId?: string) {
   return useQuery({
     queryKey: ["vw_rastreabilidade_concreto", organizacaoId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("vw_rastreabilidade_concreto")
-        .select("*")
-        .eq("organizacao_id", organizacaoId!)
-        .order("data", { ascending: false });
-      if (error) throw error;
-      return data as RastreabilidadeCarga[];
+      const PAGE = 1000;
+      let from = 0;
+      let all: RastreabilidadeCarga[] = [];
+      while (true) {
+        const { data, error } = await supabase
+          .from("vw_rastreabilidade_concreto")
+          .select("*")
+          .eq("organizacao_id", organizacaoId!)
+          .order("data", { ascending: false })
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        all = all.concat(data as RastreabilidadeCarga[]);
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+      return all;
     },
     enabled: !!organizacaoId,
   });

@@ -57,6 +57,9 @@ export function LancarResultadoModal({
   const saveMut = useMutation({
     mutationFn: async () => {
       if (!corpoProva) return;
+      if (corpoProva.status_conformidade === "dispensado") {
+        throw new Error("Este corpo de prova está dispensado — um ensaio de idade inferior já atingiu o FCK.");
+      }
       if (!form.data_ruptura_real || form.resultado_mpa === "") {
         throw new Error("Informe a data de ruptura e o resultado (MPa)");
       }

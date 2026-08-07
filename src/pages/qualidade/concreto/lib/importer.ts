@@ -125,6 +125,7 @@ function resolverData(rawTexto: string | undefined, rawBruto: unknown): string |
 // Mesmos rótulos usados por HEADERS em excel-export.ts — encontrarColuna já
 // ignora acento/maiúscula/minúscula na comparação.
 const COLUNAS = {
+  codigoRastreabilidade: ["CÓD. RASTREABILIDADE", "CODIGO RASTREABILIDADE", "COD RASTREABILIDADE", "COD. RASTREABILIDADE"],
   data: ["DATA"],
   fornecedor: ["FORNECEDOR"],
   origem: ["ORIGEM"],
@@ -157,6 +158,7 @@ export type DestinoImportado = {
 
 export type CargaImportada = {
   linha: number; // 1-based, posição no arquivo original (pra mensagens de erro)
+  codigoRastreabilidade: string | null; // preservado do export (round-trip)
   data: string; // ISO
   fornecedorNome: string;
   tipoOrigem: "propria" | "externa";
@@ -235,6 +237,7 @@ export function parseCargasConcreto(todasLinhas: LinhaTabela[], todasLinhasBruta
   const header = todasLinhas[headerIdx]!;
 
   const idx = {
+    codigoRastreabilidade: encontrarColuna(header, [...COLUNAS.codigoRastreabilidade]),
     data: encontrarColuna(header, [...COLUNAS.data]),
     fornecedor: encontrarColuna(header, [...COLUNAS.fornecedor]),
     origem: encontrarColuna(header, [...COLUNAS.origem]),
@@ -317,9 +320,11 @@ export function parseCargasConcreto(todasLinhas: LinhaTabela[], todasLinhasBruta
     const precoTotal = idx.precoTotal !== -1 ? parseNumeroPtBr(row[idx.precoTotal]) : null;
     const validado = idx.validado === -1 || normalizarTexto(row[idx.validado] ?? "") !== "NAO";
     const lancadoPorNome = idx.lancadoPor !== -1 ? (row[idx.lancadoPor] ?? "").trim() || null : null;
+    const codigoRastreabilidade = idx.codigoRastreabilidade !== -1 ? (row[idx.codigoRastreabilidade] ?? "").trim() || null : null;
 
     cargas.push({
       linha: numeroLinha,
+      codigoRastreabilidade,
       data: dataISO,
       fornecedorNome,
       tipoOrigem,

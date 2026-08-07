@@ -7,12 +7,13 @@ import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Upload } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Calendar, CalendarDayButton } from "@/pages/apontamento/ui/calendar";
+import { X } from "lucide-react";
 import {
   useRastreabilidadeCargas,
   buscarCargaIdsPorPeca,
   statusGeralCarga,
+  cargaEstaEmDia,
   type RastreabilidadeCarga,
 } from "./lib/ensaios-catalog";
 import { FichaRastreabilidade } from "./components/FichaRastreabilidade";
@@ -28,6 +29,7 @@ const STATUS_OPTIONS = [
   { value: "pendente", label: "Pendente" },
   { value: "conforme", label: "Conforme" },
   { value: "sem_cps", label: "Sem corpos de prova" },
+  { value: "dispensado", label: "Dispensado de ensaio" },
 ];
 
 function StatusBadge({ status }: { status: ReturnType<typeof statusGeralCarga> }) {
@@ -40,6 +42,8 @@ function StatusBadge({ status }: { status: ReturnType<typeof statusGeralCarga> }
       return <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white">Conforme</Badge>;
     case "sem_cps":
       return <Badge variant="outline">Sem CPs</Badge>;
+    case "dispensado":
+      return <Badge variant="outline">Dispensado</Badge>;
     default:
       return <Badge variant="secondary">Pendente</Badge>;
   }
@@ -54,6 +58,20 @@ export default function ConcretoEnsaios() {
   const [statusFiltro, setStatusFiltro] = useState<string | null>(null);
   const [cargaIdsPeca, setCargaIdsPeca] = useState<Set<string> | null>(null);
   const [cargaSelecionada, setCargaSelecionada] = useState<RastreabilidadeCarga | null>(null);
+  const [diaFiltro, setDiaFiltro] = useState<string | null>(null);
+
+  // Verde = toda carga do dia já tem corpo de prova vinculado (ou foi
+  // dispensada de ensaio); vermelho = falta relacionar pelo menos uma —
+  // mesmo padrão de calendário de "Aguardando validação" da Validação
+  // (Distribuição Efetivo), ver src/pages/apontamento/Validacao.tsx.
+  const statusPorDia = useMemo(() => {
+    const map = new Map<string, "ok" | "pendente">();
+    for (const c of cargas) {
+      if (map.get(c.data) === "pendente") continue;
+      map.set(c.data, cargaEstaEmDia(c) ? "ok" : "pendente");
+    }
+    return map;
+  }, [cargas]);
 
   // Peça concretada é texto livre por corpo de prova (não agregado na view
   // de cargas) — busca separada, mesclada por OR com os campos que já vêm
@@ -76,6 +94,7 @@ export default function ConcretoEnsaios() {
   const filtradas = useMemo(() => {
     const texto = busca.trim().toLowerCase();
     return cargas.filter((c) => {
+      if (diaFiltro && c.data !== diaFiltro) return false;
       if (statusFiltro && statusGeralCarga(c) !== statusFiltro) return false;
       if (!texto) return true;
       const bateCampoDireto =
@@ -86,39 +105,85 @@ export default function ConcretoEnsaios() {
         c.fornecedor_nome.toLowerCase().includes(texto);
       return bateCampoDireto || (cargaIdsPeca?.has(c.carga_id) ?? false);
     });
-  }, [cargas, busca, statusFiltro, cargaIdsPeca]);
+  }, [cargas, busca, statusFiltro, cargaIdsPeca, diaFiltro]);
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-3 flex-wrap">
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader>
             <CardTitle className="text-xl">Ensaios / Rastreabilidade</CardTitle>
-            <Button variant="outline" asChild>
-              <Link to="/dashboard/qualidade/concreto/ensaios/importar">
-                <Upload className="h-4 w-4" /> Importar resultados
-              </Link>
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <Label>Buscar</Label>
-              <Input
-                value={busca}
-                onChange={(e) => setBusca(e.target.value)}
-                placeholder="Código de rastreabilidade, nota fiscal ou peça concretada"
-              />
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <Label>Buscar</Label>
+                <Input
+                  value={busca}
+                  onChange={(e) => setBusca(e.target.value)}
+                  placeholder="Código de rastreabilidade, nota fiscal ou peça concretada"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label>Status</Label>
+                <Combobox options={STATUS_OPTIONS} value={statusFiltro} onChange={setStatusFiltro} placeholder="Todos" />
+              </div>
             </div>
-            <div className="space-y-1.5">
-              <Label>Status</Label>
-              <Combobox options={STATUS_OPTIONS} value={statusFiltro} onChange={setStatusFiltro} placeholder="Todos" />
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <span>{filtradas.length} carga(s)</span>
+              {diaFiltro && (
+                <button
+                  type="button"
+                  onClick={() => setDiaFiltro(null)}
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs hover:text-foreground"
+                >
+                  {formatBR(diaFiltro)} <X className="h-3 w-3" />
+                </button>
+              )}
             </div>
-          </div>
-          <div className="mt-3 text-sm text-muted-foreground">{filtradas.length} carga(s)</div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Calendário de rastreabilidade</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Calendar
+              mode="single"
+              selected={diaFiltro ? new Date(diaFiltro + "T12:00:00") : undefined}
+              onSelect={(d) => {
+                if (!d) return;
+                const iso = d.toISOString().slice(0, 10);
+                setDiaFiltro((atual) => (atual === iso ? null : iso));
+              }}
+              className="rounded-md border scale-[0.9] origin-top-left"
+              components={{
+                DayButton: (props) => {
+                  const dateStr = props.day.date.toISOString().slice(0, 10);
+                  const status = statusPorDia.get(dateStr);
+                  return (
+                    <div className="relative">
+                      <CalendarDayButton {...props} />
+                      {status && (
+                        <span
+                          className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full ${
+                            status === "ok" ? "bg-green-500" : "bg-red-500"
+                          }`}
+                        />
+                      )}
+                    </div>
+                  );
+                },
+              }}
+            />
+            <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-green-500" /> Toda carga relacionada</span>
+              <span className="inline-flex items-center gap-1"><span className="h-1.5 w-1.5 rounded-full bg-red-500" /> Falta relacionar</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardContent className="p-0">
@@ -127,8 +192,10 @@ export default function ConcretoEnsaios() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Código</TableHead>
+                  <TableHead>Cod. Lab.</TableHead>
                   <TableHead>Data</TableHead>
                   <TableHead>Fornecedor</TableHead>
+                  <TableHead>Local</TableHead>
                   <TableHead>Traço</TableHead>
                   <TableHead className="text-right">Vol. (m³)</TableHead>
                   <TableHead className="text-right">CPs</TableHead>
@@ -137,16 +204,18 @@ export default function ConcretoEnsaios() {
               </TableHeader>
               <TableBody>
                 {isLoading && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Carregando...</TableCell></TableRow>
                 )}
                 {!isLoading && filtradas.length === 0 && (
-                  <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Nenhuma carga encontrada</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={9} className="text-center py-8 text-muted-foreground">Nenhuma carga encontrada</TableCell></TableRow>
                 )}
                 {filtradas.map((c) => (
                   <TableRow key={c.carga_id} className="cursor-pointer hover:bg-muted/50" onClick={() => setCargaSelecionada(c)}>
                     <TableCell className="font-mono text-xs whitespace-nowrap">{c.codigo_rastreabilidade}</TableCell>
+                    <TableCell className="font-mono text-xs whitespace-nowrap">{c.cod_laboratorio ?? "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{formatBR(c.data)}</TableCell>
                     <TableCell className="whitespace-nowrap">{c.fornecedor_nome}</TableCell>
+                    <TableCell className="whitespace-nowrap text-xs">{[c.setor_nome, c.area_nome, c.etapa_nome].filter(Boolean).join(" / ") || "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{c.traco_nome}</TableCell>
                     <TableCell className="text-right">{c.quantidade_m3.toLocaleString("pt-BR")}</TableCell>
                     <TableCell className="text-right">{c.cps_pendentes}/{c.total_cps}</TableCell>

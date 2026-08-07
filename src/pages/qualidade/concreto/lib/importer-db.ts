@@ -347,6 +347,7 @@ export async function commitarImportacaoConcreto(params: {
     cargaRows.push({
       id: cargaId,
       organizacao_id: organizacaoId,
+      ...(carga.codigoRastreabilidade ? { codigo_rastreabilidade: carga.codigoRastreabilidade } : {}),
       data: carga.data,
       fornecedor_id: fornecedorId,
       tipo_origem: carga.tipoOrigem,

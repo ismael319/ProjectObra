@@ -180,3 +180,106 @@ export function computeSegment(
   rows.sort((a, b) => b.count - a.count);
   return rows;
 }
+
+// ============ Baseline / Análise Semanal ============
+
+export interface BaselineActivity {
+  activity_id: string
+  name: string
+  planned_date: string
+  status: ActivityStatus
+  is_extra: boolean
+}
+
+export interface WeekAnalysisSummary {
+  totalBaseline: number
+  totalAtual: number
+  concluidasNoBaseline: number
+  naoConcluidas: number
+  reprogramadas: number
+  extrasAdicionados: number
+  removidos: number
+  aderenciaBaseline: number
+  aderenciaAtual: number
+  delta: number
+}
+
+/** Calcula aderência do baseline (snapshot do momento do bloqueio) */
+export function computeIndicatorsBaseline(
+  baseline: BaselineActivity[],
+  partialWeight = 0.5,
+): WeekIndicators {
+  const planned = baseline.filter((a) => !a.is_extra);
+  const total = baseline.length;
+  const extras = total - planned.length;
+  const denom = planned.length;
+  const concluidas = planned.filter((a) => a.status === "concluida").length;
+  const parciais = planned.filter((a) => a.status === "parcial").length;
+  const naoConcluidas = planned.filter((a) => a.status === "nao_concluida").length;
+  const pendentes = planned.filter((a) => a.status === "pendente").length;
+  const weighted = planned.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
+  return {
+    total,
+    extras,
+    concluidas,
+    parciais,
+    naoConcluidas,
+    pendentes,
+    ppc: denom ? concluidas / denom : 0,
+    aderencia: denom ? weighted / denom : 0,
+  };
+}
+
+/** Gera resumo da análise semanal comparando baseline vs estado atual */
+export function computeWeekAnalysisSummary(
+  baseline: BaselineActivity[],
+  currentActivities: ActivityLike[],
+  partialWeight = 0.5,
+): WeekAnalysisSummary {
+  const baselineIds = new Set(baseline.map(b => b.activity_id))
+  const currentIds = new Set(currentActivities.map(a => a.id))
+
+  // Itens que continuam existindo
+  const stillExist = baseline.filter(b => currentIds.has(b.activity_id))
+
+  // Concluídos no baseline
+  const concluidasNoBaseline = stillExist.filter(b => b.status === "concluida").length
+
+  // Não concluídos (pendentes ou não concluídos no baseline e ainda não foram)
+  const naoConcluidas = stillExist.filter(b =>
+    b.status !== "concluida" && b.status !== "parcial"
+  ).length
+
+  // Reprogramados (mudaram de dia)
+  const reprogramadas = stillExist.filter(b => {
+    const current = currentActivities.find(a => a.id === b.activity_id)
+    return current && current.planned_date !== b.planned_date
+  }).length
+
+  // Extras adicionados depois do bloqueio
+  const extrasAdicionados = currentActivities.filter(a =>
+    !baselineIds.has(a.id) && a.is_extra
+  ).length
+
+  // Removidos depois do bloqueio
+  const removidos = baseline.filter(b => !currentIds.has(b.activity_id)).length
+
+  // Aderência do baseline
+  const indicBaseline = computeIndicatorsBaseline(baseline, partialWeight)
+
+  // Aderência atual
+  const indicAtual = computeIndicators(currentActivities, partialWeight)
+
+  return {
+    totalBaseline: baseline.length,
+    totalAtual: currentActivities.length,
+    concluidasNoBaseline,
+    naoConcluidas,
+    reprogramadas,
+    extrasAdicionados,
+    removidos,
+    aderenciaBaseline: indicBaseline.aderencia,
+    aderenciaAtual: indicAtual.aderencia,
+    delta: indicAtual.aderencia - indicBaseline.aderencia,
+  }
+}

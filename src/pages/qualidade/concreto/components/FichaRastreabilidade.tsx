@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Upload } from "lucide-react";
 import { usePapelModulo } from "@/lib/auth-context";
 import { useEnsaiosDaCarga, type EnsaioCorpoProva, type RastreabilidadeCarga } from "../lib/ensaios-catalog";
 import { LancarResultadoModal } from "./LancarResultadoModal";
@@ -14,6 +16,7 @@ function formatBR(iso: string | null): string {
 }
 
 function ConformidadeBadge({ status, atrasado }: { status: EnsaioCorpoProva["status_conformidade"]; atrasado: boolean }) {
+  if (status === "dispensado") return <Badge variant="outline" className="text-[10px]">Dispensado</Badge>;
   if (status === "nao_aplica") return <Badge variant="outline" className="text-[10px]">Acompanhamento</Badge>;
   if (status === "conforme") return <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[10px]">Conforme</Badge>;
   if (status === "nao_conforme") return <Badge variant="destructive" className="text-[10px]">Não conforme</Badge>;
@@ -44,7 +47,16 @@ export function FichaRastreabilidade({ carga, onClose }: { carga: Rastreabilidad
               <span>Volume: <strong className="text-foreground">{carga.quantidade_m3} m³</strong></span>
               <span>Nota fiscal: <strong className="text-foreground">{carga.nota_fiscal ?? "—"}</strong></span>
               <span>Cod. Laboratório: <strong className="text-foreground">{carga.cod_laboratorio ?? "—"}</strong></span>
+              <span>Local: <strong className="text-foreground">{[carga.setor_nome, carga.area_nome, carga.etapa_nome].filter(Boolean).join(" / ") || "—"}</strong></span>
             </div>
+          )}
+
+          {podeInserir && (
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/dashboard/qualidade/concreto/ensaios/importar">
+                <Upload className="h-4 w-4" /> Importar resultados
+              </Link>
+            </Button>
           )}
 
           <div className="overflow-x-auto">
@@ -78,7 +90,7 @@ export function FichaRastreabilidade({ carga, onClose }: { carga: Rastreabilidad
                     <TableCell className="text-right">{cp.resultado_mpa ?? "—"}</TableCell>
                     <TableCell><ConformidadeBadge status={cp.status_conformidade} atrasado={cp.ensaio_atrasado} /></TableCell>
                     <TableCell>
-                      {podeInserir && (
+                      {podeInserir && cp.status_conformidade !== "dispensado" && (
                         <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setCpEmEdicao(cp)}>
                           {cp.status === "rompido" ? "Editar" : "Lançar resultado"}
                         </Button>

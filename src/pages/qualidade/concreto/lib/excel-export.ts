@@ -14,6 +14,7 @@ export type DestinoRow = {
 
 export type CargaRow = {
   id: string;
+  codigo_rastreabilidade: string;
   data: string;
   numero_carga: string | null;
   quantidade_m3: number;
@@ -27,7 +28,7 @@ export type CargaRow = {
   destinos_carga: DestinoRow[];
 };
 
-const CARGA_SELECT = `id, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
+const CARGA_SELECT = `id, codigo_rastreabilidade, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
   fornecedores_concreto(nome),
   tracos_concreto(nome, fck_mpa),
   destinos_carga(quantidade_m3_aplicada, observacao, areas_concreto(nome), areas(nome), etapa_concreto:etapas_concreto(nome))`;
@@ -82,7 +83,7 @@ function observacoesTexto(destinos: DestinoRow[]): string {
 }
 
 const HEADERS = [
-  "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
+  "CÓD. RASTREABILIDADE", "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
   "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "PROJETO", "ETAPA", "OBSERVAÇÕES",
   "VALIDADO", "LANÇADO POR",
 ];
@@ -105,6 +106,7 @@ export async function buildCargasConcretoWorkbook(rows: CargaRow[]): Promise<Wor
   const linhas: (string | number)[][] = [HEADERS];
   for (const r of rows) {
     linhas.push([
+      r.codigo_rastreabilidade,
       formatBR(r.data),
       r.fornecedores_concreto?.nome ?? "",
       r.tipo_origem === "propria" ? "Própria" : "Externa",
@@ -133,4 +135,90 @@ export async function downloadCargasConcretoWorkbook(wb: WorkBook): Promise<void
   const XLSX = await import("xlsx");
   const hoje = new Date().toISOString().slice(0, 10).split("-").reverse().join("");
   XLSX.writeFile(wb, `Concreto_Banco_Completo_${hoje}.xlsx`);
+}
+
+// ---------- Exportação de Ensaios ----------
+
+export type EnsaioRow = {
+  codigo_rastreabilidade: string;
+  data_carga: string;
+  numero_carga: string | null;
+  nota_fiscal: string | null;
+  traco_nome: string;
+  fck_mpa: number;
+  laboratorio_nome: string | null;
+  numero_lab: string | null;
+  peca_concretada: string | null;
+  idade_prevista_dias: number;
+  data_moldagem: string;
+  data_ruptura_prevista: string;
+  status: "pendente" | "rompido";
+  data_ruptura_real: string | null;
+  resultado_mpa: number | null;
+  tipo_ruptura: string | null;
+  temperatura_concreto: number | null;
+  slump_aplicacao: number | null;
+  observacoes: string | null;
+  status_conformidade: string;
+};
+
+const ENSAIO_SELECT = `codigo_rastreabilidade, data_carga, numero_carga, nota_fiscal,
+  traco_nome, fck_mpa, laboratorio_nome, numero_lab, peca_concretada,
+  idade_prevista_dias, data_moldagem, data_ruptura_prevista, status,
+  data_ruptura_real, resultado_mpa, tipo_ruptura, temperatura_concreto,
+  slump_aplicacao, observacoes, status_conformidade`;
+
+const ENSAIOS_HEADERS = [
+  "Nº CARGA", "DATA MOLDAGEM", "LABORATÓRIO", "Nº CP", "PEÇA CONCRETADA",
+  "IDADE (DIAS)", "DATA RUPTURA", "FCJ (MPA)", "TIPO DE RUPTURA",
+  "TEMPERATURA", "SLUMP", "OBSERVAÇÕES",
+];
+
+export async function listarTodosEnsaiosConcreto(organizacaoId: string): Promise<EnsaioRow[]> {
+  const PAGE_SIZE = 1000;
+  const rows: EnsaioRow[] = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await supabase
+      .from("vw_ensaios_concreto")
+      .select(ENSAIO_SELECT)
+      .eq("organizacao_id", organizacaoId)
+      .order("data_moldagem", { ascending: false })
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    rows.push(...((data ?? []) as unknown as EnsaioRow[]));
+    if (!data || data.length < PAGE_SIZE) break;
+  }
+  return rows;
+}
+
+export async function buildEnsaiosConcretoWorkbook(rows: EnsaioRow[]): Promise<WorkBook> {
+  const XLSX = await import("xlsx");
+  const linhas: (string | number)[][] = [ENSAIOS_HEADERS];
+  for (const r of rows) {
+    linhas.push([
+      r.numero_carga ?? r.nota_fiscal ?? r.codigo_rastreabilidade,
+      formatBR(r.data_moldagem),
+      r.laboratorio_nome ?? "",
+      r.numero_lab ?? "",
+      r.peca_concretada ?? "",
+      r.idade_prevista_dias,
+      r.data_ruptura_real ? formatBR(r.data_ruptura_real) : "",
+      r.resultado_mpa ?? "",
+      r.tipo_ruptura ?? "",
+      r.temperatura_concreto ?? "",
+      r.slump_aplicacao ?? "",
+      r.observacoes ?? "",
+    ]);
+  }
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws["!cols"] = autoSizeFromRows(linhas);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Ensaios de Concreto");
+  return wb;
+}
+
+export async function downloadEnsaiosConcretoWorkbook(wb: WorkBook): Promise<void> {
+  const XLSX = await import("xlsx");
+  const hoje = new Date().toISOString().slice(0, 10).split("-").reverse().join("");
+  XLSX.writeFile(wb, `Concreto_Ensaios_${hoje}.xlsx`);
 }

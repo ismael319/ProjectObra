@@ -6,8 +6,8 @@ import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parse
 import { computeIndicators, computeIndicatorsCronograma, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
 import {
   getWeek,
-  lockWeek,
-  unlockWeek,
+  lockWeekWithBaseline,
+  unlockWeekWithBaseline,
   setActivityStatus,
   setActivityInativa,
   setActivityExtra,
@@ -33,6 +33,7 @@ import ModalEngenheirosArea from '@/components/programacao/ModalEngenheirosArea'
 import ModalExportarImagem, { type AlvoExportacao } from '@/components/programacao/ModalExportarImagem'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
+import ModalAnaliseSemana from '@/components/programacao/ModalAnaliseSemana'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 // Intervalo "sem limite prático" pra busca de atividade em todo o cronograma
@@ -69,6 +70,7 @@ export default function DailyProgramming() {
   const [areaIdPorArea, setAreaIdPorArea] = useState<Map<string, string>>(new Map())
   const [showExportar, setShowExportar] = useState(false)
   const [alvoExportacao, setAlvoExportacao] = useState<AlvoExportacao | null>(null)
+  const [showAnalise, setShowAnalise] = useState(false)
 
   // showLoading=false evita o spinner de página inteira (que some com o modal aberto)
   // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
@@ -322,8 +324,8 @@ export default function DailyProgramming() {
   const handleLock = async () => {
     if (!weekData?.week) return
     try {
-      await lockWeek(organizacaoId, weekData.week.id)
-      toast.success('Semana bloqueada')
+      await lockWeekWithBaseline(organizacaoId, weekData.week.id)
+      toast.success('Semana bloqueada com baseline salvo')
       fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao bloquear semana'
@@ -334,7 +336,7 @@ export default function DailyProgramming() {
   const handleUnlock = async () => {
     if (!weekData?.week) return
     try {
-      await unlockWeek(organizacaoId, weekData.week.id)
+      await unlockWeekWithBaseline(organizacaoId, weekData.week.id)
       toast.success('Semana desbloqueada')
       fetchData(false)
     } catch (e: unknown) {
@@ -516,6 +518,7 @@ export default function DailyProgramming() {
         onClearWeek={handleClearWeek}
         onManageEngenheiros={() => setShowEngenheirosArea(true)}
         onExportSemanal={handleExportarSemana}
+        onAnalysis={() => setShowAnalise(true)}
       />
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
@@ -601,6 +604,18 @@ export default function DailyProgramming() {
         onOpenChange={setShowExportar}
         alvo={alvoExportacao}
       />
+
+      {weekData?.week && (
+        <ModalAnaliseSemana
+          open={showAnalise}
+          onClose={() => setShowAnalise(false)}
+          organizacaoId={organizacaoId}
+          weekId={weekData.week.id}
+          weekLabel={`${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`}
+          analiseAtual={null}
+          onSaved={() => fetchData(false)}
+        />
+      )}
     </div>
     </TooltipProvider>
   )
