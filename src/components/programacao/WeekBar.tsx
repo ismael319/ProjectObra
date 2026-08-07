@@ -9,6 +9,10 @@ interface Props {
   startDate: string
   endDate: string
   status: 'rascunho' | 'consolidado'
+  /** Papel efetivo do usuário no módulo Engenharia — só quem tem Edição pode
+   * bloquear/desbloquear a semana (a RLS já barra no banco; isso só evita
+   * oferecer a ação pra quem não pode usá-la). */
+  podeEditar: boolean
   /** Aderência calculada sobre o plano ORIGINAL da semana (ignora Extra/Inativa
    * feitos depois) — ver computeIndicatorsCronograma. */
   aderenciaCronograma: number
@@ -34,6 +38,7 @@ export default function WeekBar({
   startDate,
   endDate,
   status,
+  podeEditar,
   aderenciaCronograma,
   aderenciaAjustada,
   onPrev,
@@ -172,26 +177,38 @@ export default function WeekBar({
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => { setActionsOpen(false); onUnlock() }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                      disabled={!podeEditar}
+                      title={!podeEditar ? 'Só quem tem nível de acesso Edição pode desbloquear a semana' : undefined}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     >
                       <Unlock size={14} className="text-green-600" />
                       Desbloquear semana
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-xs">Volta a semana pro rascunho, liberando os status das atividades pra edição de novo.</TooltipContent>
+                  <TooltipContent side="left" className="max-w-xs">
+                    {podeEditar
+                      ? 'Volta a semana pro rascunho, liberando os status das atividades pra edição de novo.'
+                      : 'Só quem tem nível de acesso Edição pode desbloquear a semana.'}
+                  </TooltipContent>
                 </Tooltip>
               ) : (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
                       onClick={() => { setActionsOpen(false); onLock() }}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
+                      disabled={!podeEditar}
+                      title={!podeEditar ? 'Só quem tem nível de acesso Edição pode bloquear a semana' : undefined}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     >
                       <Lock size={14} className="text-red-600" />
                       Bloquear semana
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-xs">Consolida a semana: trava os status das atividades contra edição (só extras continuam removíveis).</TooltipContent>
+                  <TooltipContent side="left" className="max-w-xs">
+                    {podeEditar
+                      ? 'Consolida a semana: trava os status das atividades contra edição (só extras continuam removíveis).'
+                      : 'Só quem tem nível de acesso Edição pode bloquear a semana.'}
+                  </TooltipContent>
                 </Tooltip>
               )}
               <div className="h-px bg-gray-100 dark:bg-gray-700 my-1" />

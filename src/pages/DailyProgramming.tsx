@@ -21,7 +21,7 @@ import {
   finalizarAtividade,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
-import { useAuth } from '@/lib/auth-context'
+import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { findActivitiesWithWorkInWeek, listDistinctAreaNames, type WeekActivity } from '@/lib/week-activities'
 import type { WBSActivity } from '@/lib/xml-parser'
 
@@ -45,6 +45,7 @@ export default function DailyProgramming() {
   const { currentProject } = useProjects()
   const { userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? ''
+  const { podeEditar } = usePapelModulo('engenharia')
   const now = new Date()
   const cur = getISOWeekYearAndNumber(now)
   const [isoYear, setIsoYear] = useState(cur.year)
@@ -501,6 +502,7 @@ export default function DailyProgramming() {
         startDate={weekData.week.start_date}
         endDate={weekData.week.end_date}
         status={weekData.week.status}
+        podeEditar={podeEditar}
         aderenciaCronograma={indicatorsCronograma.aderencia}
         aderenciaAjustada={indicators.aderencia}
         onPrev={() => shift(-1)}

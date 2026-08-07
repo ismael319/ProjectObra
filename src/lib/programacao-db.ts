@@ -269,24 +269,32 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
 // Bloquear semana (reaproveita o status "consolidado" do banco — trocar o enum
 // exigiria migração; só o rótulo na UI virou "Bloqueada")
 export async function lockWeek(organizacaoId: string, weekId: string): Promise<void> {
-  const { error } = await supabase
+  // .select() pra saber se o UPDATE realmente afetou alguma linha — a RLS já
+  // exige papel Edição no módulo Engenharia pra bloquear/desbloquear, mas sem
+  // essa checagem um usuário sem permissão via um caminho fora da UI (ou uma
+  // permissão que mudou nesse meio-tempo) não recebia nenhum aviso do motivo.
+  const { data, error } = await supabase
     .from('weeks')
     .update({ status: 'consolidado', consolidated_at: new Date().toISOString() })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .select('id')
 
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível bloquear a semana — verifique se seu nível de acesso é Edição')
 }
 
 // Desbloquear semana — volta pro estado editável
 export async function unlockWeek(organizacaoId: string, weekId: string): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('weeks')
     .update({ status: 'rascunho', consolidated_at: null })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .select('id')
 
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível desbloquear a semana — verifique se seu nível de acesso é Edição')
 }
 
 // Atualizar status de atividade
@@ -299,8 +307,20 @@ export async function setActivityStatus(
   const patch: { status: ActivityStatus; observation?: string | null } = { status }
   if (observation !== undefined) patch.observation = observation
 
-  const { error } = await supabase.from('activities').update(patch).eq('id', activityId).eq('organizacao_id', organizacaoId)
+  // .select() pra saber se o UPDATE realmente afetou alguma linha — um UPDATE
+  // bloqueado por RLS (USING não bate) não gera erro nenhum no Supabase, só
+  // afeta 0 linhas silenciosamente (mesmo caso já resolvido em
+  // deleteSubEtapa); sem essa checagem, o item principal parecia não
+  // acompanhar o status calculado a partir das sub-etapas, sem nenhum aviso
+  // do motivo.
+  const { data, error } = await supabase
+    .from('activities')
+    .update(patch)
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível atualizar o status — verifique se seu nível de acesso é Edição')
 }
 
 // Inativar/reativar atividade — item colocado de lado pra análise (ex.: não fica
@@ -308,12 +328,14 @@ export async function setActivityStatus(
 // (ver computeIndicators/computeSegment e buildRelatorioVisual/buildMatrizSemanal).
 // Funciona mesmo com a semana bloqueada, igual às sub-etapas.
 export async function setActivityInativa(organizacaoId: string, activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from('activities')
     .update({ inativa, motivo_inativacao: inativa ? motivo : null })
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível atualizar — verifique se seu nível de acesso é Edição')
 }
 
 // Marca/desmarca uma atividade como "Extra" (não estava planejada pro dia, mas foi
@@ -322,8 +344,14 @@ export async function setActivityInativa(organizacaoId: string, activityId: stri
 // source_cronograma/area/task_uid, então uma atividade real do cronograma marcada
 // extra continua agrupada no cronograma dela (ver addActivitiesBulk).
 export async function setActivityExtra(organizacaoId: string, activityId: string, isExtra: boolean): Promise<void> {
-  const { error } = await supabase.from('activities').update({ is_extra: isExtra }).eq('id', activityId).eq('organizacao_id', organizacaoId)
+  const { data, error } = await supabase
+    .from('activities')
+    .update({ is_extra: isExtra })
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível atualizar — verifique se seu nível de acesso é Edição')
 }
 
 // Move uma ou mais atividades já existentes pra outro dia (não cria linha nova) —
