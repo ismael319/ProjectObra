@@ -45,7 +45,7 @@ export default function WorkforceSummary() {
   if (resources.length === 0 && laborEntries.length === 0) return null
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
       <div className="flex items-center gap-2 mb-4">
         <Users size={18} className="text-amber-600 dark:text-amber-400" />
         <h2 className="text-lg font-bold text-gray-900 dark:text-white">Resumo do Efetivo</h2>

@@ -34,9 +34,9 @@ export default function Home() {
         <div className="grid sm:grid-cols-2 gap-5">
           <button
             onClick={() => navigate('/projects')}
-            className="group text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition"
+            className="group text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-6 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition"
           >
-            <div className="w-12 h-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center mb-4">
               <FolderKanban className="text-blue-600 dark:text-blue-400" size={24} />
             </div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
@@ -50,9 +50,9 @@ export default function Home() {
 
           <button
             onClick={() => navigate('/admin')}
-            className="group text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-6 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition"
+            className="group text-left bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 p-4 sm:p-6 hover:border-blue-300 dark:hover:border-blue-700 hover:shadow-md transition"
           >
-            <div className="w-12 h-12 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center mb-4">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center mb-4">
               <ShieldCheck className="text-purple-600 dark:text-purple-400" size={24} />
             </div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">

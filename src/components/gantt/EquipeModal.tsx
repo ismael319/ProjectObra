@@ -116,7 +116,7 @@ export function EquipeModal({ open, onClose, editingEquipe, onCreated }: Props) 
                 <Plus size={12} /> Adicionar
               </button>
             </div>
-            <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-900/60 text-xs text-gray-500 dark:text-slate-400">
@@ -197,7 +197,7 @@ export function EquipeModal({ open, onClose, editingEquipe, onCreated }: Props) 
                 <Plus size={12} /> Adicionar
               </button>
             </div>
-            <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+            <div className="rounded-xl border border-gray-200 dark:border-slate-700 overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 dark:bg-slate-900/60 text-xs text-gray-500 dark:text-slate-400">

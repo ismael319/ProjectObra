@@ -49,7 +49,7 @@ function useTooltipStyle() {
 export function StatusPieChart() {
   const tooltipStyle = useTooltipStyle()
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Status dos Projetos</h3>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
@@ -90,7 +90,7 @@ export function StatusPieChart() {
 export function MonthlyBarChart() {
   const tooltipStyle = useTooltipStyle()
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Projetos por Mês</h3>
       <div className="h-64">
         <ResponsiveContainer width="100%" height="100%">
@@ -138,7 +138,7 @@ export function ProgressAreaChart() {
   }, [currentProject])
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
+    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Curva S - Progresso Geral (%)</h3>
       <div className="h-64">
         {chartData.length === 0 ? (

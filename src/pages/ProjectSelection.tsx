@@ -281,7 +281,7 @@ export default function ProjectSelection() {
                   </div>
                 )}
 
-                <div className="p-6">
+                <div className="p-4 sm:p-6">
                 {/* Status + Menu */}
                 <div className="flex items-center justify-between mb-3">
                   <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${getStatusColor(project.status)}`}>
@@ -418,7 +418,7 @@ export default function ProjectSelection() {
         ) : projects.length === 0 && !showForm ? (
           /* Empty State */
           <div className="text-center py-20">
-            <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
+            <div className="w-16 h-16 sm:w-20 sm:h-20 bg-blue-100 dark:bg-blue-900/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
               <FolderOpen className="text-blue-600" size={40} />
             </div>
             <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">Nenhum projeto ainda</h3>

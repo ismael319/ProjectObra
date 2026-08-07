@@ -65,14 +65,14 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
       {kpis.map((kpi) => (
         <div
           key={kpi.title}
-          className="group relative bg-white dark:bg-gray-800 rounded-xl p-6 border border-gray-100 dark:border-gray-700/80 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 overflow-hidden"
+          className="group relative bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 overflow-hidden"
         >
           <div
             className="absolute top-0 left-0 right-0 h-[3px] opacity-80"
             style={{ backgroundColor: kpi.accent }}
           />
           <div className="flex items-center justify-between">
-            <div className={`w-12 h-12 ${kpi.iconBg} rounded-xl flex items-center justify-center`}>
+            <div className={`w-10 h-10 sm:w-12 sm:h-12 ${kpi.iconBg} rounded-xl flex items-center justify-center`}>
               <kpi.icon className={kpi.iconText} size={22} strokeWidth={2.25} />
             </div>
             <span

@@ -191,7 +191,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
   rows.push({ key: 'actual', color: COLOR_REAL, name: 'Real', value: period.actual, prevValue: prevPeriod.actual, total: bac })
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 min-w-[320px] max-w-[380px]">
+    <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 min-w-[min(320px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm font-semibold text-gray-900 dark:text-white">{period.label}</span>
         {isStatusPeriod && (

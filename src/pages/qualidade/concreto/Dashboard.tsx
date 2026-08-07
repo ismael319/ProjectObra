@@ -314,7 +314,7 @@ export default function ConcretoDashboard() {
         quebram linha se não couberem) e captura de forma confiável.
       */}
       <div className="flex flex-wrap gap-4">
-        <Card className="flex-[2] min-w-[280px]">
+        <Card className="flex-[2] min-w-full sm:min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto/mês (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -332,7 +332,7 @@ export default function ConcretoDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="flex-1 min-w-[240px]">
+        <Card className="flex-1 min-w-full sm:min-w-[240px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto / Usina (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>
@@ -348,7 +348,7 @@ export default function ConcretoDashboard() {
           </CardContent>
         </Card>
 
-        <Card className="flex-1 min-w-[240px]">
+        <Card className="flex-1 min-w-full sm:min-w-[240px]">
           <CardHeader><CardTitle className="text-base">Volume total (m³)</CardTitle></CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={300}>

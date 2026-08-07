@@ -86,7 +86,7 @@ export default function WidgetFilterMenu({
   return (
     <div
       ref={ref}
-      className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-2 px-3 min-w-[260px] max-w-[300px]"
+      className="fixed z-50 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl py-2 px-3 min-w-[min(260px,calc(100vw-1rem))] max-w-[min(300px,calc(100vw-1rem))]"
       style={{ left: pos.x, top: pos.y }}
     >
       <div
