@@ -21,6 +21,7 @@ import {
   finalizarAtividade,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
+import { useAuth } from '@/lib/auth-context'
 import { findActivitiesWithWorkInWeek, listDistinctAreaNames, type WeekActivity } from '@/lib/week-activities'
 import type { WBSActivity } from '@/lib/xml-parser'
 
@@ -42,6 +43,8 @@ const MAX_DATE = new Date(2100, 0, 1)
 
 export default function DailyProgramming() {
   const { currentProject } = useProjects()
+  const { userProfile } = useAuth()
+  const organizacaoId = userProfile?.organizacao_id ?? ''
   const now = new Date()
   const cur = getISOWeekYearAndNumber(now)
   const [isoYear, setIsoYear] = useState(cur.year)
@@ -70,9 +73,14 @@ export default function DailyProgramming() {
   // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
   // primeira carga da semana (ou troca de semana) precisa do loading bloqueante.
   const fetchData = useCallback(async (showLoading = true) => {
+    // organizacaoId só existe depois que o perfil do usuário carrega (async) —
+    // sem essa guarda, o primeiro disparo do efeito abaixo (no mount, antes do
+    // perfil chegar) tentava buscar a semana sem organização, o que ou
+    // vazava dados de outra empresa ou quebrava com um 400 (ver getWeek).
+    if (!organizacaoId) return
     if (showLoading) setLoading(true)
     try {
-      const data = await getWeek(isoYear, isoWeek)
+      const data = await getWeek(organizacaoId, isoYear, isoWeek)
       setWeekData(data)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar semana'
@@ -80,7 +88,7 @@ export default function DailyProgramming() {
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [isoYear, isoWeek])
+  }, [organizacaoId, isoYear, isoWeek])
 
   useEffect(() => {
     fetchData()
@@ -301,7 +309,7 @@ export default function DailyProgramming() {
       const wb = XLSX.read(buf)
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, string | number | null>>(ws, { defval: null })
-      const result = await mergeExcel(weekData.week.id, rows)
+      const result = await mergeExcel(organizacaoId, weekData.week.id, rows)
       toast.success(`Excel importado: ${result.updated} atividade(s) atualizada(s)`)
       fetchData(false)
     } catch (e: unknown) {
@@ -313,7 +321,7 @@ export default function DailyProgramming() {
   const handleLock = async () => {
     if (!weekData?.week) return
     try {
-      await lockWeek(weekData.week.id)
+      await lockWeek(organizacaoId, weekData.week.id)
       toast.success('Semana bloqueada')
       fetchData(false)
     } catch (e: unknown) {
@@ -325,7 +333,7 @@ export default function DailyProgramming() {
   const handleUnlock = async () => {
     if (!weekData?.week) return
     try {
-      await unlockWeek(weekData.week.id)
+      await unlockWeek(organizacaoId, weekData.week.id)
       toast.success('Semana desbloqueada')
       fetchData(false)
     } catch (e: unknown) {
@@ -338,7 +346,7 @@ export default function DailyProgramming() {
     if (!weekData?.week) return
     if (!confirm('Remover todas as atividades desta semana (inclusive as extras)? Esta ação não pode ser desfeita.')) return
     try {
-      await clearWeekActivities(weekData.week.id)
+      await clearWeekActivities(organizacaoId, weekData.week.id)
       toast.success('Semana limpa')
       fetchData(false)
     } catch (e: unknown) {
@@ -351,7 +359,7 @@ export default function DailyProgramming() {
     if (!weekData?.week) return
     if (!confirm(`Remover todas as atividades de ${date} (inclusive as extras)? Esta ação não pode ser desfeita.`)) return
     try {
-      await clearDayActivities(weekData.week.id, date)
+      await clearDayActivities(organizacaoId, weekData.week.id, date)
       toast.success('Dia limpo')
       fetchData(false)
     } catch (e: unknown) {
@@ -362,7 +370,7 @@ export default function DailyProgramming() {
 
   const handleSetStatus = async (id: string, status: ActivityStatus, observation: string | null) => {
     try {
-      await setActivityStatus(id, status, observation)
+      await setActivityStatus(organizacaoId, id, status, observation)
       fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar status'
@@ -372,7 +380,7 @@ export default function DailyProgramming() {
 
   const handleSetInativa = async (id: string, inativa: boolean, motivo: string | null) => {
     try {
-      await setActivityInativa(id, inativa, motivo)
+      await setActivityInativa(organizacaoId, id, inativa, motivo)
       toast.success(inativa ? 'Atividade inativada' : 'Atividade reativada')
       fetchData(false)
     } catch (e: unknown) {
@@ -383,7 +391,7 @@ export default function DailyProgramming() {
 
   const handleSetExtra = async (id: string, isExtra: boolean) => {
     try {
-      await setActivityExtra(id, isExtra)
+      await setActivityExtra(organizacaoId, id, isExtra)
       toast.success(isExtra ? 'Marcada como extra' : 'Desmarcada como extra')
       fetchData(false)
     } catch (e: unknown) {
@@ -407,7 +415,7 @@ export default function DailyProgramming() {
       if (!confirm(`Marcar como concluída e remover essa atividade dos dias restantes da semana (${dias})? Essa ação não pode ser desfeita.`)) return
     }
     try {
-      await finalizarAtividade(activity.id, futuras.map((a) => a.id), activity.observation)
+      await finalizarAtividade(organizacaoId, activity.id, futuras.map((a) => a.id), activity.observation)
       toast.success(futuras.length > 0 ? `Atividade finalizada e removida de ${futuras.length} dia(s)` : 'Atividade finalizada')
       fetchData(false)
     } catch (e: unknown) {
@@ -417,7 +425,7 @@ export default function DailyProgramming() {
 
   const handleReprogramar = async (activityId: string, novaData: string) => {
     try {
-      await moverAtividadesParaDia([activityId], novaData)
+      await moverAtividadesParaDia(organizacaoId, [activityId], novaData)
       toast.success('Atividade reprogramada')
       fetchData(false)
     } catch (e: unknown) {
@@ -427,7 +435,7 @@ export default function DailyProgramming() {
 
   const handleAdicionarNaoRealizadas = async (activityIds: string[], data: string) => {
     try {
-      await moverAtividadesParaDia(activityIds, data)
+      await moverAtividadesParaDia(organizacaoId, activityIds, data)
       toast.success(`${activityIds.length} atividade(s) trazida(s) pra ${formatShortDate(parseISODateStr(data))}`)
       fetchData(false)
     } catch (e: unknown) {
@@ -437,7 +445,7 @@ export default function DailyProgramming() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteActivity(id)
+      await deleteActivity(organizacaoId, id)
       toast.success('Atividade removida')
       fetchData(false)
     } catch (e: unknown) {
@@ -457,7 +465,7 @@ export default function DailyProgramming() {
   }) => {
     if (!weekData?.week) return
     try {
-      await addExtraActivity({ weekId: weekData.week.id, ...payload })
+      await addExtraActivity({ organizacaoId, weekId: weekData.week.id, ...payload })
       toast.success('Atividade extra adicionada')
       fetchData(false)
     } catch (e: unknown) {
@@ -529,6 +537,7 @@ export default function DailyProgramming() {
         open={!!openDate}
         onOpenChange={(v) => !v && setOpenDate(null)}
         date={openDate}
+        organizacaoId={organizacaoId}
         activities={openDate ? (activitiesByDate.get(openDate) ?? []) : []}
         weekDays={days}
         todasAtividadesDaSemana={activities}
@@ -557,6 +566,7 @@ export default function DailyProgramming() {
         loading={loadingWeekActivities}
         sources={importSources}
         weekId={weekData.week.id}
+        organizacaoId={organizacaoId}
         weekDays={days}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
@@ -570,6 +580,7 @@ export default function DailyProgramming() {
         loading={loadingDayImport}
         sources={importSources}
         weekId={weekData.week.id}
+        organizacaoId={organizacaoId}
         weekDays={dayImportDate ? [dayImportDate] : []}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}

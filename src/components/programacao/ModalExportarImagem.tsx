@@ -3,6 +3,7 @@ import { Loader2, Download, FileText, Share2, Image, MessageSquareText, Copy, Se
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useProjects } from '@/lib/project-store'
+import { useAuth } from '@/lib/auth-context'
 import { getActivitiesInDateRange } from '@/lib/programacao-db'
 import { buildRelatorioVisual, buildMatrizSemanal, type RelatorioVisual, type MatrizSemanal, type EngenheiroMatriz } from '@/lib/relatorio-visual'
 import { buildTextoRelatorioVisual } from '@/lib/relatorio-texto'
@@ -55,6 +56,8 @@ function slugify(s: string): string {
 // status de cada atividade como está agora, sem exigir a semana estar bloqueada.
 export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props) {
   const { currentProject } = useProjects()
+  const { userProfile } = useAuth()
+  const organizacaoId = userProfile?.organizacao_id ?? ''
   const [loading, setLoading] = useState(false)
   const [relatorio, setRelatorio] = useState<RelatorioVisual | null>(null)
   const [matriz, setMatriz] = useState<MatrizSemanal | null>(null)
@@ -67,7 +70,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
   const cardRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!open || !alvo) return
+    if (!open || !alvo || !organizacaoId) return
     setLoading(true)
     setRelatorio(null)
     setMatriz(null)
@@ -75,13 +78,13 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
     setEngenheiroFiltro('todos')
     const promise =
       alvo.tipo === 'semana'
-        ? getActivitiesInDateRange(alvo.weekDays[0], alvo.weekDays[6]).then((a) => setMatriz(buildMatrizSemanal(a, alvo.weekDays)))
-        : getActivitiesInDateRange(alvo.data, alvo.data).then((a) => setRelatorio(buildRelatorioVisual(a)))
+        ? getActivitiesInDateRange(organizacaoId, alvo.weekDays[0], alvo.weekDays[6]).then((a) => setMatriz(buildMatrizSemanal(a, alvo.weekDays)))
+        : getActivitiesInDateRange(organizacaoId, alvo.data, alvo.data).then((a) => setRelatorio(buildRelatorioVisual(a)))
     promise
       .then(() => setEmitidoAs(formatHora(new Date())))
       .catch((e: unknown) => toast.error(e instanceof Error ? e.message : 'Erro ao carregar atividades'))
       .finally(() => setLoading(false))
-  }, [open, alvo])
+  }, [open, alvo, organizacaoId])
 
   // Mesma informação do card visual, só que como texto com formatação nativa do
   // WhatsApp (*negrito*, emojis de status) — pra enviar direto na conversa sem

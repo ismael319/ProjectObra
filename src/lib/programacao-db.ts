@@ -46,18 +46,22 @@ interface WeekData {
   partialWeight: number
 }
 
-// Garante que a semana existe (Sex→Qui), criando ou corrigindo se necessário
-async function ensureWeek(isoYear: number, isoWeek: number): Promise<WeekRow> {
+// Garante que a semana existe (Sex→Qui), criando ou corrigindo se necessário.
+// organizacaoId isola a semana por empresa (UNIQUE(organizacao_id, iso_year, iso_week)).
+async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekRow> {
   const friday = isoWeekFromParts(isoYear, isoWeek)
   const thursday = addDays(friday, 6)
   const startDate = toISODateStr(friday)
   const endDate = toISODateStr(thursday)
+
+  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
 
   const { data: existing } = await supabase
     .from('weeks')
     .select('*')
     .eq('iso_year', isoYear)
     .eq('iso_week', isoWeek)
+    .eq('organizacao_id', organizacaoId)
     .maybeSingle()
 
   if (existing) {
@@ -67,10 +71,11 @@ async function ensureWeek(isoYear: number, isoWeek: number): Promise<WeekRow> {
     if (existing.start_date !== startDate || existing.end_date !== endDate) {
       const { data, error } = await supabase
         .from('weeks')
-        .update({ start_date: startDate, end_date: endDate })
-        .eq('id', existing.id)
-        .select('*')
-        .single()
+    .update({ start_date: startDate, end_date: endDate })
+    .eq('id', existing.id)
+    .eq('organizacao_id', organizacaoId)
+    .select('*')
+    .single()
       if (!error && data) return data as WeekRow
       // Sem permissão para corrigir no banco (ex: papel "campo", restrito pelo RLS)
       // — usa as datas certas só nesta sessão; um usuário com permissão fixa depois.
@@ -82,6 +87,7 @@ async function ensureWeek(isoYear: number, isoWeek: number): Promise<WeekRow> {
   const { data, error } = await supabase
     .from('weeks')
     .insert({
+      organizacao_id: organizacaoId,
       iso_year: isoYear,
       iso_week: isoWeek,
       start_date: startDate,
@@ -122,20 +128,22 @@ async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<stri
 }
 
 // Buscar semana + atividades
-export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekData> {
-  const week = await ensureWeek(isoYear, isoWeek)
+export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
+  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  const week = await ensureWeek(organizacaoId, isoYear, isoWeek)
 
   // Paginado pelo mesmo motivo de getActivitiesInDateRange: sem isso, o Supabase corta
   // na página default (1000 linhas), o que uma semana cheia de atividades pode passar.
   const PAGE_SIZE = 1000
   const activities: ActivityRow[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from('activities')
       .select('*')
       .eq('week_id', week.id)
+      .eq('organizacao_id', organizacaoId)
       .order('planned_date', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
     if (error) throw new Error(error.message)
     activities.push(...((data ?? []) as ActivityRow[]))
@@ -198,7 +206,9 @@ export async function getWeek(isoYear: number, isoWeek: number): Promise<WeekDat
 // computeIndicators (mesma regra: concluídas / planejadas, extras não contam no
 // denominador), só muda a query pra filtrar por intervalo de planned_date em vez de
 // week_id.
-export async function getActivitiesInDateRange(startDate: string, endDate: string): Promise<ActivityLike[]> {
+export async function getActivitiesInDateRange(organizacaoId: string, startDate: string, endDate: string): Promise<ActivityLike[]> {
+  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+
   // Sem paginar, o Supabase corta na página default (1000 linhas) — um intervalo de 7
   // dias com várias dezenas de tarefas por dia passa disso fácil (cada tarefa gera 1
   // linha por dia sobreposto). Sem isso, a Programação Semanal só trazia as primeiras
@@ -206,13 +216,14 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
   const PAGE_SIZE = 1000
   const activities: ActivityRow[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
+    const query = supabase
       .from('activities')
       .select('*')
       .gte('planned_date', startDate)
       .lte('planned_date', endDate)
+      .eq('organizacao_id', organizacaoId)
       .order('planned_date', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
     if (error) throw new Error(error.message)
     activities.push(...((data ?? []) as ActivityRow[]))
@@ -257,27 +268,30 @@ export async function getActivitiesInDateRange(startDate: string, endDate: strin
 
 // Bloquear semana (reaproveita o status "consolidado" do banco — trocar o enum
 // exigiria migração; só o rótulo na UI virou "Bloqueada")
-export async function lockWeek(weekId: string): Promise<void> {
+export async function lockWeek(organizacaoId: string, weekId: string): Promise<void> {
   const { error } = await supabase
     .from('weeks')
     .update({ status: 'consolidado', consolidated_at: new Date().toISOString() })
     .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
 
   if (error) throw new Error(error.message)
 }
 
 // Desbloquear semana — volta pro estado editável
-export async function unlockWeek(weekId: string): Promise<void> {
+export async function unlockWeek(organizacaoId: string, weekId: string): Promise<void> {
   const { error } = await supabase
     .from('weeks')
     .update({ status: 'rascunho', consolidated_at: null })
     .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
 
   if (error) throw new Error(error.message)
 }
 
 // Atualizar status de atividade
 export async function setActivityStatus(
+  organizacaoId: string,
   activityId: string,
   status: ActivityStatus,
   observation?: string | null,
@@ -285,7 +299,7 @@ export async function setActivityStatus(
   const patch: { status: ActivityStatus; observation?: string | null } = { status }
   if (observation !== undefined) patch.observation = observation
 
-  const { error } = await supabase.from('activities').update(patch).eq('id', activityId)
+  const { error } = await supabase.from('activities').update(patch).eq('id', activityId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
@@ -293,11 +307,12 @@ export async function setActivityStatus(
 // claro por que não foi executado); sai do PPC/aderência enquanto estiver inativo
 // (ver computeIndicators/computeSegment e buildRelatorioVisual/buildMatrizSemanal).
 // Funciona mesmo com a semana bloqueada, igual às sub-etapas.
-export async function setActivityInativa(activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
+export async function setActivityInativa(organizacaoId: string, activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
   const { error } = await supabase
     .from('activities')
     .update({ inativa, motivo_inativacao: inativa ? motivo : null })
     .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
@@ -306,8 +321,8 @@ export async function setActivityInativa(activityId: string, inativa: boolean, m
 // deduzido automaticamente na importação. Só mexe no status: não altera
 // source_cronograma/area/task_uid, então uma atividade real do cronograma marcada
 // extra continua agrupada no cronograma dela (ver addActivitiesBulk).
-export async function setActivityExtra(activityId: string, isExtra: boolean): Promise<void> {
-  const { error } = await supabase.from('activities').update({ is_extra: isExtra }).eq('id', activityId)
+export async function setActivityExtra(organizacaoId: string, activityId: string, isExtra: boolean): Promise<void> {
+  const { error } = await supabase.from('activities').update({ is_extra: isExtra }).eq('id', activityId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
@@ -316,9 +331,13 @@ export async function setActivityExtra(activityId: string, isExtra: boolean): Pr
 // realizadas" (vários ids de uma vez, trazendo pendências de dias anteriores da
 // mesma semana pro dia de hoje). Funciona mesmo com a semana bloqueada; quem chama é
 // responsável por só oferecer dias dentro da semana carregada.
-export async function moverAtividadesParaDia(activityIds: string[], novaData: string): Promise<void> {
+export async function moverAtividadesParaDia(organizacaoId: string, activityIds: string[], novaData: string): Promise<void> {
   if (activityIds.length === 0) return
-  const { error } = await supabase.from('activities').update({ planned_date: novaData }).in('id', activityIds)
+  const { error } = await supabase
+    .from('activities')
+    .update({ planned_date: novaData })
+    .in('id', activityIds)
+    .eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
@@ -328,10 +347,10 @@ export async function moverAtividadesParaDia(activityIds: string[], novaData: st
 // pendente nos dias seguintes, inflando a aderência desses dias com um trabalho que
 // já não existe mais. Nunca mexe em dias passados: os ids a remover já vêm
 // calculados pelo chamador (só dias com planned_date > o dia da atividade finalizada).
-export async function finalizarAtividade(activityId: string, idsDiasFuturos: string[], observation?: string | null): Promise<void> {
-  await setActivityStatus(activityId, 'concluida', observation ?? null)
+export async function finalizarAtividade(organizacaoId: string, activityId: string, idsDiasFuturos: string[], observation?: string | null): Promise<void> {
+  await setActivityStatus(organizacaoId, activityId, 'concluida', observation ?? null)
   if (idsDiasFuturos.length === 0) return
-  const { error } = await supabase.from('activities').delete().in('id', idsDiasFuturos)
+  const { error } = await supabase.from('activities').delete().in('id', idsDiasFuturos).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
@@ -341,27 +360,33 @@ export async function finalizarAtividade(activityId: string, idsDiasFuturos: str
 // individualmente e o status da atividade passa a ser derivado delas — ver
 // computeStatusFromSubetapas.
 
-export async function addSubEtapa(activityId: string, nome: string): Promise<SubEtapa> {
+export async function addSubEtapa(organizacaoId: string, activityId: string, nome: string): Promise<SubEtapa> {
+  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
   const { data, error } = await supabase
     .from('activity_subetapas')
-    .insert({ activity_id: activityId, nome })
+    .insert({ organizacao_id: organizacaoId, activity_id: activityId, nome })
     .select('id,activity_id,nome,status')
     .single()
   if (error) throw new Error(error.message)
   return data as SubEtapa
 }
 
-export async function setSubEtapaStatus(id: string, status: SubEtapaStatus): Promise<void> {
-  const { error } = await supabase.from('activity_subetapas').update({ status }).eq('id', id)
+export async function setSubEtapaStatus(organizacaoId: string, id: string, status: SubEtapaStatus): Promise<void> {
+  const { error } = await supabase.from('activity_subetapas').update({ status }).eq('id', id).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
-export async function deleteSubEtapa(id: string): Promise<void> {
+export async function deleteSubEtapa(organizacaoId: string, id: string): Promise<void> {
   // .select() no delete pra saber se alguma linha foi de fato removida — um DELETE
   // bloqueado por RLS (USING não bate) não gera erro nenhum no Supabase, só afeta 0
   // linhas silenciosamente; sem essa checagem, o botão "excluir" parecia não fazer
   // nada e o usuário não tinha nenhum aviso do motivo.
-  const { data, error } = await supabase.from('activity_subetapas').delete().eq('id', id).select('id')
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .delete()
+    .eq('id', id)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível excluir a sub-etapa — verifique se seu nível de acesso é Edição')
 }
@@ -388,24 +413,30 @@ export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatu
 }
 
 // Deletar atividade
-export async function deleteActivity(activityId: string): Promise<void> {
-  const { error } = await supabase.from('activities').delete().eq('id', activityId)
+export async function deleteActivity(organizacaoId: string, activityId: string): Promise<void> {
+  const { error } = await supabase.from('activities').delete().eq('id', activityId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar semana — remove TODAS as atividades (extras e importadas) da semana
-export async function clearWeekActivities(weekId: string): Promise<void> {
-  const { error } = await supabase.from('activities').delete().eq('week_id', weekId)
+export async function clearWeekActivities(organizacaoId: string, weekId: string): Promise<void> {
+  const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar dia — remove TODAS as atividades (extras e importadas) de um dia específico
-export async function clearDayActivities(weekId: string, plannedDate: string): Promise<void> {
-  const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('planned_date', plannedDate)
+export async function clearDayActivities(organizacaoId: string, weekId: string, plannedDate: string): Promise<void> {
+  const { error } = await supabase
+    .from('activities')
+    .delete()
+    .eq('week_id', weekId)
+    .eq('planned_date', plannedDate)
+    .eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
 export interface NewActivityPayload {
+  organizacaoId: string
   weekId: string
   planned_date: string
   name: string
@@ -441,6 +472,15 @@ export async function addExtraActivity(payload: NewActivityPayload): Promise<voi
 export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise<void> {
   if (payloads.length === 0) return
 
+  // organizacao_id é NOT NULL em activities (ver 20260807030000_programacao-
+  // isolamento-org-migration.sql) — sem essa checagem, um organizacaoId vazio
+  // (ex.: userProfile ainda não carregado) chega ao Supabase como valor
+  // ausente e estoura um 400 cru de "violates not-null constraint" em vez de
+  // um erro legível pro usuário.
+  if (payloads.some((p) => !p.organizacaoId)) {
+    throw new Error('Organização não carregada — recarregue a página antes de importar atividades.')
+  }
+
   const rows = payloads.map((payload) => {
     const isExtra = payload.isExtra ?? true
     // Provém de um cronograma de verdade ou é uma atividade avulsa (digitada à
@@ -454,6 +494,7 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
     // atividades reais (pode faltar em fluxos antigos), sourceCronograma não.
     const isReal = !!payload.sourceCronograma
     return {
+      organizacao_id: payload.organizacaoId,
       week_id: payload.weekId,
       name: payload.name,
       planned_date: payload.planned_date,
@@ -484,10 +525,17 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
 
 // Merge Excel: atualizar status via planilha
 export async function mergeExcel(
+  organizacaoId: string,
   weekId: string,
   rows: Array<Record<string, string | number | null>>,
 ): Promise<{ updated: number }> {
-  const { data: existing } = await supabase.from('activities').select('*').eq('week_id', weekId)
+  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+
+  const { data: existing } = await supabase
+    .from('activities')
+    .select('*')
+    .eq('week_id', weekId)
+    .eq('organizacao_id', organizacaoId)
 
   const byUid = new Map(
     (existing ?? []).filter((a: ActivityRow) => a.task_uid).map((a: ActivityRow) => [a.task_uid!, a]),

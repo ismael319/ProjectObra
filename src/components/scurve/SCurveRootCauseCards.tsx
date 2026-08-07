@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 import { format, subDays } from 'date-fns'
 import { CloudRain, AlertTriangle, Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
 import { getActivitiesInDateRange } from '@/lib/programacao-db'
 import { computeIndicators } from '@/lib/adherence'
 
@@ -13,10 +14,12 @@ const RAIN_WINDOW_DAYS = 30
 const PPC_WINDOW_DAYS = 21
 
 export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
+  const { userProfile } = useAuth()
+  const organizacaoId = userProfile?.organizacao_id ?? ''
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const { data: rainDays = 0 } = useQuery({
-    queryKey: ['scurve-root-cause', 'chuva', today],
+    queryKey: ['scurve-root-cause', 'chuva', today, organizacaoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), RAIN_WINDOW_DAYS), 'yyyy-MM-dd')
       const { data, error } = await supabase
@@ -31,12 +34,13 @@ export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
   })
 
   const { data: ppc } = useQuery({
-    queryKey: ['scurve-root-cause', 'ppc', today],
+    queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), PPC_WINDOW_DAYS), 'yyyy-MM-dd')
-      const activities = await getActivitiesInDateRange(start, today)
+      const activities = await getActivitiesInDateRange(organizacaoId, start, today)
       return computeIndicators(activities)
     },
+    enabled: !!organizacaoId,
   })
 
   const plannedTotal = ppc ? ppc.total - ppc.extras : 0
