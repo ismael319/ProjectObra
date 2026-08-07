@@ -12,6 +12,7 @@ export type RastreabilidadeCarga = {
   data: string;
   numero_carga: string | null;
   nota_fiscal: string | null;
+  cod_laboratorio: string | null;
   quantidade_m3: number;
   traco_id: string;
   traco_nome: string;

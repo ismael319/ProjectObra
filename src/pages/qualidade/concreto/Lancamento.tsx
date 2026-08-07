@@ -3,8 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { todayISO, computeCarga } from "./lib/concreto-utils";
-import { useFornecedoresConcreto, useTracosConcreto, useLaboratorios, useConfigEnsaio } from "./lib/catalog";
-import { distribuirCorposProva, parseIdadesEnsaio } from "./lib/rastreabilidade";
+import { useFornecedoresConcreto, useTracosConcreto } from "./lib/catalog";
 import { enqueue, listPending, remove as removePending, drain } from "./lib/offline-queue";
 import { useOnlineStatus, isNetworkError } from "@/lib/offline-query";
 import { DestinoRow, novoDestino, type DestinoForm } from "./components/DestinoRow";
@@ -25,11 +24,12 @@ type FormState = {
   preco_unitario: number | null;
   nota_fiscal: string;
   destinos: DestinoForm[];
-  laboratorio_id: string | null;
-  peca_concretada: string;
-  cod_lab_tecnologico: string;
-  idades_ensaio_texto: string;
-  qtd_cps: number | "";
+  // Referência solta da carga (ex.: protocolo/pedido do laboratório) — não é
+  // chave de busca de nada. Os corpos de prova de verdade (cada um com seu
+  // próprio número de laboratório) só existem depois que o PDF do relatório
+  // é importado em Ensaios > Importar resultados (casa por Nota Fiscal +
+  // Data de Moldagem, cria os CPs sob demanda).
+  cod_laboratorio: string;
 };
 
 const emptyForm = (keep?: Partial<FormState>): FormState => ({
@@ -41,11 +41,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
   preco_unitario: null,
   nota_fiscal: "",
   destinos: [novoDestino()],
-  laboratorio_id: null,
-  peca_concretada: "",
-  cod_lab_tecnologico: "",
-  idades_ensaio_texto: keep?.idades_ensaio_texto ?? "",
-  qtd_cps: keep?.qtd_cps ?? "",
+  cod_laboratorio: "",
 });
 
 export default function ConcretoLancamentoPage() {
@@ -61,20 +57,6 @@ export default function ConcretoLancamentoPage() {
 
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
   const { data: tracos = [] } = useTracosConcreto(organizacaoId);
-  const { data: laboratorios = [] } = useLaboratorios(organizacaoId);
-  const { data: configEnsaio } = useConfigEnsaio(organizacaoId);
-
-  // Pré-preenche idades/quantidade de CPs com o padrão da organização assim
-  // que ele carrega — só na primeira vez (campos ainda vazios), pra não
-  // sobrescrever o que o usuário já tiver digitado.
-  useEffect(() => {
-    if (!configEnsaio) return;
-    setForm((p) =>
-      p.idades_ensaio_texto === "" && p.qtd_cps === ""
-        ? { ...p, idades_ensaio_texto: configEnsaio.idades_padrao_dias.join(", "), qtd_cps: configEnsaio.qtd_cps_padrao }
-        : p,
-    );
-  }, [configEnsaio]);
 
   const fornecedorSelecionado = useMemo(
     () => fornecedores.find((f) => f.id === form.fornecedor_id) ?? null,
@@ -222,6 +204,7 @@ export default function ConcretoLancamentoPage() {
         preco_unitario: computed.preco_unitario,
         preco_total: computed.preco_total,
         nota_fiscal: origem === "externa" ? (f.nota_fiscal || null) : null,
+        cod_laboratorio: f.cod_laboratorio || null,
         ano_mes: computed.ano_mes,
         ano_semana: computed.ano_semana,
         validado: false,
@@ -245,25 +228,13 @@ export default function ConcretoLancamentoPage() {
           observacao: d.observacao || null,
         }));
 
-      const corposProva = distribuirCorposProva(parseIdadesEnsaio(f.idades_ensaio_texto), Number(f.qtd_cps) || 0, f.data).map((cp) => ({
-        id: crypto.randomUUID(),
-        organizacao_id: organizacaoId,
-        carga_id: id,
-        laboratorio_id: f.laboratorio_id,
-        numero_lab: f.cod_lab_tecnologico || null,
-        peca_concretada: f.peca_concretada || null,
-        idade_prevista_dias: cp.idade_prevista_dias,
-        data_moldagem: cp.data_moldagem,
-        data_ruptura_prevista: cp.data_ruptura_prevista,
-      }));
-
       // `id` gerado sempre (mesmo online) é a chave de idempotência — se o
       // envio "aparentemente" falhar por rede mas na verdade já tiver
       // chegado no servidor, o retry (imediato ou via fila) usa o mesmo id e
       // o upsert com ignoreDuplicates absorve a duplicata sem violar RLS.
       // Mesmo padrão de apontamento/lib/offline-queue.ts.
       if (!navigator.onLine) {
-        await enqueue(payload, destinosValidos, corposProva);
+        await enqueue(payload, destinosValidos);
         return { queued: true, codigoRastreabilidade: null };
       }
 
@@ -277,7 +248,7 @@ export default function ConcretoLancamentoPage() {
         .maybeSingle();
       if (cargaError) {
         if (isNetworkError(cargaError, cargaStatus)) {
-          await enqueue(payload, destinosValidos, corposProva);
+          await enqueue(payload, destinosValidos);
           return { queued: true, codigoRastreabilidade: null };
         }
         throw cargaError;
@@ -289,26 +260,12 @@ export default function ConcretoLancamentoPage() {
           .upsert(destinosValidos, { onConflict: "id", ignoreDuplicates: true });
         if (destinosError) {
           if (isNetworkError(destinosError, destinosStatus)) {
-            // A carga já chegou no servidor — reenfileirar o item inteiro é
-            // seguro porque o upsert da carga é idempotente (só os destinos
-            // e os corpos de prova efetivamente entram no retry).
-            await enqueue(payload, destinosValidos, corposProva);
+            // A carga já chegou no servidor — reenfileirar é seguro porque o
+            // upsert da carga é idempotente (só os destinos entram no retry).
+            await enqueue(payload, destinosValidos);
             return { queued: true, codigoRastreabilidade: null };
           }
           throw destinosError;
-        }
-      }
-
-      if (corposProva.length > 0) {
-        const { error: corposError, status: corposStatus } = await supabase
-          .from("corpos_prova")
-          .upsert(corposProva, { onConflict: "id", ignoreDuplicates: true });
-        if (corposError) {
-          if (isNetworkError(corposError, corposStatus)) {
-            await enqueue(payload, destinosValidos, corposProva);
-            return { queued: true, codigoRastreabilidade: null };
-          }
-          throw corposError;
         }
       }
 
@@ -325,7 +282,7 @@ export default function ConcretoLancamentoPage() {
       } else {
         toast.success("Carga registrada");
       }
-      setForm((p) => emptyForm({ data: p.data, idades_ensaio_texto: p.idades_ensaio_texto, qtd_cps: p.qtd_cps }));
+      setForm((p) => emptyForm({ data: p.data }));
       refetch();
       qc.invalidateQueries({ queryKey: ["cargas-concreto-dia"] });
       refetchPendentes();
@@ -534,55 +491,19 @@ export default function ConcretoLancamentoPage() {
               )}
             </div>
 
-            <div className="sm:col-span-2 space-y-3 rounded-md border p-3">
-              <Label className="text-sm">Rastreabilidade — corpos de prova</Label>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label>Laboratório</Label>
-                  <Combobox
-                    options={laboratorios.map((l) => ({ value: l.id, label: l.nome }))}
-                    value={form.laboratorio_id}
-                    onChange={(v) => setForm((p) => ({ ...p, laboratorio_id: v }))}
-                    placeholder="Selecione o laboratório"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Peça concretada</Label>
-                  <Input
-                    value={form.peca_concretada}
-                    onChange={(e) => setForm((p) => ({ ...p, peca_concretada: e.target.value }))}
-                    placeholder='Ex.: "RAMPA DO AZ02"'
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Cod. Laboratório Tecnológico</Label>
-                  <Input
-                    value={form.cod_lab_tecnologico}
-                    onChange={(e) => setForm((p) => ({ ...p, cod_lab_tecnologico: e.target.value }))}
-                    placeholder="Opcional"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Idades de ensaio (dias)</Label>
-                  <Input
-                    value={form.idades_ensaio_texto}
-                    onChange={(e) => setForm((p) => ({ ...p, idades_ensaio_texto: e.target.value }))}
-                    placeholder="7, 28, 63"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Quantidade de CPs</Label>
-                  <Input
-                    type="number"
-                    min={0}
-                    value={form.qtd_cps}
-                    onChange={(e) => setForm((p) => ({ ...p, qtd_cps: e.target.value === "" ? "" : Number(e.target.value) }))}
-                  />
-                </div>
+            <div className="sm:col-span-2 space-y-2 rounded-md border p-3">
+              <Label className="text-sm">Rastreabilidade</Label>
+              <div className="space-y-1.5">
+                <Label>Cod. Laboratório</Label>
+                <Input
+                  value={form.cod_laboratorio}
+                  onChange={(e) => setForm((p) => ({ ...p, cod_laboratorio: e.target.value }))}
+                  placeholder="Opcional — protocolo/pedido do laboratório"
+                />
               </div>
               <p className="text-xs text-muted-foreground">
-                Opcional — se preenchido, cria automaticamente {Number(form.qtd_cps) || 0} corpo(s) de prova pendente(s)
-                de ensaio, distribuídos entre as idades informadas.
+                Os corpos de prova e resultados de ensaio são criados a partir do PDF do laboratório, em
+                Ensaios &gt; Importar resultados — casado com esta carga por Nota Fiscal + Data de Moldagem.
               </p>
             </div>
 

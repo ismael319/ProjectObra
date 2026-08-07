@@ -160,35 +160,6 @@ export function useLaboratorios(organizacaoId?: string, onlyActive = true) {
   });
 }
 
-export type ConfigEnsaio = {
-  idades_padrao_dias: number[];
-  qtd_cps_padrao: number;
-  idade_referencia_dias: number;
-};
-
-const CONFIG_ENSAIO_PADRAO: ConfigEnsaio = { idades_padrao_dias: [7, 28, 63], qtd_cps_padrao: 6, idade_referencia_dias: 28 };
-
-// Sem linha própria em organizacoes_config_ensaio ainda (organização nunca
-// configurou) cai no padrão hardcoded acima — mesmo espírito de
-// user_papel_modulo() caindo no papel global quando não há override.
-export function useConfigEnsaio(organizacaoId?: string) {
-  return useQuery({
-    queryKey: ["config_ensaio", organizacaoId],
-    queryFn: () =>
-      fetchWithOfflineCache(`catalog:config_ensaio:${organizacaoId}`, async () => {
-        const { data, error } = await supabase
-          .from("organizacoes_config_ensaio")
-          .select("idades_padrao_dias,qtd_cps_padrao,idade_referencia_dias")
-          .eq("organizacao_id", organizacaoId!)
-          .maybeSingle();
-        if (error) throw error;
-        return { data: data ? [data] : [], error: null };
-      }).then((data) => (data[0] ?? CONFIG_ENSAIO_PADRAO)),
-    enabled: !!organizacaoId,
-    ...OFFLINE_CATALOG_OPTS,
-  });
-}
-
 export function useTracosConcreto(organizacaoId?: string, onlyActive = true) {
   return useQuery({
     queryKey: ["tracos_concreto", organizacaoId, onlyActive],

@@ -43,6 +43,7 @@ export function FichaRastreabilidade({ carga, onClose }: { carga: Rastreabilidad
               <span>Traço: <strong className="text-foreground">{carga.traco_nome} ({carga.fck_mpa} MPa)</strong></span>
               <span>Volume: <strong className="text-foreground">{carga.quantidade_m3} m³</strong></span>
               <span>Nota fiscal: <strong className="text-foreground">{carga.nota_fiscal ?? "—"}</strong></span>
+              <span>Cod. Laboratório: <strong className="text-foreground">{carga.cod_laboratorio ?? "—"}</strong></span>
             </div>
           )}
 
