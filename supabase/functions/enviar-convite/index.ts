@@ -10,6 +10,15 @@ const PAPEL_LABELS: Record<string, string> = {
   insercao_pontual: 'Inserção Pontual',
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
@@ -64,6 +73,12 @@ Deno.serve(async (request: Request) => {
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return json({ error: 'Email inválido' }, 400)
   }
+  if (papel && !Object.keys(PAPEL_LABELS).includes(papel)) {
+    return json({ error: 'Papel inválido' }, 400)
+  }
+  if (organizacao_nome && organizacao_nome.length > 200) {
+    return json({ error: 'Nome da organização muito longo' }, 400)
+  }
   if (!RESEND_API_KEY) {
     return json({ error: 'RESEND_API_KEY não configurada' }, 500)
   }
@@ -73,6 +88,10 @@ Deno.serve(async (request: Request) => {
   const link = baseUrl
     ? `<a href="${signupUrl}" style="color:#2563eb;font-weight:600;">criar sua conta</a>`
     : 'criar sua conta'
+
+  const orgName = escapeHtml(organizacao_nome ?? '—')
+  const papelLabel = escapeHtml(PAPEL_LABELS[papel ?? ''] ?? papel ?? '—')
+  const safeEmail = escapeHtml(email)
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -86,12 +105,12 @@ Deno.serve(async (request: Request) => {
               <h1 style="margin:0 0 16px;font-size:20px;color:#111827;">Você foi convidado para o ProjectObra</h1>
               <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#374151;">
                 Olá! O seu acesso à plataforma ProjectObra foi liberado pela equipe da organização
-                <strong>${organizacao_nome ?? '—'}</strong> com o papel
-                <strong>${PAPEL_LABELS[papel ?? ''] ?? papel ?? '—'}</strong>.
+                <strong>${orgName}</strong> com o papel
+                <strong>${papelLabel}</strong>.
               </p>
               <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#374151;">
                 Para entrar, ${link} usando exatamente este email:
-                <strong>${email}</strong>.
+                <strong>${safeEmail}</strong>.
               </p>
               <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#374151;">
                 Assim que a conta for criada, o acesso já estará liberado, sem precisar de aprovação manual.
