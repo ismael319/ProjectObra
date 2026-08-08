@@ -7,7 +7,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, CalendarDayButton } from "@/pages/apontamento/ui/calendar";
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
 import { X } from "lucide-react";
 import {
   useRastreabilidadeCargas,

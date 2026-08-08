@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useFornecedoresConcreto, useAreasConcreto } from "./lib/catalog";
-import { downloadNodeAsPdf, downloadNodeAsPng } from "@/lib/png-export";
+import { downloadNodeAsA4Png, downloadNodeAsPdf } from "@/lib/png-export";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
@@ -26,29 +26,59 @@ function formatAnoMes(anoMes: string): string {
 }
 
 // Nome de área é texto livre e pode ser longo ("CASA DE MÁQUINAS /
-// RECEBIMENTO") — truncado no rótulo do eixo (o nome completo continua no
-// tooltip ao passar o mouse) pra não estourar a largura da coluna girada,
-// não importa o ângulo/altura reservados. Palavras inteiras que cabem antes
-// de `max` aparecem completas ("CASA DE MÁQUINAS /"); só a palavra em que o
-// limite é estourado é cortada no meio ("RECEBIMENTO" -> "RECEB…") — em vez
-// de descartar a palavra inteira, como um slice ingênuo faria.
-function truncarNome(nome: string, max = 24): string {
-  if (nome.length <= max) return nome;
+// RECEBIMENTO") — rótulo do eixo X do gráfico "Concreto / Área" quebra em
+// várias linhas horizontais pra caber na largura da própria coluna da barra
+// (nome completo continua no tooltip ao passar o mouse). SVG <text> não
+// quebra linha sozinho, então a quebra é calculada aqui por contagem de
+// caracteres, preservando palavras inteiras quando cabem; o que sobra além
+// de MAX_LINHAS vira reticências na última linha.
+const CHARS_POR_LINHA_AREA = 11;
+const MAX_LINHAS_AREA = 3;
+
+function quebrarNomeArea(nome: string): string[] {
   const palavras = nome.split(" ");
-  let resultado = "";
+  const linhas: string[] = [];
+  let atual = "";
   for (const palavra of palavras) {
-    const proximo = resultado ? `${resultado} ${palavra}` : palavra;
-    if (proximo.length <= max) {
-      resultado = proximo;
+    const proximo = atual ? `${atual} ${palavra}` : palavra;
+    if (proximo.length <= CHARS_POR_LINHA_AREA) {
+      atual = proximo;
       continue;
     }
-    const espacoRestante = max - resultado.length - (resultado ? 1 : 0);
-    if (espacoRestante > 2) {
-      resultado = `${resultado}${resultado ? " " : ""}${palavra.slice(0, espacoRestante)}`;
+    if (atual) linhas.push(atual);
+    // palavra sozinha maior que o limite da linha: quebra em pedaços
+    let resto = palavra;
+    while (resto.length > CHARS_POR_LINHA_AREA) {
+      linhas.push(resto.slice(0, CHARS_POR_LINHA_AREA));
+      resto = resto.slice(CHARS_POR_LINHA_AREA);
     }
-    break;
+    atual = resto;
   }
-  return `${resultado}…`;
+  if (atual) linhas.push(atual);
+
+  if (linhas.length <= MAX_LINHAS_AREA) return linhas;
+  const cortadas = linhas.slice(0, MAX_LINHAS_AREA);
+  const ultima = cortadas[MAX_LINHAS_AREA - 1]!;
+  cortadas[MAX_LINHAS_AREA - 1] = ultima.length >= CHARS_POR_LINHA_AREA
+    ? `${ultima.slice(0, CHARS_POR_LINHA_AREA - 1)}…`
+    : `${ultima}…`;
+  return cortadas;
+}
+
+// Tick customizado (em vez de angle+textAnchor do XAxis): texto horizontal,
+// centralizado sob a barra, uma <tspan> por linha — permite quebra de linha,
+// que o XAxis nativo do recharts não suporta.
+function AreaAxisTick({ x, y, payload }: { x: number; y: number; payload: { value: string } }) {
+  const linhas = quebrarNomeArea(payload.value);
+  return (
+    <g transform={`translate(${x},${y})`}>
+      <text textAnchor="middle" fontSize={12} className="fill-muted-foreground">
+        {linhas.map((linha, i) => (
+          <tspan key={i} x={0} dy={14}>{linha}</tspan>
+        ))}
+      </text>
+    </g>
+  );
 }
 
 // O PostgREST devolve colunas numeric como string (não number) — converter com
@@ -64,23 +94,36 @@ function mesDe(c: Carga): string | null {
   return c.ano_mes || (c.data ? c.data.slice(0, 7) : null);
 }
 
-// Sem isso, o Supabase corta a resposta em 1000 linhas por chamada, sem erro
-// — organizações com mais cargas que isso (comum depois de importar
-// histórico) perdiam dados do dashboard em silêncio. Mesmo padrão já usado
-// em qualidade/concreto/lib/excel-export.ts.
+// Sem paginação, o Supabase corta a resposta em 1000 linhas por chamada, sem
+// erro — organizações com mais cargas que isso (comum depois de importar
+// histórico) perdiam dados do dashboard em silêncio. Busca a 1ª página junto
+// com o total (count: "exact", sem round-trip extra) e, se sobrar mais de
+// uma página, dispara o resto EM PARALELO em vez de esperar página por
+// página — numa organização com muito histórico isso é a diferença entre
+// N round-trips sequenciais e só 2 "ondas" de requisição.
 async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId: string): Promise<T[]> {
   const PAGE_SIZE = 1000;
-  const rows: T[] = [];
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from(tabela)
-      .select(colunas)
-      .eq("organizacao_id", organizacaoId)
-      .range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    rows.push(...((data ?? []) as unknown as T[]));
-    if (!data || data.length < PAGE_SIZE) break;
+  const primeira = await supabase
+    .from(tabela)
+    .select(colunas, { count: "exact" })
+    .eq("organizacao_id", organizacaoId)
+    .range(0, PAGE_SIZE - 1);
+  if (primeira.error) throw primeira.error;
+
+  const rows: T[] = [...((primeira.data ?? []) as unknown as T[])];
+  const total = primeira.count ?? rows.length;
+
+  const paginasRestantes = [];
+  for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE) {
+    paginasRestantes.push(
+      supabase.from(tabela).select(colunas).eq("organizacao_id", organizacaoId).range(from, from + PAGE_SIZE - 1),
+    );
   }
+  for (const resultado of await Promise.all(paginasRestantes)) {
+    if (resultado.error) throw resultado.error;
+    rows.push(...((resultado.data ?? []) as unknown as T[]));
+  }
+
   return rows;
 }
 
@@ -97,16 +140,23 @@ export default function ConcretoDashboard() {
   const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
   const { data: areas = [] } = useAreasConcreto(null, organizacaoId);
 
+  // staleTime: essas duas trazem o histórico INTEIRO da organização (não dá
+  // pra paginar no servidor porque o dashboard soma/agrupa tudo no cliente)
+  // — sem isso, o padrão global (staleTime 0) refaz essa busca pesada toda
+  // vez que a aba do Dashboard é remontada, mesmo revisitando poucos
+  // segundos depois. 5 min é o mesmo usado nos catálogos (ver catalog.ts).
   const { data: cargas = [], isLoading } = useQuery({
     queryKey: ["cargas-concreto-dashboard", organizacaoId],
     queryFn: () => listarPaginado<Carga>("cargas_concreto", "id,data,ano_mes,fornecedor_id,quantidade_m3", organizacaoId!),
     enabled: !!organizacaoId,
+    staleTime: 5 * 60_000,
   });
 
   const { data: destinos = [] } = useQuery({
     queryKey: ["destinos-carga-dashboard", organizacaoId],
     queryFn: () => listarPaginado<Destino>("destinos_carga", "carga_id,area_concreto_id,quantidade_m3_aplicada", organizacaoId!),
     enabled: !!organizacaoId,
+    staleTime: 5 * 60_000,
   });
 
   const fornecedorNomePorId = useMemo(() => new Map(fornecedores.map((f) => [f.id, f.nome])), [fornecedores]);
@@ -233,7 +283,7 @@ export default function ConcretoDashboard() {
     try {
       const hoje = new Date().toISOString().slice(0, 10).split("-").reverse().join("");
       if (tipo === "imagem") {
-        await downloadNodeAsPng(capturaRef.current, `Dashboard_Concreto_${hoje}.png`, "#ffffff");
+        await downloadNodeAsA4Png(capturaRef.current, `Dashboard_Concreto_${hoje}.png`, "#ffffff");
       } else {
         await downloadNodeAsPdf(capturaRef.current, `Dashboard_Concreto_${hoje}.pdf`, "#ffffff");
       }
@@ -253,10 +303,6 @@ export default function ConcretoDashboard() {
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">Dashboard de Concreto</h1>
-          <p className="text-sm text-muted-foreground">Volume total lançado</p>
-          <p className="text-3xl font-bold text-primary leading-tight">
-            {volumeTotal.toLocaleString("pt-BR")} <span className="text-base font-medium text-muted-foreground">m³</span>
-          </p>
         </div>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex gap-2">
@@ -300,8 +346,8 @@ export default function ConcretoDashboard() {
       </div>
 
       <div ref={capturaRef} className="space-y-4 bg-background p-2">
-      <p className="text-xs text-muted-foreground">
-        Concreto — Volume total: <strong className="text-foreground">{volumeTotal.toLocaleString("pt-BR")} m³</strong>
+      <p className="text-sm text-muted-foreground">
+        Concreto — Volume total: <strong className="text-foreground text-2xl">{volumeTotal.toLocaleString("pt-BR")} m³</strong>
         {" · "}Ano: {anoFiltro ?? "todos"}
         {" · "}Projeto: {projetoFiltro.length > 0 ? projetoFiltro.map((id) => areaNomePorId.get(id) ?? id).join(", ") : "todos"}
         {" · "}Usina: {usinaFiltro ? fornecedorNomePorId.get(usinaFiltro) ?? usinaFiltro : "todas"}
@@ -321,11 +367,11 @@ export default function ConcretoDashboard() {
               <BarChart data={porMes} margin={{ top: 24, right: 24, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 {/* interval=1: mostra 1, pula 1 — um rótulo a cada 2 meses */}
-                <XAxis dataKey="anoMes" tick={{ fontSize: 11 }} interval={1} />
-                <YAxis />
+                <XAxis dataKey="anoMes" tick={{ fontSize: 13 }} interval={1} />
+                <YAxis tick={{ fontSize: 13 }} />
                 <Tooltip />
                 <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="total" position="top" fontSize={11} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                  <LabelList dataKey="total" position="top" fontSize={13} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -342,7 +388,7 @@ export default function ConcretoDashboard() {
                   {porUsina.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 14 }} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -354,17 +400,17 @@ export default function ConcretoDashboard() {
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={porAno} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="nome" />
-                <YAxis />
+                <XAxis dataKey="nome" tick={{ fontSize: 13 }} />
+                <YAxis tick={{ fontSize: 13 }} />
                 <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend wrapperStyle={{ fontSize: 14 }} />
                 {anos.map((ano, i) => (
                   <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]}>
                     {/* center, não top: num segmento empilhado "top" cai bem em
                         cima da linha de divisão com o próximo segmento, ilegível
                         contra qualquer uma das duas cores — centralizado no meio
                         do próprio segmento, com texto branco, sempre lê bem. */}
-                    <LabelList dataKey={ano} position="center" fontSize={12} fill="#fff" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                    <LabelList dataKey={ano} position="center" fontSize={14} fill="#fff" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                   </Bar>
                 ))}
               </BarChart>
@@ -376,20 +422,15 @@ export default function ConcretoDashboard() {
       <Card>
         <CardHeader><CardTitle className="text-base">Concreto / Área (m³)</CardTitle></CardHeader>
         <CardContent>
-          {/* Ângulo -90 (vertical), não -30: rotacionado em diagonal, o rótulo
-              se estende bastante pra ESQUERDA do próprio tick — nas barras
-              mais à esquerda essa extensão passa da borda do SVG e é cortada
-              (o <svg> raiz tem overflow:hidden implícito). Na vertical o
-              rótulo só cresce pra CIMA a partir do tick, sem nenhum avanço
-              horizontal — não estoura a borda não importa a posição. */}
-          <ResponsiveContainer width="100%" height={Math.max(380, porArea.length * 40)}>
+          <ResponsiveContainer width="100%" height={420}>
             <BarChart data={porArea} margin={{ top: 24, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="nome" tick={{ fontSize: 10 }} interval={0} angle={-90} textAnchor="end" height={170} tickFormatter={truncarNome} />
-              <YAxis />
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              <XAxis dataKey="nome" interval={0} height={64} tick={AreaAxisTick as any} />
+              <YAxis tick={{ fontSize: 13 }} />
               <Tooltip />
               <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="total" position="top" fontSize={12} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                <LabelList dataKey="total" position="top" fontSize={14} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 {porArea.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>

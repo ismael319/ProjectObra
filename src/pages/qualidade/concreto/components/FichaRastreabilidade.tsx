@@ -32,7 +32,7 @@ export function FichaRastreabilidade({ carga, onClose }: { carga: Rastreabilidad
   return (
     <>
       <Dialog open={!!carga} onOpenChange={(o) => !o && onClose()}>
-        <DialogContent className="max-w-3xl">
+        <DialogContent className="max-w-5xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 flex-wrap">
               <span className="font-mono">{carga?.codigo_rastreabilidade}</span>
@@ -85,7 +85,7 @@ export function FichaRastreabilidade({ carga, onClose }: { carga: Rastreabilidad
                     <TableCell className="whitespace-nowrap">{cp.idade_prevista_dias} dias</TableCell>
                     <TableCell className="whitespace-nowrap">{cp.laboratorio_nome ?? "—"}</TableCell>
                     <TableCell>{cp.numero_lab ?? "—"}</TableCell>
-                    <TableCell className="max-w-[160px] truncate" title={cp.peca_concretada ?? undefined}>{cp.peca_concretada ?? "—"}</TableCell>
+                    <TableCell className="max-w-[240px] truncate" title={cp.peca_concretada ?? undefined}>{cp.peca_concretada ?? "—"}</TableCell>
                     <TableCell className="whitespace-nowrap">{formatBR(cp.data_ruptura_prevista)}</TableCell>
                     <TableCell className="text-right">{cp.resultado_mpa ?? "—"}</TableCell>
                     <TableCell><ConformidadeBadge status={cp.status_conformidade} atrasado={cp.ensaio_atrasado} /></TableCell>

@@ -1,9 +1,17 @@
 // Resolução contra o banco + gravação em lote da importação de resultados de
 // ensaio (ImportarEnsaios.tsx). Transformação pura fica em
-// importer-ensaios.ts — aqui só é achar a carga (elo Nota Fiscal/Nº Carga +
-// Data de Moldagem — auxiliar, o código de rastreabilidade é o oficial, mas
-// o relatório do laboratório não o conhece), achar/criar o corpo de prova, e
-// gravar o ensaio.
+// importer-ensaios.ts — aqui só é achar a carga (elo Cód. Laboratório/Nota
+// Fiscal/Nº Carga + Data de Moldagem — auxiliar, o código de rastreabilidade
+// é o oficial, mas o relatório do laboratório não o conhece), achar/criar o
+// corpo de prova, e gravar o ensaio.
+//
+// Cód. Laboratório (cargas_concreto.cod_laboratorio) é a referência que o
+// Lançamento pede desde o refactor de rastreabilidade em 2 etapas — é o
+// número que o PRÓPRIO laboratório usa (ex.: a "Nota Fiscal" que aparece no
+// relatório da Estrutec é a nota fiscal DELES pelo serviço de ensaio, não a
+// da compra do concreto). Sem casar por ele também, cargas lançadas só com
+// Cód. Laboratório (sem Nº Carga/Nota Fiscal da carga) nunca batem com o
+// relatório do laboratório.
 
 import { supabase } from "@/lib/supabase";
 import { normalizarTexto } from "@/lib/administracao/parse-shared";
@@ -16,7 +24,7 @@ function somarDias(isoDate: string, dias: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
-type CargaCatalogo = { id: string; numero_carga: string | null; nota_fiscal: string | null; data: string };
+type CargaCatalogo = { id: string; numero_carga: string | null; nota_fiscal: string | null; cod_laboratorio: string | null; data: string };
 type LaboratorioCatalogo = { id: string; nome: string };
 type CorpoProvaExistente = { id: string; carga_id: string; idade_prevista_dias: number; numero_lab: string | null };
 
@@ -35,7 +43,7 @@ export async function importarEnsaiosConcreto(params: {
   const problemas: Problema[] = [];
 
   const [{ data: cargasData, error: errCargas }, { data: labsData, error: errLabs }, { data: cpsData, error: errCps }] = await Promise.all([
-    supabase.from("cargas_concreto").select("id,numero_carga,nota_fiscal,data").eq("organizacao_id", organizacaoId),
+    supabase.from("cargas_concreto").select("id,numero_carga,nota_fiscal,cod_laboratorio,data").eq("organizacao_id", organizacaoId),
     supabase.from("laboratorios").select("id,nome").eq("organizacao_id", organizacaoId),
     supabase.from("corpos_prova").select("id,carga_id,idade_prevista_dias,numero_lab").eq("organizacao_id", organizacaoId),
   ]);
@@ -43,17 +51,20 @@ export async function importarEnsaiosConcreto(params: {
   if (errLabs) throw new Error(errLabs.message);
   if (errCps) throw new Error(errCps.message);
 
-  // Chave "identificação normalizada + data" pode bater com nota_fiscal OU
-  // numero_carga — cada carga entra nas duas listas quando os dois campos
-  // existem, pra aceitar o arquivo do laboratório usando qualquer um dos
-  // dois números como identificador.
+  // Chave "identificação normalizada + data" pode bater com cod_laboratorio,
+  // nota_fiscal OU numero_carga — cada carga entra em todas as listas em que
+  // tiver campo preenchido, pra aceitar o arquivo do laboratório usando
+  // qualquer um dos três números como identificador.
   const cargaPorChave = new Map<string, CargaCatalogo[]>();
   for (const c of (cargasData ?? []) as CargaCatalogo[]) {
-    for (const ident of [c.numero_carga, c.nota_fiscal]) {
+    for (const ident of [c.cod_laboratorio, c.numero_carga, c.nota_fiscal]) {
       if (!ident) continue;
       const chave = `${normalizarTexto(ident)}::${c.data}`;
       const lista = cargaPorChave.get(chave) ?? [];
-      lista.push(c);
+      // Uma mesma carga pode entrar na mesma chave por 2 campos diferentes
+      // (ex.: cod_laboratorio igual a numero_carga) — sem dedupe, isso
+      // pareceria "ambíguo" (2+ candidatas) sendo a mesma carga.
+      if (!lista.some((existente) => existente.id === c.id)) lista.push(c);
       cargaPorChave.set(chave, lista);
     }
   }
@@ -61,12 +72,16 @@ export async function importarEnsaiosConcreto(params: {
   const labPorNome = new Map<string, LaboratorioCatalogo>();
   for (const l of (labsData ?? []) as LaboratorioCatalogo[]) labPorNome.set(normalizarTexto(l.nome), l);
 
-  // corpos_prova já existentes (ex.: criados pelo Lançamento, aguardando
-  // resultado) — casado por carga + idade, pra não duplicar um CP que já foi
-  // moldado, só completar o resultado dele.
-  const cpPorCargaEIdade = new Map<string, CorpoProvaExistente>();
+  // corpos_prova já existentes (ex.: reimportação do mesmo relatório) —
+  // casado por carga + idade + Nº Lab (número que o laboratório dá pro CP
+  // individual). Carga + idade sozinhos NÃO identificam um CP: é normal
+  // moldar mais de um corpo de prova pra mesma idade (ex.: relatório real da
+  // Estrutec com 2 CPs a 7 dias, tipos de ruptura D e F) — sem o Nº Lab, os
+  // dois "resultados" viravam update do MESMO corpo_prova_id no upsert final
+  // e o Postgres rejeitava ("cannot affect row a second time").
+  const cpPorChave = new Map<string, CorpoProvaExistente>();
   for (const cp of (cpsData ?? []) as CorpoProvaExistente[]) {
-    cpPorCargaEIdade.set(`${cp.carga_id}::${cp.idade_prevista_dias}`, cp);
+    cpPorChave.set(`${cp.carga_id}::${cp.idade_prevista_dias}::${normalizarTexto(cp.numero_lab ?? "")}`, cp);
   }
 
   const novosCorposProva: Record<string, unknown>[] = [];
@@ -95,14 +110,15 @@ export async function importarEnsaiosConcreto(params: {
       laboratorioId = lab.id;
     }
 
-    let cp = cpPorCargaEIdade.get(`${carga.id}::${item.idadePrevistaDias}`);
+    const numeroLabNormalizado = normalizarTexto(item.numeroLab ?? "");
+    const chaveCp = `${carga.id}::${item.idadePrevistaDias}::${numeroLabNormalizado}`;
+    const cp = cpPorChave.get(chaveCp);
     let corpoProvaId: string;
     if (cp) {
       corpoProvaId = cp.id;
     } else {
-      // Sem CP pré-cadastrado pra essa idade (comum em importação de
-      // histórico retroativo, de antes da rastreabilidade existir) — cria
-      // na hora, já com o resultado sendo importado junto.
+      // Sem CP existente pra essa combinação — cria na hora, já com o
+      // resultado sendo importado junto.
       corpoProvaId = crypto.randomUUID();
       const novoCp = {
         id: corpoProvaId,
@@ -116,8 +132,14 @@ export async function importarEnsaiosConcreto(params: {
         data_ruptura_prevista: somarDias(item.dataMoldagem, item.idadePrevistaDias),
       };
       novosCorposProva.push(novoCp);
-      cp = { id: corpoProvaId, carga_id: carga.id, idade_prevista_dias: item.idadePrevistaDias, numero_lab: item.numeroLab };
-      cpPorCargaEIdade.set(`${carga.id}::${item.idadePrevistaDias}`, cp);
+      // Só registra pra reaproveito dentro do mesmo lote quando o Nº Lab é
+      // conhecido — com ele vazio, não dá pra saber se uma 2ª linha igual é
+      // o MESMO CP ou outro molde sem número registrado; mais seguro criar
+      // um CP novo pra cada linha do que arriscar grudar 2 resultados no
+      // mesmo corpo_prova_id (o upsert final quebra nesse caso).
+      if (numeroLabNormalizado) {
+        cpPorChave.set(chaveCp, { id: corpoProvaId, carga_id: carga.id, idade_prevista_dias: item.idadePrevistaDias, numero_lab: item.numeroLab });
+      }
     }
 
     ensaiosParaGravar.push({

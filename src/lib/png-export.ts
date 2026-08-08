@@ -72,19 +72,88 @@ export async function downloadNodeAsPng(node: HTMLElement, filename: string, bac
   URL.revokeObjectURL(url)
 }
 
-// PDF de uma página só, com o tamanho da página ajustado pra MESMA proporção
-// do conteúdo capturado (em vez de forçar A4 e cortar/sobrar margem) — feito
-// pra telas de dashboard, bem mais largas que altas. scale menor que o padrão
-// de compartilhamento (2, não 3): PDF/impressão não tem a recompressão do
-// WhatsApp que scale=3 foi calibrado pra compensar, e um canvas 3x de um
-// dashboard inteiro (vários gráficos Recharts) fica pesado à toa.
+// A4 paisagem: 297mm × 210mm (proporção ≈ 1.4143:1). Captura o conteúdo
+// do nó e redesenha num canvas com essa proporção, preservando o layout
+// original (escala proporcional + centralizado). Ideal pra dashboards que
+// precisam de saída com dimensões previsíveis pra impressão/compartilhamento.
+const A4_LARGURA_MM = 297
+const A4_ALTURA_MM = 210
+const A4_RATIO = A4_LARGURA_MM / A4_ALTURA_MM
+
+export async function downloadNodeAsA4Png(node: HTMLElement, filename: string, backgroundColor = '#ffffff'): Promise<void> {
+  const canvasCaptura = await nodeToCanvas(node, 3, backgroundColor)
+  const srcW = canvasCaptura.width
+  const srcH = canvasCaptura.height
+  const srcRatio = srcW / srcH
+
+  let destW: number
+  let destH: number
+  if (srcRatio > A4_RATIO) {
+    // Conteúdo mais largo que A4 — ajusta pela largura
+    destW = srcW
+    destH = Math.round(srcW / A4_RATIO)
+  } else {
+    // Conteúdo mais alto que A4 — ajusta pela altura
+    destH = srcH
+    destW = Math.round(srcH * A4_RATIO)
+  }
+
+  const canvasFinal = document.createElement('canvas')
+  canvasFinal.width = destW
+  canvasFinal.height = destH
+  const ctx = canvasFinal.getContext('2d')!
+  ctx.fillStyle = backgroundColor
+  ctx.fillRect(0, 0, destW, destH)
+
+  // Escala proporcional pra caber no canvas A4
+  const scale = Math.min(destW / srcW, destH / srcH)
+  const drawW = srcW * scale
+  const drawH = srcH * scale
+  ctx.drawImage(canvasCaptura, (destW - drawW) / 2, (destH - drawH) / 2, drawW, drawH)
+
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvasFinal.toBlob((b) => {
+      if (b) resolve(b)
+      else reject(new Error('Falha ao gerar a imagem A4'))
+    }, 'image/png')
+  })
+
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
+
+// PDF de uma página só em A4 paisagem (297mm × 210mm). O conteúdo é
+// escalado proporcionalmente pra caber na página, centralizado, com a
+// cor de fundo preenchendo o espaço restante.
 export async function downloadNodeAsPdf(node: HTMLElement, filename: string, backgroundColor = '#ffffff'): Promise<void> {
   const canvas = await nodeToCanvas(node, 2, backgroundColor)
   const { jsPDF } = await import('jspdf')
-  const larguraMm = 297 // A4 paisagem
-  const alturaMm = (canvas.height / canvas.width) * larguraMm
+  const larguraMm = A4_LARGURA_MM
+  const alturaMm = A4_ALTURA_MM
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: [larguraMm, alturaMm] })
-  doc.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, larguraMm, alturaMm)
+  doc.setFillColor(backgroundColor)
+  doc.rect(0, 0, larguraMm, alturaMm, 'F')
+  const srcRatio = canvas.width / canvas.height
+  const a4Ratio = larguraMm / alturaMm
+  let imgW: number, imgH: number, offsetX: number, offsetY: number
+  if (srcRatio > a4Ratio) {
+    imgW = larguraMm
+    imgH = larguraMm / srcRatio
+    offsetX = 0
+    offsetY = (alturaMm - imgH) / 2
+  } else {
+    imgH = alturaMm
+    imgW = alturaMm * srcRatio
+    offsetX = (larguraMm - imgW) / 2
+    offsetY = 0
+  }
+  doc.addImage(canvas.toDataURL('image/png'), 'PNG', offsetX, offsetY, imgW, imgH)
   doc.save(filename)
 }
 
