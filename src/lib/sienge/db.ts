@@ -227,13 +227,14 @@ async function buscarTodosOsItens(projetoId: string, tipo: TipoRelatorio, import
       .eq('projeto_id', projetoId)
       .eq('tipo_relatorio', tipo)
       .order('criado_em', { ascending: true })
+      .order('id', { ascending: true })
     if (importacaoId) query = query.eq('importacao_id', importacaoId)
     const { data, error } = await query.range(de, de + TAMANHO_PAGINA_ITENS - 1)
     if (error) throw new Error(error.message)
     const pagina = data as ItemRow[]
     linhas.push(...pagina)
-    if (pagina.length < TAMANHO_PAGINA_ITENS) break
-    de += TAMANHO_PAGINA_ITENS
+    if (pagina.length === 0) break
+    de += pagina.length
   }
   return linhas
 }
