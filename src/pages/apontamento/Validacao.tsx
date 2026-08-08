@@ -11,7 +11,7 @@ import { toast } from "sonner";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import { useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades } from "./lib/catalog";
 import { CheckCircle2, Undo2, Loader2, Clock, Pencil, Trash2, Save, X } from "lucide-react";
-import { Calendar, CalendarDayButton } from "./ui/calendar";
+import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
 import { Combobox } from "@/components/ui/combobox";
 
 interface HorasDia {

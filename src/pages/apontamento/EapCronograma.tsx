@@ -5,7 +5,7 @@ import type { CronogramaItem } from "./lib/catalog";
 import { supabase } from "@/lib/supabase";
 import { CronogramaSelector } from "./components/CronogramaSelector";
 import { ApontamentosTabela } from "./components/ApontamentosTabela";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 
