@@ -129,7 +129,7 @@ const COLUNAS = {
   data: ["DATA"],
   fornecedor: ["FORNECEDOR"],
   origem: ["ORIGEM"],
-  numeroCarga: ["Nº CARGA", "N CARGA", "NUMERO DA CARGA", "N° CARGA"],
+  numeroCarga: ["Nº CARGA", "N CARGA", "NUMERO DA CARGA", "N° CARGA", "COD. LABORATÓRIO", "COD LABORATORIO"],
   traco: ["TRAÇO", "TRACO"],
   quantidade: ["QTD (m³)", "QTD (M3)", "QUANTIDADE"],
   pesoBalanca: ["PESO BALANÇA (kg)", "PESO BALANCA (KG)"],

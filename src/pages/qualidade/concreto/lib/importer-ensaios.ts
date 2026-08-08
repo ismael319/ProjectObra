@@ -23,7 +23,7 @@ function parseDataValida(raw: string): string | null {
 }
 
 const COLUNAS = {
-  identificacao: ["Nº CARGA", "N CARGA", "NOTA FISCAL", "Nº FISCAL", "N FISCAL"],
+  identificacao: ["Nº CARGA", "N CARGA", "NOTA FISCAL", "Nº FISCAL", "N FISCAL", "COD. LABORATÓRIO", "COD LABORATORIO"],
   dataMoldagem: ["DATA MOLDAGEM", "DATA DE MOLDAGEM"],
   laboratorio: ["LABORATÓRIO", "LABORATORIO"],
   numeroLab: ["Nº CP", "N CP", "NUMERO CP", "Nº LAB", "N LAB"],

@@ -17,6 +17,7 @@ export type CargaRow = {
   codigo_rastreabilidade: string;
   data: string;
   numero_carga: string | null;
+  cod_laboratorio: string | null;
   quantidade_m3: number;
   tipo_origem: "propria" | "externa";
   peso_balanca_kg: number | null;
@@ -28,7 +29,7 @@ export type CargaRow = {
   destinos_carga: DestinoRow[];
 };
 
-const CARGA_SELECT = `id, codigo_rastreabilidade, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
+const CARGA_SELECT = `id, codigo_rastreabilidade, data, numero_carga, cod_laboratorio, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
   fornecedores_concreto(nome),
   tracos_concreto(nome, fck_mpa),
   destinos_carga(quantidade_m3_aplicada, observacao, areas_concreto(nome), areas(nome), etapa_concreto:etapas_concreto(nome))`;
@@ -83,7 +84,7 @@ function observacoesTexto(destinos: DestinoRow[]): string {
 }
 
 const HEADERS = [
-  "CÓD. RASTREABILIDADE", "DATA", "FORNECEDOR", "ORIGEM", "Nº CARGA", "TRAÇO", "FCK (MPa)",
+  "CÓD. RASTREABILIDADE", "DATA", "FORNECEDOR", "ORIGEM", "COD. LABORATÓRIO", "TRAÇO", "FCK (MPa)",
   "QTD (m³)", "PESO BALANÇA (kg)", "PREÇO TOTAL", "DESTINO(S)", "PROJETO", "ETAPA", "OBSERVAÇÕES",
   "VALIDADO", "LANÇADO POR",
 ];
@@ -110,7 +111,7 @@ export async function buildCargasConcretoWorkbook(rows: CargaRow[]): Promise<Wor
       formatBR(r.data),
       r.fornecedores_concreto?.nome ?? "",
       r.tipo_origem === "propria" ? "Própria" : "Externa",
-      r.numero_carga ?? "",
+      r.cod_laboratorio ?? "",
       r.tracos_concreto?.nome ?? "",
       r.tracos_concreto?.fck_mpa ?? "",
       r.quantidade_m3,
@@ -144,6 +145,7 @@ export type EnsaioRow = {
   data_carga: string;
   numero_carga: string | null;
   nota_fiscal: string | null;
+  cod_laboratorio: string | null;
   traco_nome: string;
   fck_mpa: number;
   laboratorio_nome: string | null;
@@ -162,14 +164,14 @@ export type EnsaioRow = {
   status_conformidade: string;
 };
 
-const ENSAIO_SELECT = `codigo_rastreabilidade, data_carga, numero_carga, nota_fiscal,
+const ENSAIO_SELECT = `codigo_rastreabilidade, data_carga, numero_carga, nota_fiscal, cod_laboratorio,
   traco_nome, fck_mpa, laboratorio_nome, numero_lab, peca_concretada,
   idade_prevista_dias, data_moldagem, data_ruptura_prevista, status,
   data_ruptura_real, resultado_mpa, tipo_ruptura, temperatura_concreto,
   slump_aplicacao, observacoes, status_conformidade`;
 
 const ENSAIOS_HEADERS = [
-  "Nº CARGA", "DATA MOLDAGEM", "LABORATÓRIO", "Nº CP", "PEÇA CONCRETADA",
+  "COD. LABORATÓRIO", "DATA MOLDAGEM", "LABORATÓRIO", "Nº CP", "PEÇA CONCRETADA",
   "IDADE (DIAS)", "DATA RUPTURA", "FCJ (MPA)", "TIPO DE RUPTURA",
   "TEMPERATURA", "SLUMP", "OBSERVAÇÕES",
 ];
@@ -196,7 +198,7 @@ export async function buildEnsaiosConcretoWorkbook(rows: EnsaioRow[]): Promise<W
   const linhas: (string | number)[][] = [ENSAIOS_HEADERS];
   for (const r of rows) {
     linhas.push([
-      r.numero_carga ?? r.nota_fiscal ?? r.codigo_rastreabilidade,
+      r.cod_laboratorio ?? r.numero_carga ?? r.nota_fiscal ?? r.codigo_rastreabilidade,
       formatBR(r.data_moldagem),
       r.laboratorio_nome ?? "",
       r.numero_lab ?? "",

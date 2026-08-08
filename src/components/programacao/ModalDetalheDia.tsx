@@ -366,8 +366,8 @@ export default function ModalDetalheDia({
               <button
                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2 text-sm font-medium border border-dashed border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-400 rounded-lg hover:bg-purple-50 dark:hover:bg-purple-900/20 transition disabled:opacity-40 disabled:cursor-not-allowed"
                 onClick={onAddFromCronograma}
-                disabled={!date || weekConsolidated}
-                title={weekConsolidated ? 'Desbloqueie a semana para adicionar do cronograma' : 'Buscar tarefas do cronograma pra este dia (ex.: um domingo com trabalho excepcional)'}
+                disabled={!date}
+                title="Buscar tarefas do cronograma pra este dia (ex.: um domingo com trabalho excepcional). Funciona mesmo com a semana bloqueada."
               >
                 <Download size={16} /> Adicionar do cronograma
               </button>
@@ -447,8 +447,7 @@ function ActivityRow({
   }, [todasAtividadesDaSemana, activity.taskUid])
 
   async function handleInativar() {
-    const motivo = motivoInativar.trim()
-    if (!motivo) return
+    const motivo = motivoInativar.trim() || null
     setSavingInativa(true)
     try {
       await onSetInativa(activity.id, true, motivo)
@@ -709,12 +708,13 @@ function ActivityRow({
       {showInativarForm && !activity.inativa && (
         <div className="mt-2 rounded-md border border-dashed border-gray-300 dark:border-gray-600 p-2">
           <label className="text-[11px] font-medium text-gray-700 dark:text-gray-300">
-            Motivo (por que ainda não foi executada?)
+            Motivo (opcional)
           </label>
           <textarea
             value={motivoInativar}
             onChange={(e) => setMotivoInativar(e.target.value)}
             autoFocus
+            placeholder="Descreva o motivo da inativação..."
             className="mt-1 w-full min-h-[52px] text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white resize-none focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
           <div className="mt-1.5 flex justify-end gap-2">
@@ -726,7 +726,7 @@ function ActivityRow({
             </button>
             <button
               onClick={handleInativar}
-              disabled={savingInativa || !motivoInativar.trim()}
+              disabled={savingInativa}
               className="px-2.5 py-1 text-xs font-medium bg-gray-600 text-white rounded hover:bg-gray-700 transition disabled:opacity-40"
             >
               Inativar

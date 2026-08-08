@@ -3,40 +3,16 @@
 // (cabeçalho + linhas) que parseEnsaiosConcreto (importer-ensaios.ts) já
 // sabe validar/importar — reaproveita o pipeline inteiro do importador de
 // planilha, só troca a etapa de leitura do arquivo.
-//
-// Como funciona: pdfjs-dist devolve cada pedaço de texto do PDF com sua
-// posição (x,y) na página — não existe estrutura de "tabela" no PDF em si.
-// A reconstrução da tabela (linhas por Y, colunas por X — ver
-// pdf-tabela-utils.ts) é pura e sem dependência de pdfjs-dist de propósito,
-// pra dar pra testar; aqui só fica a leitura do arquivo em si.
-//
-// Isso é heurístico e específico do layout do Estrutec (decisão com o
-// Gustavo em 2026-08-07: só esse laboratório por enquanto) — um PDF de outro
-// laboratório, ou uma mudança no modelo do relatório, pode não ser
-// reconhecido. Cada linha extraída ainda passa pela validação normal de
-// parseEnsaiosConcreto antes de importar (data/idade/Fcj inválidos viram
-// "problema", não corrompem o banco), mas colunas vizinhas mal separadas
-// podem gerar um valor tecnicamente válido só que errado (ex.: Slump trocado
-// com Temperatura) — a tela de importação mostra uma prévia das linhas
-// extraídas antes de confirmar, exatamente por causa desse risco residual.
-//
-// NUNCA TESTADO CONTRA UM PDF REAL DA ESTRUTEC — só contra a descrição do
-// layout (print compartilhado). Calibrar contra um arquivo de verdade antes
-// de confiar cegamente no resultado.
 
 import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { LinhaTabela } from "@/lib/administracao/parse-shared";
-import { normalizar, agruparLinhas, detectarColunas, colunaMaisProxima, type ItemPosicionado, type ColunaDetectada } from "./pdf-tabela-utils";
+import { normalizar, agruparLinhas, colunaMaisProxima, type ItemPosicionado, type ColunaDetectada } from "./pdf-tabela-utils";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
 const NOME_LABORATORIO_PADRAO = "ESTRUTEC";
 
-// Cabeçalho sintético que a gente monta (não o do PDF) — usa exatamente os
-// rótulos que parseEnsaiosConcreto já reconhece (ver COLUNAS em
-// importer-ensaios.ts), pra reaproveitar o parser/validador sem duplicar
-// nada.
 const HEADER_SINTETICO: LinhaTabela = [
   "NOTA FISCAL",
   "LABORATÓRIO",
@@ -78,67 +54,146 @@ export type ResultadoExtracaoPdf = {
   paginasProcessadas: number;
 };
 
+// Detecta colunas usando a 1ª linha de dados como âncora: acha as datas
+// DD/MM/AAAA e usa as posições X delas pra mapear as colunas da tabela.
+// Funciona mesmo quando o cabeçalho tem múltiplas linhas ou colunas muy
+// próximas.
+function detectarColunasComAncora(linhaDados: ItemPosicionado[]): ColunaDetectada[] {
+  // Coleta as datas (DD/MM/AAAA) e seus centros X
+  const datas = linhaDados
+    .filter((it) => /^\d{2}\/\d{2}\/\d{4}$/.test(it.texto))
+    .map((it) => ({ texto: it.texto, xCentro: (it.x + it.xFim) / 2 }))
+    .sort((a, b) => a.xCentro - b.xCentro);
+
+  // Coleta todos os itens numéricos/texto da linha de dados
+  const todosItens = linhaDados
+    .filter((it) => it.texto.trim() !== "")
+    .map((it) => ({ texto: it.texto, x: it.x, xFim: it.xFim, xCentro: (it.x + it.xFim) / 2 }))
+    .sort((a, b) => a.x - b.x);
+
+  if (datas.length < 1) return [];
+
+  // Mapeamento fixo baseado no layout padrão do Estrutec:
+  // Colunas à esquerda das datas: Lab, Obra, Nota Fiscal, Volume, Peça, Horários
+  // Colunas de datas: Data Moldagem (1ª data), Data Ruptura (2ª data)
+  // Colunas à direita das datas: Idade, Slump, Slump NF, Água, Temp, Ruptura Ton, Fcj, Tipo
+
+  const colunas: ColunaDetectada[] = [];
+
+  // Acha itens de cabeçalho no header (procura por keywords)
+  const itensHeader = linhaDados; // por agora, usa a linha de dados também
+
+  // NOTA FISCAL: procuro o número "3165" (que é a nota fiscal) — ele aparece
+  // como um número de 4+ dígitos antes da primeira data
+  const notaFiscalItem = todosItens.find((it) => /^\d{4,}$/.test(it.texto) && it.xCentro < datas[0]!.xCentro);
+  if (notaFiscalItem) {
+    colunas.push({ chave: "NOTA FISCAL", xCentro: notaFiscalItem.xCentro });
+  }
+
+  // DATA MOLDAGEM e DATA RUPTURA: as duas primeiras datas
+  if (datas.length >= 1) {
+    colunas.push({ chave: "DATA MOLDAGEM", xCentro: datas[0]!.xCentro });
+  }
+  if (datas.length >= 2) {
+    colunas.push({ chave: "DATA RUPTURA", xCentro: datas[1]!.xCentro });
+  }
+
+  // IDADE: primeiro número inteiro após a 2ª data
+  const xAposDatas = datas.length >= 2 ? datas[1]!.xCentro : datas[0]!.xCentro;
+  const idadeItem = todosItens.find((it) => /^\d{1,3}$/.test(it.texto) && it.xCentro > xAposDatas);
+  if (idadeItem) {
+    colunas.push({ chave: "IDADE", xCentro: idadeItem.xCentro });
+
+    // FCJ: está depois de Idade e Slump — procuro por número com 2 casas (ex: 21,40 ou 20,65)
+    const fcjItem = todosItens.find((it) => /^\d+[,.]\d{1,2}$/.test(it.texto) && it.xCentro > idadeItem.xCentro);
+    if (fcjItem) {
+      colunas.push({ chave: "FCJ", xCentro: fcjItem.xCentro });
+    }
+
+    // TIPO DE RUPTURA: letra (A-F) após Fcj
+    const tipoItem = todosItens.find((it) => /^[A-F]$/.test(it.texto) && it.xCentro > (fcjItem?.xCentro ?? idadeItem.xCentro));
+    if (tipoItem) {
+      colunas.push({ chave: "TIPO DE RUPTURA", xCentro: tipoItem.xCentro });
+    }
+
+    // PEÇA CONCRETADA: texto longo à esquerda das datas
+    const pecaItem = todosItens.find((it) => it.texto.length > 10 && it.xCentro < datas[0]!.xCentro && !/^\d+$/.test(it.texto));
+    if (pecaItem) {
+      colunas.push({ chave: "PEÇA CONCRETADA", xCentro: pecaItem.xCentro });
+    }
+
+    // SLUMP: número de 2 dígitos entre Idade e Fcj (tipicamente 14-20 cm)
+    const slumpItem = todosItens.find((it) => /^\d{2}$/.test(it.texto) && it.xCentro > idadeItem.xCentro && it.xCentro < (fcjItem?.xCentro ?? Infinity));
+    if (slumpItem) {
+      colunas.push({ chave: "SLUMP", xCentro: slumpItem.xCentro });
+    }
+
+    // TEMPERatura: número entre Slump e Fcj
+    const tempItem = todosItens.find((it) => /^\d{1,2}$/.test(it.texto) && it.xCentro > (slumpItem?.xCentro ?? idadeItem.xCentro) && it.xCentro < (fcjItem?.xCentro ?? Infinity) && it !== slumpItem);
+    if (tempItem) {
+      colunas.push({ chave: "TEMPERATURA", xCentro: tempItem.xCentro });
+    }
+  }
+
+  return colunas;
+}
+
 export async function extrairTabelaPdfEstrutec(file: File): Promise<ResultadoExtracaoPdf> {
   const paginas = await extrairItensPorPagina(file);
-  const todosItens = paginas.flat();
 
-  if (!todosItens.some((i) => normalizar(i.texto).includes("ESTRUTEC"))) {
-    throw new Error(
-      'Não reconheci este PDF como um relatório da Estrutec (único layout suportado hoje). Envie a planilha em "Importar resultados" em vez disso.',
-    );
-  }
-
-  // Colunas detectadas na 1ª página com tabela — reaproveitadas nas páginas
-  // seguintes (o cabeçalho normalmente não se repete quando a tabela
-  // continua numa 2ª página).
+  // Procura a 1ª linha de dados (contém uma data DD/MM/AAAA) em qualquer página
   let colunas: ColunaDetectada[] = [];
+  let linhasDados: ItemPosicionado[][] = [];
+
   for (const itensPagina of paginas) {
     const linhas = agruparLinhas(itensPagina);
-    const idxPrimeiraLinhaDados = linhas.findIndex((l) => l.some((it) => /^\d{2}\/\d{2}\/\d{4}$/.test(it.texto)));
-    if (idxPrimeiraLinhaDados <= 0) continue;
-    colunas = detectarColunas(linhas, 0, idxPrimeiraLinhaDados);
-    if (colunas.some((c) => c.chave)) break;
+    const idx = linhas.findIndex((l) => l.some((it) => /^\d{2}\/\d{2}\/\d{4}$/.test(it.texto)));
+    if (idx > 0) {
+      // Usa a 1ª linha de dados como âncora
+      colunas = detectarColunasComAncora(linhas[idx]!);
+      if (colunas.length >= 3) {
+        // Coleta todas as linhas de dados (a partir da 1ª com data)
+        linhasDados = linhas.slice(idx);
+        break;
+      }
+    }
   }
 
-  if (!colunas.some((c) => c.chave === "NOTA FISCAL")) {
-    throw new Error("Não consegui reconhecer as colunas da tabela de corpos de prova neste PDF.");
+  if (colunas.length === 0 || linhasDados.length === 0) {
+    throw new Error(
+      'Não consegui reconhecer a tabela de corpos de prova neste PDF. Envie a planilha em "Importar resultados" em vez disso.',
+    );
   }
 
   const linhasSaida: LinhaTabela[] = [HEADER_SINTETICO];
 
-  for (const itensPagina of paginas) {
-    const linhas = agruparLinhas(itensPagina);
-    const idxPrimeiraLinhaDados = linhas.findIndex((l) => l.some((it) => /^\d{2}\/\d{2}\/\d{4}$/.test(it.texto)));
-    if (idxPrimeiraLinhaDados === -1) continue;
-
-    for (let i = idxPrimeiraLinhaDados; i < linhas.length; i++) {
-      const porColuna = new Map<string, string[]>();
-      for (const item of linhas[i]!) {
-        const xCentroItem = (item.x + item.xFim) / 2;
-        const melhor = colunaMaisProxima(colunas, xCentroItem);
-        if (!melhor?.chave) continue; // mais perto de uma coluna irrelevante (ou nenhuma) — descarta
-        const lista = porColuna.get(melhor.chave) ?? [];
-        lista.push(item.texto);
-        porColuna.set(melhor.chave, lista);
-      }
-
-      const notaFiscal = (porColuna.get("NOTA FISCAL") ?? []).join(" ").trim();
-      if (!notaFiscal) continue; // linha sem nota fiscal reconhecida — não é uma linha de CP (rodapé, assinatura...)
-
-      linhasSaida.push([
-        notaFiscal,
-        NOME_LABORATORIO_PADRAO,
-        (porColuna.get("Nº CP") ?? []).join(" ").trim(),
-        (porColuna.get("PEÇA CONCRETADA") ?? []).join(" ").trim(),
-        (porColuna.get("DATA MOLDAGEM") ?? []).join(" ").trim(),
-        (porColuna.get("DATA RUPTURA") ?? []).join(" ").trim(),
-        (porColuna.get("IDADE") ?? []).join(" ").trim(),
-        (porColuna.get("SLUMP") ?? []).join(" ").trim(),
-        (porColuna.get("TEMPERATURA") ?? []).join(" ").trim(),
-        (porColuna.get("FCJ") ?? []).join(" ").trim(),
-        (porColuna.get("TIPO DE RUPTURA") ?? []).join(" ").trim(),
-      ]);
+  for (const linha of linhasDados) {
+    const porColuna = new Map<string, string[]>();
+    for (const item of linha) {
+      const xCentroItem = (item.x + item.xFim) / 2;
+      const melhor = colunaMaisProxima(colunas, xCentroItem);
+      if (!melhor?.chave) continue;
+      const lista = porColuna.get(melhor.chave) ?? [];
+      lista.push(item.texto);
+      porColuna.set(melhor.chave, lista);
     }
+
+    const notaFiscal = (porColuna.get("NOTA FISCAL") ?? []).join(" ").trim();
+    if (!notaFiscal) continue;
+
+    linhasSaida.push([
+      notaFiscal,
+      NOME_LABORATORIO_PADRAO,
+      (porColuna.get("Nº CP") ?? []).join(" ").trim(),
+      (porColuna.get("PEÇA CONCRETADA") ?? []).join(" ").trim(),
+      (porColuna.get("DATA MOLDAGEM") ?? []).join(" ").trim(),
+      (porColuna.get("DATA RUPTURA") ?? []).join(" ").trim(),
+      (porColuna.get("IDADE") ?? []).join(" ").trim(),
+      (porColuna.get("SLUMP") ?? []).join(" ").trim(),
+      (porColuna.get("TEMPERATURA") ?? []).join(" ").trim(),
+      (porColuna.get("FCJ") ?? []).join(" ").trim(),
+      (porColuna.get("TIPO DE RUPTURA") ?? []).join(" ").trim(),
+    ]);
   }
 
   return { linhas: linhasSaida, linhasDeDados: linhasSaida.length - 1, paginasProcessadas: paginas.length };

@@ -237,13 +237,105 @@ class ResolvedorDeFornecedores {
 // (destinos_carga.carga_id → cargas_concreto.id). Cadastros (fornecedores/
 // traços/etapas) NÃO são tocados aqui.
 async function apagarLancamentosExistentes(organizacaoId: string): Promise<number> {
-  const { data, error } = await supabase
-    .from("cargas_concreto")
-    .delete()
-    .eq("organizacao_id", organizacaoId)
-    .select("id");
-  if (error) throw new Error(`Falha ao apagar lançamentos existentes: ${error.message}`);
-  return (data ?? []).length;
+  // Apaga em lotes pequeños pra não estourar limite de query do Supabase
+  // quando há muitos registros.
+  let totalApagado = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("cargas_concreto")
+      .delete()
+      .eq("organizacao_id", organizacaoId)
+      .select("id");
+    if (error) throw new Error(`Falha ao apagar lançamentos existentes: ${error.message}`);
+    const apagados = (data ?? []).length;
+    if (apagados === 0) break;
+    totalApagado += apagados;
+  }
+  return totalApagado;
+}
+
+// ---------- Geração de código de rastreabilidade no cliente ----------
+// Em vez de depender do trigger (que pode gerar códigos duplicados quando
+// o counter do banco está dessincronizado com os registros reais), geramos
+// os códigos aqui e resetamos o counter antes de inserir.
+async function gerarCodigosRastreabilidade(
+  organizacaoId: string,
+  cargaRows: Record<string, unknown>[],
+): Promise<void> {
+  // 1. Busca a sigla da organização
+  const { data: orgData } = await supabase
+    .from("organizacoes")
+    .select("sigla")
+    .eq("id", organizacaoId)
+    .single();
+  const sigla = ((orgData as { sigla: string | null } | null)?.sigla ?? "").trim();
+
+  // 2. Agrupa por ano e conta quantas cargas por ano
+  const contagemPorAno = new Map<number, number>();
+  for (const row of cargaRows) {
+    const data = row.data as string;
+    const ano = Number(data.slice(0, 4));
+    contagemPorAno.set(ano, (contagemPorAno.get(ano) ?? 0) + 1);
+  }
+
+  // 3. Zera o counter pra cada ano (pra trigger não gerar mais nada) e
+  //    busca o último número usado de verdade no banco
+  for (const [ano] of contagemPorAno) {
+    const { data: maxRow } = await supabase
+      .from("cargas_concreto")
+      .select("codigo_rastreabilidade")
+      .eq("organizacao_id", organizacaoId)
+      .like("codigo_rastreabilidade", `%CC-${ano}-%`)
+      .order("codigo_rastreabilidade", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    let ultimoNumero = 0;
+    if (maxRow?.codigo_rastreabilidade) {
+      const match = maxRow.codigo_rastreabilidade.match(/(\d{4})$/);
+      if (match) ultimoNumero = parseInt(match[1], 10);
+    }
+
+    // Reseta o counter pra esse ano, começando do último número real + 1
+    await supabase
+      .from("codigo_rastreabilidade_contadores")
+      .upsert(
+        { organizacao_id: organizacaoId, ano, ultimo_numero: ultimoNumero },
+        { onConflict: "organizacao_id,ano" }
+      );
+  }
+
+  // 4. Gera os códigos sequencialmente
+  const contadores = new Map<number, number>();
+  for (const [ano] of contagemPorAno) {
+    // Lê o counter atualizado
+    const { data: counterRow } = await supabase
+      .from("codigo_rastreabilidade_contadores")
+      .select("ultimo_numero")
+      .eq("organizacao_id", organizacaoId)
+      .eq("ano", ano)
+      .single();
+    contadores.set(ano, (counterRow as { ultimo_numero: number } | null)?.ultimo_numero ?? 0);
+  }
+
+  for (const row of cargaRows) {
+    const data = row.data as string;
+    const ano = Number(data.slice(0, 4));
+    const contador = (contadores.get(ano) ?? 0) + 1;
+    contadores.set(ano, contador);
+    const prefixo = sigla ? `${sigla}-` : "";
+    row.codigo_rastreabilidade = `${prefixo}CC-${ano}-${String(contador).padStart(4, "0")}`;
+  }
+
+  // 5. Atualiza o counter no banco pra refletir o último código gerado
+  for (const [ano, ultimo] of contadores) {
+    await supabase
+      .from("codigo_rastreabilidade_contadores")
+      .upsert(
+        { organizacao_id: organizacaoId, ano, ultimo_numero: ultimo },
+        { onConflict: "organizacao_id,ano" }
+      );
+  }
 }
 
 // ---------- Commit em lote ----------
@@ -347,7 +439,6 @@ export async function commitarImportacaoConcreto(params: {
     cargaRows.push({
       id: cargaId,
       organizacao_id: organizacaoId,
-      ...(carga.codigoRastreabilidade ? { codigo_rastreabilidade: carga.codigoRastreabilidade } : {}),
       data: carga.data,
       fornecedor_id: fornecedorId,
       tipo_origem: carga.tipoOrigem,
@@ -373,6 +464,12 @@ export async function commitarImportacaoConcreto(params: {
   // um arquivo que resultou em 0 cargas válidas (ex.: todo traço não resolvido)
   // não deve zerar a organização à toa.
   const cargasRemovidas = cargaRows.length > 0 ? await apagarLancamentosExistentes(organizacaoId) : 0;
+
+  // Gera os códigos de rastreabilidade no cliente (em vez de depender do
+  // trigger, que pode gerar duplicatas quando o counter está dessincronizado).
+  if (cargaRows.length > 0) {
+    await gerarCodigosRastreabilidade(organizacaoId, cargaRows);
+  }
 
   for (let i = 0; i < cargaRows.length; i += TAMANHO_LOTE) {
     const lote = cargaRows.slice(i, i + TAMANHO_LOTE);

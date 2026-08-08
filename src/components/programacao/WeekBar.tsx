@@ -218,15 +218,13 @@ export default function WeekBar({
                 <TooltipTrigger asChild>
                   <button
                     onClick={() => { setActionsOpen(false); onImportActivities() }}
-                    disabled={locked}
-                    title={locked ? 'Desbloqueie a semana para importar atividades' : undefined}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition"
                   >
                     <Download size={14} className="text-purple-600" />
                     Importar atividades
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="left" className="max-w-xs">Busca, nos cronogramas carregados, as tarefas com trabalho previsto nesta semana pra adicionar ao quadro.</TooltipContent>
+                <TooltipContent side="left" className="max-w-xs">Busca, nos cronogramas carregados, as tarefas com trabalho previsto nesta semana pra adicionar ao quadro. Funciona mesmo com a semana bloqueada.</TooltipContent>
               </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
