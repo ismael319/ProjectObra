@@ -1,0 +1,117 @@
+import type { ElementType } from 'react'
+import {
+  AlertTriangle,
+  BarChart,
+  BarChart3,
+  Calendar,
+  CheckSquare,
+  ClipboardList,
+  CloudRain,
+  Database,
+  FileSpreadsheet,
+  FlaskConical,
+  FolderCog,
+  FolderTree,
+  GanttChart,
+  LineChart,
+  PackageSearch,
+  PieChart,
+  Search,
+  TrendingUp,
+  Truck,
+  UserCog,
+} from 'lucide-react'
+
+export interface NavItem {
+  icon: ElementType
+  label: string
+  path: string
+  children?: NavItem[]
+  disabled?: boolean
+}
+
+export interface NavSection {
+  title: string
+  items: NavItem[]
+}
+
+// A navegação desktop e a futura navegação mobile usam a mesma fonte para
+// manter permissões, rótulos e destinos sincronizados.
+export function buildNavSections(modulos: string[]): NavSection[] {
+  const temEngenharia = modulos.includes('engenharia')
+  const temSeguranca = modulos.includes('seguranca')
+  const temSuprimentos = modulos.includes('suprimentos')
+  const temAdministracao = modulos.includes('administracao')
+  const temQualidade = modulos.includes('qualidade')
+
+  const engenhariaItems: NavItem[] = temEngenharia ? [
+    {
+      icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
+      children: [
+        { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
+        { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
+        { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
+        { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
+      ],
+    },
+    {
+      icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
+      children: [
+        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
+        { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
+        { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
+        { icon: BarChart, label: 'Resumo', path: '/dashboard/people/resumo' },
+        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
+        { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
+        { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
+      ],
+    },
+    { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
+    { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
+  ] : []
+
+  const qualidadeItems: NavItem[] = temQualidade ? [
+    {
+      icon: Truck, label: 'Concreto', path: '/dashboard/qualidade/concreto',
+      children: [
+        { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
+        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
+        { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
+        { icon: FlaskConical, label: 'Ensaios', path: '/dashboard/qualidade/concreto/ensaios' },
+        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
+        { icon: Database, label: 'Dados', path: '/dashboard/qualidade/concreto/importar-historico' },
+      ],
+    },
+  ] : []
+
+  const segurancaItems: NavItem[] = temSeguranca ? [
+    { icon: BarChart, label: 'Dashboard RDR', path: '/dashboard/seguranca/dashboard' },
+    { icon: ClipboardList, label: 'Novo Registro', path: '/dashboard/seguranca/novo' },
+    { icon: Search, label: 'Registros', path: '/dashboard/seguranca/registros' },
+  ] : []
+
+  return [
+    ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
+    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
+    ...(temSuprimentos
+      ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
+      : []),
+    ...(temAdministracao
+      ? [{
+          title: 'Administração', items: [
+            { icon: UserCog, label: 'Controle de Funcionários', path: '/dashboard/administracao' },
+          ],
+        }]
+      : []),
+    ...(temQualidade ? [{ title: 'Qualidade', items: qualidadeItems }] : []),
+  ]
+}
+
+export const navSectionsInsercaoPontual: NavSection[] = [
+  {
+    title: 'Distribuição Efetivo',
+    items: [
+      { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
+    ],
+  },
+]

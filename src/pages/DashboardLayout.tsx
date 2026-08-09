@@ -1,19 +1,21 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState } from 'react'
 import { Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2, FileText } from 'lucide-react'
-import Sidebar from '@/components/Sidebar'
-import fgiLogo from '@/assets/fgi-logo.png'
+import { Loader2 } from 'lucide-react'
 import ChatWidget from '@/components/ChatWidget'
+import { DashboardHeader } from '@/components/layout/DashboardHeader'
+import { DashboardNavigation } from '@/components/layout/DashboardNavigation'
 import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { useMediaQuery } from '@/lib/use-media-query'
 
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
   const { isDark, toggle, brandColor } = useTheme()
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
   const { user, signOut, userProfile } = useAuth()
@@ -24,9 +26,7 @@ export default function DashboardLayout() {
   const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
-  const userMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!podeGerenciarUsuarios) return
@@ -80,18 +80,6 @@ export default function DashboardLayout() {
     }
   }, [currentProject, isInsercaoPontual, isLoadingProjects, isHydratingCurrentProject])
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false)
-      }
-    }
-    if (userMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [userMenuOpen])
-
   if (!isInsercaoPontual && (isLoadingProjects || isHydratingCurrentProject)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
@@ -105,135 +93,41 @@ export default function DashboardLayout() {
   const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
   const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
 
+  const headerProps = {
+    isInsercaoPontual,
+    projectName: currentProject?.nome,
+    activeCount,
+    totalCount,
+    podeGerenciarUsuarios,
+    pendingCount,
+    userEmail: user?.email,
+    userInitials,
+    brandColor,
+    isDark,
+    onOpenMenu: () => setMobileMenuOpen(true),
+    onNavigate: navigate,
+    onToggleTheme: toggle,
+    onSignOut: () => { signOut(); navigate('/login') },
+  }
+
+  const navigationProps = {
+    collapsed: sidebarCollapsed,
+    onToggle: () => setSidebarCollapsed(!sidebarCollapsed),
+    mobileOpen: mobileMenuOpen,
+    onMobileClose: () => setMobileMenuOpen(false),
+    papel: userProfile?.papel ?? undefined,
+    modulos: userProfile?.modulos,
+    podeGerenciarUsuarios,
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
-      {/* Header fixo - largura total */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] px-4 sm:px-6 z-40">
-        <div className="flex items-center justify-between h-full">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white lg:hidden"
-              aria-label="Abrir menu"
-            >
-              <Menu size={20} />
-            </button>
-            <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg bg-white p-1 shrink-0">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
-            </div>
-            <div className="hidden sm:block h-6 w-px bg-white/10" />
-            {!isInsercaoPontual && (
-              <>
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="hidden shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white sm:flex"
-                >
-                  <FolderOpen size={18} />
-                  <span className="hidden md:inline">Meus Projetos</span>
-                </button>
-                <div className="hidden h-6 w-px shrink-0 bg-white/10 sm:block" />
-              </>
-            )}
-            <div className="min-w-0">
-              <h1 className="text-base font-bold text-white truncate">
-                {isInsercaoPontual ? 'Lançamento de Efetivo' : currentProject?.nome}
-              </h1>
-              {!isInsercaoPontual && totalCount > 1 && (
-                <span className="inline-block text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-full">
-                  {activeCount}/{totalCount} cronogramas
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-
-            {podeGerenciarUsuarios && (
-              <button
-                onClick={() => navigate('/dashboard/admin/users')}
-                className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                title="Solicitações de acesso pendentes"
-              >
-                <Bell size={19} />
-                {pendingCount > 0 && (
-                  <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full ring-2 ring-slate-900">
-                    {pendingCount > 9 ? '9+' : pendingCount}
-                  </span>
-                )}
-              </button>
-            )}
-
-            <div className="relative" ref={userMenuRef}>
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full p-1 transition-colors hover:bg-white/5 sm:pr-2"
-              >
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white ring-2 ring-white/15"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {userInitials}
-                </div>
-                <ChevronDown size={14} className={`hidden text-slate-400 transition-transform sm:block ${userMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-60 bg-white dark:bg-gray-800 rounded-xl shadow-2xl ring-1 ring-black/5 border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.email}</p>
-                  </div>
-                  <div className="py-1">
-                    {!isInsercaoPontual && (
-                      <button
-                        onClick={() => { navigate('/profile'); setUserMenuOpen(false) }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <User size={16} />
-                        Meu Perfil
-                      </button>
-                    )}
-                    <button
-                      onClick={toggle}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      {isDark ? <Sun size={16} /> : <Moon size={16} />}
-                      {isDark ? 'Modo Claro' : 'Modo Escuro'}
-                    </button>
-                    <button
-                      onClick={() => { window.open('/legal/privacy', '_blank'); setUserMenuOpen(false) }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <FileText size={16} />
-                      Privacidade e Termos
-                    </button>
-                  </div>
-                  <div className="border-t border-gray-100 dark:border-gray-700 py-1">
-                    <button
-                      onClick={() => { signOut(); navigate('/login') }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    >
-                      <LogOut size={16} />
-                      Sair da Conta
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader {...headerProps} variant={isMobile ? 'mobile' : 'desktop'} />
 
       {/* Sidebar abaixo do header — escondida em modo apresentação (ex.: Gantt
           Livre) pra sobrar tela inteira pro conteúdo durante uma reunião. */}
       {!presentationMode && (
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          mobileOpen={mobileMenuOpen}
-          onMobileClose={() => setMobileMenuOpen(false)}
-          papel={userProfile?.papel ?? undefined}
-          modulos={userProfile?.modulos}
-          podeGerenciarUsuarios={podeGerenciarUsuarios}
-        />
+        <DashboardNavigation {...navigationProps} />
       )}
 
       {/* Conteúdo principal */}

@@ -1,117 +1,12 @@
 import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, BarChart3, GanttChart,
-  Calendar, AlertTriangle, PieChart,
-  Award, Menu, X, ChevronDown, ChevronRight,
-  PanelLeftClose, PanelLeftOpen, TrendingUp,
-  ClipboardList, CheckSquare, Search, BarChart,
-  FolderCog,
-  FolderTree, FileSpreadsheet, CloudRain,
-  Settings, PackageSearch, UserCog,
-  Truck, LineChart, Database, FlaskConical,
+  ChevronDown, ChevronRight, LayoutDashboard,
+  PanelLeftClose, PanelLeftOpen, Settings,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
-
-interface NavItem {
-  icon: React.ElementType
-  label: string
-  path: string
-  children?: NavItem[]
-  disabled?: boolean
-}
-
-// Telas do Gantt Livre, Apontamento/EAP, Programação semanal e Mapa de Chuvas
-// (módulo "engenharia") e RDR (módulo "seguranca") só aparecem pra empresas
-// que têm esse módulo contratado (ver RequireModulo + Empresas Clientes, onde
-// o Dono da Plataforma libera). Isso é só cosmético: a proteção de verdade é
-// o RLS (modulos-plataforma-migration.sql).
-function buildNavSections(modulos: string[]): { title: string; items: NavItem[] }[] {
-  const temEngenharia = modulos.includes('engenharia')
-  const temSeguranca = modulos.includes('seguranca')
-  const temSuprimentos = modulos.includes('suprimentos')
-  const temAdministracao = modulos.includes('administracao')
-  const temQualidade = modulos.includes('qualidade')
-
-  // Todo o bloco de Engenharia (inclusive Curva S/Histograma MO/Ocorrências/
-  // Mão de Obra, que antes ficavam sempre visíveis) só existe quando a
-  // empresa/usuário tem o módulo 'engenharia' — sem isso, um usuário
-  // restrito a outro módulo (ex.: Administração) via user_modulos_visiveis
-  // continuava vendo essas telas de Engenharia, tanto na sidebar quanto (a
-  // rota em si não checava o módulo) direto pela URL.
-  const engenhariaItems: NavItem[] = temEngenharia ? [
-    {
-      icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
-      children: [
-        { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-        { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
-        { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-        { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
-      ],
-    },
-    {
-      icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
-      children: [
-        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
-        { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
-        { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
-        { icon: BarChart, label: 'Resumo', path: '/dashboard/people/resumo' },
-        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
-        { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
-        { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
-      ],
-    },
-    { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
-    { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
-  ] : []
-
-  const qualidadeItems: NavItem[] = temQualidade ? [
-    {
-      icon: Truck, label: 'Concreto', path: '/dashboard/qualidade/concreto',
-      children: [
-        { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
-        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
-        { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
-        { icon: FlaskConical, label: 'Ensaios', path: '/dashboard/qualidade/concreto/ensaios' },
-        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
-        { icon: Database, label: 'Dados', path: '/dashboard/qualidade/concreto/importar-historico' },
-      ],
-    },
-  ] : []
-
-  const segurancaItems: NavItem[] = temSeguranca ? [
-    { icon: BarChart, label: 'Dashboard RDR', path: '/dashboard/seguranca/dashboard' },
-    { icon: ClipboardList, label: 'Novo Registro', path: '/dashboard/seguranca/novo' },
-    { icon: Search, label: 'Registros', path: '/dashboard/seguranca/registros' },
-  ] : []
-
-  return [
-    ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
-    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
-    ...(temSuprimentos
-      ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
-      : []),
-    ...(temAdministracao
-      ? [{
-          title: 'Administração', items: [
-            { icon: UserCog, label: 'Controle de Funcionários', path: '/dashboard/administracao' },
-          ],
-        }]
-      : []),
-    ...(temQualidade ? [{ title: 'Qualidade', items: qualidadeItems }] : []),
-  ]
-}
-
-// Apontadores (papel "insercao_pontual") só enxergam o lançamento de efetivo.
-const navSectionsInsercaoPontual: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Distribuição Efetivo',
-    items: [
-      { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
-    ],
-  },
-]
+import { buildNavSections, navSectionsInsercaoPontual, type NavItem } from '@/lib/nav-config'
 
 function hexToHSL(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255
