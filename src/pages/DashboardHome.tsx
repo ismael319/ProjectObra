@@ -14,6 +14,7 @@ import WidgetFilterMenu from '@/components/WidgetFilterMenu'
 import { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { CronogramaInfo } from '@/lib/project-store'
+import { useMediaQuery } from '@/lib/use-media-query'
 import {
   DEFAULT_WIDGETS,
   FILTERABLE_WIDGETS,
@@ -61,6 +62,7 @@ function descreverFiltro(filtros: WidgetFiltros, cronogramasAtivos: CronogramaIn
 export default function DashboardHome() {
   const { activities } = useProject()
   const { user, userProfile } = useAuth()
+  const isMobile = useMediaQuery('(max-width: 639px)')
   // Nomes reais dos cronogramas ativos (sourceCronogramaIndex é só a posição
   // nessa mesma lista — project-context.tsx > setMultipleProjects) — pra
   // mostrar "728 001 FS..." no filtro em vez de "Cronograma 1".
@@ -166,7 +168,7 @@ export default function DashboardHome() {
         return <KPICards activities={activitiesParaFiltro(w.filtros)} />
       case 'charts':
         return (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
             <StatusPieChart />
             <MonthlyBarChart />
           </div>
@@ -185,30 +187,92 @@ export default function DashboardHome() {
   const widgetsExibidos = isEditing ? draftWidgets : savedWidgets.filter((w) => w.visible)
   const widgetDoMenu = menuAberto ? draftWidgets.find((w) => w.id === menuAberto.widgetId) : undefined
 
+  const renderWidgetFrame = (w: WidgetConfig, idx: number) => {
+    const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
+    return (
+      <div
+        key={w.id}
+        className={isEditing && !w.visible ? 'opacity-40' : undefined}
+        onContextMenu={isEditing && !isMobile ? (e) => abrirMenuFiltro(e, w.id) : undefined}
+      >
+        {isEditing && (
+          <div className="flex flex-col gap-2 rounded-t-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 text-xs dark:border-gray-600 dark:bg-gray-900 sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:py-1.5">
+            <span className="flex min-w-0 items-center gap-1.5 font-medium text-gray-600 dark:text-gray-300">
+              <span className="truncate">{WIDGET_LABELS[w.id]}</span>
+              {!w.visible && <span className="shrink-0 text-gray-400 dark:text-gray-500">(oculto)</span>}
+              {temFiltro && (
+                <span className="flex shrink-0 items-center gap-0.5 text-blue-600 dark:text-blue-400" title={isMobile ? undefined : 'Filtro aplicado neste card'}>
+                  <Filter size={11} /> filtrado
+                </span>
+              )}
+            </span>
+            <div className="grid w-full grid-cols-4 gap-1 sm:flex sm:w-auto sm:items-center">
+              <button
+                onClick={(e) => abrirMenuFiltro(e, w.id)}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Filtros do card (ou clique com o botão direito no card)'}
+                aria-label={`Filtros de ${WIDGET_LABELS[w.id]}`}
+              >
+                <Filter size={16} className="sm:h-3.5 sm:w-3.5" />
+              </button>
+              <button
+                onClick={() => moverWidget(w.id, -1)}
+                disabled={idx === 0}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Mover para cima'}
+                aria-label={`Mover ${WIDGET_LABELS[w.id]} para cima`}
+              >
+                <ArrowUp size={16} className="sm:h-3.5 sm:w-3.5" />
+              </button>
+              <button
+                onClick={() => moverWidget(w.id, 1)}
+                disabled={idx === widgetsExibidos.length - 1}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Mover para baixo'}
+                aria-label={`Mover ${WIDGET_LABELS[w.id]} para baixo`}
+              >
+                <ArrowDown size={16} className="sm:h-3.5 sm:w-3.5" />
+              </button>
+              <button
+                onClick={() => alternarVisibilidade(w.id)}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : w.visible ? 'Ocultar' : 'Mostrar'}
+                aria-label={`${w.visible ? 'Ocultar' : 'Mostrar'} ${WIDGET_LABELS[w.id]}`}
+              >
+                {w.visible ? <Eye size={16} className="sm:h-3.5 sm:w-3.5" /> : <EyeOff size={16} className="sm:h-3.5 sm:w-3.5" />}
+              </button>
+            </div>
+          </div>
+        )}
+        {renderWidget(w)}
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       {podeEditarDashboard && (
         <div className="flex justify-end">
           {!isEditing ? (
             <button
               onClick={iniciarEdicao}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700"
+              className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:min-h-0 sm:w-auto sm:rounded-lg sm:shadow-none"
             >
               <Settings2 size={16} /> Editar página
             </button>
           ) : (
-            <div className="flex items-center gap-2">
+            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
               <button
                 onClick={cancelarEdicao}
                 disabled={salvando}
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:min-h-0 sm:rounded-lg"
               >
                 <X size={16} /> Cancelar
               </button>
               <button
                 onClick={salvarEdicao}
                 disabled={salvando}
-                className="flex items-center gap-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50"
+                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:min-h-0 sm:rounded-lg"
               >
                 <Check size={16} /> {salvando ? 'Salvando...' : 'Salvar'}
               </button>
@@ -217,82 +281,34 @@ export default function DashboardHome() {
         </div>
       )}
 
-      <TooltipProvider delayDuration={300}>
-        {widgetsExibidos.map((w, idx) => {
-          const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
-          return (
-            <Tooltip key={w.id}>
-              <TooltipTrigger asChild>
-                <div
-                  className={isEditing && !w.visible ? 'opacity-40' : undefined}
-                  onContextMenu={isEditing ? (e) => abrirMenuFiltro(e, w.id) : undefined}
-                >
-                  {isEditing && (
-                    <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-600 rounded-t-xl px-3 py-1.5 text-xs">
-                      <span className="font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                        {WIDGET_LABELS[w.id]}
-                        {!w.visible && <span className="text-gray-400 dark:text-gray-500">(oculto)</span>}
-                        {temFiltro && (
-                          <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400" title="Filtro aplicado neste card">
-                            <Filter size={11} /> filtrado
-                          </span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => abrirMenuFiltro(e, w.id)}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-                          title="Filtros do card (ou clique com o botão direito no card)"
-                        >
-                          <Filter size={14} />
-                        </button>
-                        <button
-                          onClick={() => moverWidget(w.id, -1)}
-                          disabled={idx === 0}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30"
-                          title="Mover para cima"
-                        >
-                          <ArrowUp size={14} />
-                        </button>
-                        <button
-                          onClick={() => moverWidget(w.id, 1)}
-                          disabled={idx === widgetsExibidos.length - 1}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30"
-                          title="Mover para baixo"
-                        >
-                          <ArrowDown size={14} />
-                        </button>
-                        <button
-                          onClick={() => alternarVisibilidade(w.id)}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-                          title={w.visible ? 'Ocultar' : 'Mostrar'}
-                        >
-                          {w.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                        </button>
-                      </div>
-                    </div>
+      {isMobile ? (
+        widgetsExibidos.map(renderWidgetFrame)
+      ) : (
+        <TooltipProvider delayDuration={300}>
+          {widgetsExibidos.map((w, idx) => {
+            const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
+            return (
+              <Tooltip key={w.id}>
+                <TooltipTrigger asChild>{renderWidgetFrame(w, idx)}</TooltipTrigger>
+                <TooltipContent side="top" align="start" className="max-w-xs space-y-1.5">
+                  <p className="font-semibold">{WIDGET_LABELS[w.id]}</p>
+                  <p className="text-muted-foreground leading-relaxed">{WIDGET_DESCRICOES[w.id]}</p>
+                  {temFiltro && w.filtros && (
+                    <p className="pt-1 border-t border-border/60 text-blue-600 dark:text-blue-400">
+                      Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}
+                    </p>
                   )}
-                  {renderWidget(w)}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="start" className="max-w-xs space-y-1.5">
-                <p className="font-semibold">{WIDGET_LABELS[w.id]}</p>
-                <p className="text-muted-foreground leading-relaxed">{WIDGET_DESCRICOES[w.id]}</p>
-                {temFiltro && w.filtros && (
-                  <p className="pt-1 border-t border-border/60 text-blue-600 dark:text-blue-400">
-                    Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}
-                  </p>
-                )}
-                {FILTERABLE_WIDGETS.includes(w.id) && !temFiltro && (
-                  <p className="text-muted-foreground/70 italic">
-                    No modo de edição, clique com o botão direito no card pra filtrar por cronograma ou coluna.
-                  </p>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          )
-        })}
-      </TooltipProvider>
+                  {FILTERABLE_WIDGETS.includes(w.id) && !temFiltro && (
+                    <p className="text-muted-foreground/70 italic">
+                      No modo de edição, clique com o botão direito no card pra filtrar por cronograma ou coluna.
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+        </TooltipProvider>
+      )}
 
       {menuAberto && widgetDoMenu && (
         <WidgetFilterMenu

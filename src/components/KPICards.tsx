@@ -61,22 +61,22 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
   ]
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
       {kpis.map((kpi) => (
         <div
           key={kpi.title}
-          className="group relative bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 overflow-hidden"
+          className="group relative min-h-[150px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-3.5 shadow-card transition-all duration-200 dark:border-gray-700/80 dark:bg-gray-800 sm:min-h-0 sm:rounded-xl sm:p-6 sm:hover:-translate-y-0.5 sm:hover:shadow-card-hover"
         >
           <div
             className="absolute top-0 left-0 right-0 h-[3px] opacity-80"
             style={{ backgroundColor: kpi.accent }}
           />
-          <div className="flex items-center justify-between">
-            <div className={`w-10 h-10 sm:w-12 sm:h-12 ${kpi.iconBg} rounded-xl flex items-center justify-center`}>
-              <kpi.icon className={kpi.iconText} size={22} strokeWidth={2.25} />
+          <div className="flex items-start justify-between sm:items-center">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${kpi.iconBg}`}>
+              <kpi.icon className={`h-5 w-5 sm:h-[22px] sm:w-[22px] ${kpi.iconText}`} strokeWidth={2.25} />
             </div>
             <span
-              className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
+              className={`hidden items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold sm:flex ${
                 kpi.trend === 'up'
                   ? 'text-green-700 bg-green-50 dark:text-green-400 dark:bg-green-500/10'
                   : 'text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-500/10'
@@ -86,9 +86,19 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
               {kpi.change}
             </span>
           </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">{kpi.value}</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 font-medium">{kpi.title}</p>
+          <div className="mt-3 sm:mt-4">
+            <h3 className="text-[1.75rem] font-extrabold leading-none tracking-tight text-gray-900 dark:text-white sm:text-3xl sm:leading-9">{kpi.value}</h3>
+            <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-600 dark:text-gray-300 sm:mt-1 sm:text-sm sm:font-medium sm:leading-5 sm:text-gray-500 sm:dark:text-gray-400">{kpi.title}</p>
+            <div
+              className={`mt-3 flex items-center gap-1 text-[11px] font-medium leading-none sm:hidden ${
+                kpi.trend === 'up'
+                  ? 'text-green-700 dark:text-green-400'
+                  : 'text-red-700 dark:text-red-400'
+              }`}
+            >
+              {kpi.trend === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+              <span className="truncate">{kpi.change}</span>
+            </div>
           </div>
         </div>
       ))}

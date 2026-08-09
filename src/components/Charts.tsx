@@ -12,6 +12,7 @@ import {
   Cell,
   AreaChart,
   Area,
+  LabelList,
 } from 'recharts'
 import { useProjects } from '@/lib/project-store'
 import { buildCurveFromRawPoints, consolidateCurves } from '@/lib/curve-utils'
@@ -51,9 +52,13 @@ export function StatusPieChart() {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const tooltipStyle = useTooltipStyle(isMobile)
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
-      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Status dos Projetos</h3>
-      <div className="h-[216px] sm:h-64">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700/80 dark:bg-gray-800 sm:rounded-xl sm:p-6">
+      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:mb-4 sm:text-sm">Status dos Projetos</h3>
+      <div
+        className="relative h-[200px] sm:h-64"
+        role="img"
+        aria-label={projectStatusData.map((item) => `${item.name}: ${item.value}`).join(', ')}
+      >
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -71,11 +76,19 @@ export function StatusPieChart() {
                 <Cell key={`cell-${index}`} fill={entry.color} />
               ))}
             </Pie>
-            <Tooltip contentStyle={tooltipStyle} />
+            {!isMobile && <Tooltip contentStyle={tooltipStyle} />}
           </PieChart>
         </ResponsiveContainer>
+        {isMobile && (
+          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center" aria-hidden="true">
+            <span className="text-2xl font-extrabold leading-none text-gray-900 dark:text-white">
+              {projectStatusData.reduce((total, item) => total + item.value, 0)}
+            </span>
+            <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Total</span>
+          </div>
+        )}
       </div>
-      <div className="flex flex-wrap gap-x-3 gap-y-2 sm:gap-4 mt-3 sm:mt-4">
+      <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 sm:mt-4 sm:flex sm:flex-wrap sm:gap-4">
         {projectStatusData.map((item) => (
           <div key={item.name} className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
@@ -91,19 +104,35 @@ export function StatusPieChart() {
 
 export function MonthlyBarChart() {
   const isMobile = useMediaQuery('(max-width: 639px)')
+  const { isDark } = useTheme()
   const tooltipStyle = useTooltipStyle(isMobile)
+  const labelColor = isDark ? '#cbd5e1' : '#475569'
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
-      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Projetos por Mês</h3>
-      <div className="h-[216px] sm:h-64">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700/80 dark:bg-gray-800 sm:rounded-xl sm:p-6">
+      <div className="mb-3 flex items-center justify-between sm:mb-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:text-sm">Projetos por Mês</h3>
+        <div className="flex items-center gap-2.5 text-[10px] text-gray-500 dark:text-gray-400 sm:hidden">
+          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-blue-600" /> Projetos</span>
+          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-600" /> Concluídos</span>
+        </div>
+      </div>
+      <div
+        className="h-[200px] sm:h-64"
+        role="img"
+        aria-label={monthlyData.map((item) => `${item.month}: ${item.projetos} projetos, ${item.concluidos} concluídos`).join('; ')}
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={monthlyData} margin={isMobile ? { top: 4, right: 0, bottom: 0, left: -20 } : undefined}>
+          <BarChart data={monthlyData} margin={isMobile ? { top: 18, right: 0, bottom: 0, left: -20 } : undefined}>
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
             <XAxis dataKey="month" tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
             <YAxis width={isMobile ? 30 : undefined} tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />
-            <Bar dataKey="projetos" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false} />
-            <Bar dataKey="concluidos" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false} />
+            {!isMobile && <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />}
+            <Bar dataKey="projetos" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
+              {isMobile && <LabelList dataKey="projetos" position="top" fill={labelColor} fontSize={9} />}
+            </Bar>
+            <Bar dataKey="concluidos" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
+              {isMobile && <LabelList dataKey="concluidos" position="top" fill={labelColor} fontSize={9} />}
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -140,11 +169,34 @@ export function ProgressAreaChart() {
       real: Math.round((p.actual / finalPlanned) * 1000) / 10,
     }))
   }, [currentProject])
+  const ultimoPonto = chartData[chartData.length - 1]
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
-      <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Curva S - Progresso Geral (%)</h3>
-      <div className="h-[216px] sm:h-64">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700/80 dark:bg-gray-800 sm:rounded-xl sm:p-6">
+      <div className="mb-3 flex items-center justify-between sm:mb-4">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:text-sm">Curva S - Progresso Geral (%)</h3>
+        <div className="flex shrink-0 items-center gap-2.5 text-[10px] text-gray-500 dark:text-gray-400 sm:hidden">
+          <span className="flex items-center gap-1"><i className="h-0.5 w-3 rounded-full bg-blue-600" /> Real</span>
+          <span className="flex items-center gap-1"><i className="h-px w-3 border-t border-dashed border-gray-400" /> Previsto</span>
+        </div>
+      </div>
+      {isMobile && ultimoPonto && (
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-blue-50 px-3 py-2 dark:bg-blue-500/10">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-400">Real atual</p>
+            <p className="mt-0.5 text-lg font-extrabold leading-none text-blue-900 dark:text-blue-100">{ultimoPonto.real}%</p>
+          </div>
+          <div className="rounded-xl bg-gray-50 px-3 py-2 dark:bg-gray-700/60">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Previsto atual</p>
+            <p className="mt-0.5 text-lg font-extrabold leading-none text-gray-800 dark:text-gray-100">{ultimoPonto.previsto}%</p>
+          </div>
+        </div>
+      )}
+      <div
+        className="h-[200px] sm:h-64"
+        role="img"
+        aria-label={chartData.length > 0 ? chartData.map((item) => `${item.label}: real ${item.real}%, previsto ${item.previsto}%`).join('; ') : 'Sem dados de Curva S'}
+      >
         {chartData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             Sem dados de Curva S
@@ -161,7 +213,7 @@ export function ProgressAreaChart() {
               <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: isMobile ? 9 : 12, fill: '#94a3b8' }} minTickGap={isMobile ? 24 : 5} axisLine={false} tickLine={false} />
               <YAxis width={isMobile ? 32 : undefined} tick={{ fontSize: isMobile ? 9 : 12, fill: '#94a3b8' }} domain={[0, 100]} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={tooltipStyle} formatter={(v) => `${v}%`} />
+              {!isMobile && <Tooltip contentStyle={tooltipStyle} formatter={(v) => `${v}%`} />}
               <Area
                 type="monotone"
                 dataKey="previsto"

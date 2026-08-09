@@ -217,6 +217,17 @@ video:not([class]) {
     justify-content: center;
   }
 
+  .mobile-widget-filter-menu {
+    right: max(0.5rem, env(safe-area-inset-right, 0px));
+    bottom: calc(4.25rem + env(safe-area-inset-bottom, 0px));
+    left: max(0.5rem, env(safe-area-inset-left, 0px));
+    width: auto;
+    max-width: none;
+    max-height: min(70dvh, 32rem);
+    overflow-y: auto;
+    border-radius: 1rem;
+  }
+
   .mobile-content-with-nav {
     padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
   }
