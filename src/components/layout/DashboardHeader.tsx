@@ -4,6 +4,7 @@ import fgiLogo from '@/assets/fgi-logo.png'
 
 export interface DashboardHeaderProps {
   variant: 'mobile' | 'desktop'
+  pageTitle: string
   isInsercaoPontual: boolean
   projectName?: string
   activeCount: number
@@ -22,6 +23,7 @@ export interface DashboardHeaderProps {
 
 export function DashboardHeader({
   variant,
+  pageTitle,
   isInsercaoPontual,
   projectName,
   activeCount,
@@ -40,6 +42,7 @@ export function DashboardHeader({
   const isMobile = variant === 'mobile'
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const accountButtonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -50,21 +53,39 @@ export function DashboardHeader({
       }
     }
 
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setUserMenuOpen(false)
+        accountButtonRef.current?.focus()
+      }
+    }
+
     document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
   }, [userMenuOpen])
 
   return (
-    <header className={`fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] z-40 ${isMobile ? 'px-4' : 'px-6'}`}>
+    <header className={`dashboard-app-header fixed top-0 left-0 right-0 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] z-40 ${isMobile ? 'mobile-app-header h-14 px-3' : 'h-16 px-6'}`}>
       <div className="flex items-center justify-between h-full">
         <div className={`flex items-center min-w-0 ${isMobile ? 'gap-3' : 'gap-4'}`}>
-          <button
-            onClick={onOpenMenu}
-            className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white lg:hidden"
-            aria-label="Abrir menu"
-          >
-            <Menu size={20} />
-          </button>
+          {isMobile ? (
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white p-1">
+              <img src={fgiLogo} alt="FGI Decision" className="h-full w-full object-contain" />
+            </div>
+          ) : (
+            <button
+              onClick={onOpenMenu}
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white lg:hidden"
+              aria-label="Abrir menu"
+            >
+              <Menu size={20} />
+            </button>
+          )}
 
           {!isMobile && (
             <>
@@ -89,10 +110,13 @@ export function DashboardHeader({
           )}
 
           <div className="min-w-0">
-            <h1 className="text-base font-bold text-white truncate">
-              {isInsercaoPontual ? 'Lançamento de Efetivo' : projectName}
+            <h1 className={`${isMobile ? 'text-sm' : 'text-base'} truncate font-bold text-white`}>
+              {isMobile ? pageTitle : isInsercaoPontual ? 'Lançamento de Efetivo' : projectName}
             </h1>
-            {!isInsercaoPontual && totalCount > 1 && (
+            {isMobile && projectName && !isInsercaoPontual && (
+              <p className="truncate text-[10px] leading-tight text-slate-400">{projectName}</p>
+            )}
+            {!isMobile && !isInsercaoPontual && totalCount > 1 && (
               <span className="inline-block text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-full">
                 {activeCount}/{totalCount} cronogramas
               </span>
@@ -100,11 +124,11 @@ export function DashboardHeader({
           </div>
         </div>
 
-        <div className="flex items-center gap-2 shrink-0">
+        <div className={`flex shrink-0 items-center ${isMobile ? 'gap-0.5' : 'gap-2'}`}>
           {podeGerenciarUsuarios && (
             <button
               onClick={() => onNavigate('/dashboard/admin/users')}
-              className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+              className={`relative rounded-lg text-slate-400 transition-colors hover:bg-white/5 hover:text-white ${isMobile ? 'flex h-10 w-10 items-center justify-center' : 'p-2'}`}
               title="Solicitações de acesso pendentes"
             >
               <Bell size={19} />
@@ -118,11 +142,14 @@ export function DashboardHeader({
 
           <div className="relative" ref={userMenuRef}>
             <button
+              ref={accountButtonRef}
               onClick={() => setUserMenuOpen(!userMenuOpen)}
-              className={`flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full p-1 transition-colors hover:bg-white/5 ${isMobile ? '' : 'pr-2'}`}
+              className={`flex items-center justify-center gap-2 rounded-full p-1 transition-colors hover:bg-white/5 ${isMobile ? 'h-10 w-10' : 'min-h-11 min-w-11 pr-2'}`}
+              aria-label="Abrir menu da conta"
+              aria-expanded={userMenuOpen}
             >
               <div
-                className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white ring-2 ring-white/15"
+                className={`${isMobile ? 'h-8 w-8 text-xs' : 'h-9 w-9 text-sm'} flex items-center justify-center rounded-full font-bold text-white ring-2 ring-white/15`}
                 style={{ backgroundColor: brandColor }}
               >
                 {userInitials}

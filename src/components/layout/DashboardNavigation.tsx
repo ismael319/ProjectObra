@@ -1,7 +1,9 @@
 import Sidebar from '@/components/Sidebar'
+import MobileBottomNav from '@/components/layout/MobileBottomNav'
 import type { PapelUsuario } from '@/lib/auth-context'
 
 interface NavigationProps {
+  variant: 'mobile' | 'desktop'
   collapsed: boolean
   onToggle: () => void
   mobileOpen: boolean
@@ -9,10 +11,27 @@ interface NavigationProps {
   papel?: PapelUsuario
   modulos?: string[]
   podeGerenciarUsuarios: boolean
+  projectName?: string
+  brandColor: string
 }
 
-// Mantém uma única instância da navegação nesta fase. A barra mobile entrará
-// aqui na Fase 2 sem alterar o Outlet nem a árvore das páginas.
-export function DashboardNavigation(props: NavigationProps) {
-  return <Sidebar {...props} />
+export function DashboardNavigation({
+  variant,
+  projectName,
+  brandColor,
+  ...sidebarProps
+}: NavigationProps) {
+  if (variant === 'mobile') {
+    if (sidebarProps.papel === 'insercao_pontual') return null
+    return (
+      <MobileBottomNav
+        modulos={sidebarProps.modulos ?? []}
+        podeGerenciarUsuarios={sidebarProps.podeGerenciarUsuarios}
+        projectName={projectName}
+        brandColor={brandColor}
+      />
+    )
+  }
+
+  return <Sidebar {...sidebarProps} />
 }

@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
-import { buildNavSections, navSectionsInsercaoPontual, type NavItem } from '@/lib/nav-config'
+import { buildNavSections, getNavItemDestination, navSectionsInsercaoPontual, type NavItem } from '@/lib/nav-config'
 
 function hexToHSL(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255
@@ -110,7 +110,7 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 flex flex-col border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64 max-w-[85vw]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`dashboard-sidebar fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 flex flex-col border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64 max-w-[85vw]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
         style={{ backgroundColor: sidebarBg }}
       >
         <nav className={`flex-1 overflow-y-auto ${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
@@ -262,7 +262,7 @@ export default function Sidebar({
                       return (
                         <div key={item.path} className="relative group">
                           <Link
-                            to={item.path}
+                            to={getNavItemDestination(item)}
                             onClick={() => onMobileClose()}
                             title={item.label}
                             className={`flex items-center justify-center px-2 py-2.5 rounded-md text-sm transition-colors duration-150 ${
@@ -350,7 +350,7 @@ export default function Sidebar({
 
       <button
         onClick={onToggle}
-        className={`hidden lg:flex fixed z-50 items-center justify-center w-7 h-7 text-white rounded-full transition-all duration-300 shadow-md border border-white/10 hover:brightness-125 top-[74px] ${collapsed ? 'left-[46px]' : 'left-[242px]'}`}
+        className={`dashboard-sidebar-toggle hidden lg:flex fixed z-50 items-center justify-center w-7 h-7 text-white rounded-full transition-all duration-300 shadow-md border border-white/10 hover:brightness-125 top-[74px] ${collapsed ? 'left-[calc(46px+env(safe-area-inset-left,0px))]' : 'left-[calc(242px+env(safe-area-inset-left,0px))]'}`}
         style={{ backgroundColor: sidebarActive }}
         title={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
       >

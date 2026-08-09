@@ -26,6 +26,7 @@ export interface NavItem {
   icon: ElementType
   label: string
   path: string
+  destination?: string
   children?: NavItem[]
   disabled?: boolean
 }
@@ -72,7 +73,10 @@ export function buildNavSections(modulos: string[]): NavSection[] {
 
   const qualidadeItems: NavItem[] = temQualidade ? [
     {
-      icon: Truck, label: 'Concreto', path: '/dashboard/qualidade/concreto',
+      icon: Truck,
+      label: 'Concreto',
+      path: '/dashboard/qualidade/concreto',
+      destination: '/dashboard/qualidade/concreto/dashboard',
       children: [
         { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
@@ -115,3 +119,54 @@ export const navSectionsInsercaoPontual: NavSection[] = [
     ],
   },
 ]
+
+export function getNavItemDestination(item: NavItem): string {
+  return item.destination ?? item.path
+}
+
+const dashboardRouteTitles = [
+  ['/dashboard/qualidade/concreto/importar-historico', 'Dados de Concreto'],
+  ['/dashboard/qualidade/concreto/ensaios/importar', 'Importar Ensaios'],
+  ['/dashboard/qualidade/concreto/dashboard', 'Dashboard de Concreto'],
+  ['/dashboard/qualidade/concreto/lancamento', 'Lançamento de Concreto'],
+  ['/dashboard/qualidade/concreto/consulta', 'Consulta de Concreto'],
+  ['/dashboard/qualidade/concreto/cadastro', 'Cadastro de Concreto'],
+  ['/dashboard/qualidade/concreto/ensaios', 'Ensaios de Concreto'],
+  ['/dashboard/administracao/importar-efetivo', 'Importar Efetivo'],
+  ['/dashboard/administracao/importar-ponto', 'Importar Ponto'],
+  ['/dashboard/seguranca/registros', 'Registros de Segurança'],
+  ['/dashboard/seguranca/dashboard', 'Dashboard RDR'],
+  ['/dashboard/seguranca/novo', 'Novo Registro RDR'],
+  ['/dashboard/seguranca', 'Segurança'],
+  ['/dashboard/people/importar-xml', 'Importar XML'],
+  ['/dashboard/people/importar-eap', 'Importar EAP'],
+  ['/dashboard/people/lancamento', 'Lançamento de Efetivo'],
+  ['/dashboard/people/validacao', 'Validação de Efetivo'],
+  ['/dashboard/people/cronograma', 'Cronograma de Efetivo'],
+  ['/dashboard/people/evolucao', 'Evolução do Efetivo'],
+  ['/dashboard/people/exportar', 'Exportar Efetivo'],
+  ['/dashboard/people/cadastro', 'Cadastro de Efetivo'],
+  ['/dashboard/people/consulta', 'Consulta de Efetivo'],
+  ['/dashboard/people/resumo', 'Resumo do Efetivo'],
+  ['/dashboard/people/eap', 'EAP do Efetivo'],
+  ['/dashboard/admin/seguranca', 'Monitoramento de Segurança'],
+  ['/dashboard/admin/users', 'Gestão de Usuários'],
+  ['/dashboard/histograma-mo', 'Histograma de Mão de Obra'],
+  ['/dashboard/mapa-chuvas', 'Mapa de Chuvas'],
+  ['/dashboard/administracao', 'Administração'],
+  ['/dashboard/suprimentos', 'Alertas Sienge'],
+  ['/dashboard/occurrences', 'Ocorrências'],
+  ['/dashboard/activities', 'Atividades'],
+  ['/dashboard/planning', 'Curva S'],
+  ['/dashboard/daily', 'Programação'],
+  ['/dashboard/gantt', 'Gantt Livre'],
+  ['/dashboard/people', 'Distribuição de Efetivo'],
+  ['/dashboard', 'Visão Geral'],
+] as const
+
+export function getDashboardRouteTitle(pathname: string): string {
+  const match = dashboardRouteTitles.find(([path]) =>
+    pathname === path || (path !== '/dashboard' && pathname.startsWith(`${path}/`)),
+  )
+  return match?.[1] ?? 'FGI Decision'
+}

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import ChatWidget from '@/components/ChatWidget'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
@@ -11,6 +11,7 @@ import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useMediaQuery } from '@/lib/use-media-query'
+import { getDashboardRouteTitle } from '@/lib/nav-config'
 
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
@@ -20,23 +21,29 @@ export default function DashboardLayout() {
   const { setProject, setMultipleProjects, project } = useProject()
   const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
   // Papel efetivo no módulo "sistema" (override, se existir, senão o global) —
   // controla quem vê o link "Sistema" e o selo de pendências.
   const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
+  const podeAcessarSistema = !!userProfile?.modulos?.includes('sistema') && podeGerenciarUsuarios
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
-    if (!podeGerenciarUsuarios) return
+    if (!podeAcessarSistema) return
 
     supabase
       .from('user_profiles')
       .select('id', { count: 'exact', head: true })
       .eq('status_solicitacao', 'pendente')
       .then(({ count }) => setPendingCount(count ?? 0))
-  }, [podeGerenciarUsuarios])
+  }, [podeAcessarSistema])
+
+  useEffect(() => {
+    if (isMobile) setMobileMenuOpen(false)
+  }, [isMobile])
 
   const userInitials = user?.email
     ? user.email.split('@')[0].slice(0, 2).toUpperCase()
@@ -92,13 +99,16 @@ export default function DashboardLayout() {
 
   const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
   const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
+  const pageTitle = getDashboardRouteTitle(location.pathname)
+  const hasMobileBottomNav = isMobile && !presentationMode && !isInsercaoPontual
 
   const headerProps = {
+    pageTitle,
     isInsercaoPontual,
     projectName: currentProject?.nome,
     activeCount,
     totalCount,
-    podeGerenciarUsuarios,
+    podeGerenciarUsuarios: podeAcessarSistema,
     pendingCount,
     userEmail: user?.email,
     userInitials,
@@ -111,13 +121,16 @@ export default function DashboardLayout() {
   }
 
   const navigationProps = {
+    variant: isMobile ? 'mobile' as const : 'desktop' as const,
     collapsed: sidebarCollapsed,
     onToggle: () => setSidebarCollapsed(!sidebarCollapsed),
     mobileOpen: mobileMenuOpen,
     onMobileClose: () => setMobileMenuOpen(false),
     papel: userProfile?.papel ?? undefined,
     modulos: userProfile?.modulos,
-    podeGerenciarUsuarios,
+    podeGerenciarUsuarios: podeAcessarSistema,
+    projectName: currentProject?.nome,
+    brandColor,
   }
 
   return (
@@ -131,13 +144,13 @@ export default function DashboardLayout() {
       )}
 
       {/* Conteúdo principal */}
-      <main className={`min-w-0 pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
-        <div className="min-w-0 p-4 sm:p-6">
+      <main className={`dashboard-app-content min-w-0 pt-14 transition-all duration-300 sm:pt-16 ${isMobile ? 'mobile-app-content' : ''} ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-[calc(4rem+env(safe-area-inset-left,0px))]' : 'lg:ml-[calc(16rem+env(safe-area-inset-left,0px))]'}`}>
+        <div className={`dashboard-content-inner min-w-0 p-4 sm:p-6 ${hasMobileBottomNav ? 'mobile-content-with-nav' : ''}`}>
           <Outlet />
         </div>
       </main>
 
-      <ChatWidget />
+      <ChatWidget isMobile={isMobile} hasMobileNavigation={hasMobileBottomNav} />
     </div>
   )
 }

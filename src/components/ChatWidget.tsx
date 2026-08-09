@@ -5,7 +5,12 @@ import { askChatbot, type ChatMessage } from '@/lib/chat-api'
 
 // Assistente de IA flutuante — consulta dados reais do cronograma do projeto
 // atual via tool-calling no servidor (api/chat.ts), nunca "inventa" resposta.
-export default function ChatWidget() {
+interface ChatWidgetProps {
+  isMobile?: boolean
+  hasMobileNavigation?: boolean
+}
+
+export default function ChatWidget({ isMobile = false, hasMobileNavigation = false }: ChatWidgetProps) {
   const { currentProject } = useProjects()
   const [open, setOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -40,7 +45,7 @@ export default function ChatWidget() {
   return (
     <>
       {open && (
-        <div className="fixed bottom-24 right-6 z-50 w-[min(360px,calc(100vw-1.5rem))] max-h-[min(560px,calc(100vh-6rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden">
+        <div className={`chat-widget-panel fixed bottom-24 right-6 z-50 w-[min(360px,calc(100vw-1.5rem))] max-h-[min(560px,calc(100vh-6rem))] bg-white dark:bg-gray-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-700 flex flex-col overflow-hidden ${isMobile ? 'mobile-chat-panel' : ''} ${hasMobileNavigation ? 'mobile-chat-panel-with-nav' : ''}`}>
           <div className="flex items-center gap-2.5 px-4 py-3.5 bg-gray-900 dark:bg-gray-950 text-white">
             <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
             <div className="min-w-0">
@@ -104,7 +109,7 @@ export default function ChatWidget() {
 
       <button
         onClick={() => setOpen((o) => !o)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-600/30 flex items-center justify-center hover:scale-105 transition"
+        className={`chat-widget-button fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-blue-700 text-white shadow-lg shadow-blue-600/30 flex items-center justify-center hover:scale-105 transition ${isMobile ? 'mobile-chat-button' : ''} ${hasMobileNavigation ? 'mobile-chat-button-with-nav' : ''}`}
         title="Assistente do Projeto"
       >
         {open ? <X size={22} /> : <MessageCircle size={22} />}

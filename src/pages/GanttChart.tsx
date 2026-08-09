@@ -283,8 +283,8 @@ export default function GanttChartPage() {
     // As margens cancelam o padding responsivo do DashboardLayout — p-4 no
     // celular e p-6 a partir de sm — sem criar overflow lateral.
     // Livre é uma tela densa de planejamento, então usa a viewport inteira
-    // (menos o header fixo de 64px) em vez de sobrar moldura vazia ao redor.
-    <div className="-m-4 h-[calc(100dvh-4rem)] sm:-m-6">
+    // (menos o casco do app) em vez de sobrar moldura vazia ao redor.
+    <div className="gantt-page-viewport -m-4 sm:-m-6">
       <div className="bg-white dark:bg-slate-900 h-full overflow-hidden">
         <div className="h-full flex flex-col">
           <div className="relative">
