@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
@@ -9,7 +9,8 @@ import KPICards from '@/components/KPICards'
 import { StatusPieChart, MonthlyBarChart, ProgressAreaChart } from '@/components/Charts'
 import EngineeringHighlights from '@/components/EngineeringHighlights'
 import WorkforceSummary from '@/components/WorkforceSummary'
-import WbsTable from '@/components/WbsTable'
+import WbsTable, { type WbsQuickFilter } from '@/components/WbsTable'
+import DashboardAttention from '@/components/DashboardAttention'
 import WidgetFilterMenu from '@/components/WidgetFilterMenu'
 import { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
@@ -47,6 +48,24 @@ const WIDGET_DESCRICOES: Record<WidgetId, string> = {
 
 const SEM_FILTRO: WidgetFiltros = { cronograma: 'todos', colunas: [] }
 
+function temFiltroAtivo(filtros: WidgetFiltros | undefined): boolean {
+  return !!filtros && (filtros.cronograma !== 'todos' || filtros.colunas.length > 0)
+}
+
+function DashboardHomeSkeleton() {
+  return (
+    <div className="space-y-4 sm:space-y-6" role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">Carregando Visão Geral</span>
+      <div aria-hidden="true" className="h-36 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:hidden" />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => <div aria-hidden="true" key={index} className="h-28 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:h-36 sm:rounded-xl" />)}
+      </div>
+      <div aria-hidden="true" className="h-80 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:rounded-xl" />
+      <div aria-hidden="true" className="h-72 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:rounded-xl" />
+    </div>
+  )
+}
+
 function descreverFiltro(filtros: WidgetFiltros, cronogramasAtivos: CronogramaInfo[]): string {
   const partes: string[] = []
   if (filtros.cronograma !== 'todos') {
@@ -77,13 +96,31 @@ export default function DashboardHome() {
   const [isEditing, setIsEditing] = useState(false)
   const [draftWidgets, setDraftWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS)
   const [salvando, setSalvando] = useState(false)
+  const [configLoading, setConfigLoading] = useState(true)
   const [menuAberto, setMenuAberto] = useState<{ widgetId: WidgetId; x: number; y: number } | null>(null)
+  const [wbsQuickFilter, setWbsQuickFilter] = useState<WbsQuickFilter>('todas')
+  const [wbsSearchResetKey, setWbsSearchResetKey] = useState(0)
+  const wbsSectionRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     const organizacaoId = userProfile?.organizacao_id
-    if (!organizacaoId) return
-    loadDashboardConfig(organizacaoId).then(setSavedWidgets)
+    if (!organizacaoId) {
+      setConfigLoading(false)
+      return
+    }
+    let cancelled = false
+    setConfigLoading(true)
+    loadDashboardConfig(organizacaoId).then((widgets) => {
+      if (cancelled) return
+      setSavedWidgets(widgets)
+      setConfigLoading(false)
+    })
+    return () => { cancelled = true }
   }, [userProfile?.organizacao_id])
+
+  useEffect(() => {
+    if (!isMobile) setWbsQuickFilter('todas')
+  }, [isMobile])
 
   const activitiesParaFiltro = (filtros: WidgetFiltros | undefined): WBSActivity[] => {
     if (!filtros) return activities
@@ -162,11 +199,24 @@ export default function DashboardHome() {
     setMenuAberto({ widgetId, x: e.clientX, y: e.clientY })
   }
 
+  const abrirWbsComFiltro = (filter: WbsQuickFilter) => {
+    setWbsQuickFilter(filter)
+    setWbsSearchResetKey((key) => key + 1)
+    requestAnimationFrame(() => wbsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+  }
+
   const renderWidget = (w: WidgetConfig) => {
     switch (w.id) {
       case 'kpis':
         return <KPICards activities={activitiesParaFiltro(w.filtros)} />
       case 'charts':
+        if (isMobile) {
+          return (
+            <div className="rounded-b-xl border border-t-0 border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-xs text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400">
+              Gráficos demonstrativos ocultos no mobile.
+            </div>
+          )
+        }
         return (
           <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
             <StatusPieChart />
@@ -180,18 +230,27 @@ export default function DashboardHome() {
       case 'people-safety':
         return <WorkforceSummary />
       case 'wbs-table':
-        return <WbsTable activities={activitiesParaFiltro(w.filtros)} />
+        return (
+          <WbsTable
+            activities={activitiesParaFiltro(w.filtros)}
+            quickFilter={wbsQuickFilter}
+            onQuickFilterChange={setWbsQuickFilter}
+            searchResetKey={wbsSearchResetKey}
+          />
+        )
     }
   }
 
-  const widgetsExibidos = isEditing ? draftWidgets : savedWidgets.filter((w) => w.visible)
+  const widgetsBase = isEditing ? draftWidgets : savedWidgets.filter((w) => w.visible)
+  const widgetsExibidos = isMobile && !isEditing ? widgetsBase.filter((w) => w.id !== 'charts') : widgetsBase
   const widgetDoMenu = menuAberto ? draftWidgets.find((w) => w.id === menuAberto.widgetId) : undefined
 
   const renderWidgetFrame = (w: WidgetConfig, idx: number) => {
-    const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
+    const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && temFiltroAtivo(w.filtros)
     return (
       <div
         key={w.id}
+        ref={w.id === 'wbs-table' ? wbsSectionRef : undefined}
         className={isEditing && !w.visible ? 'opacity-40' : undefined}
         onContextMenu={isEditing && !isMobile ? (e) => abrirMenuFiltro(e, w.id) : undefined}
       >
@@ -244,10 +303,22 @@ export default function DashboardHome() {
             </div>
           </div>
         )}
+        {!isEditing && isMobile && temFiltro && w.filtros && (
+          <div className="mb-2 flex items-start gap-1.5 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-medium leading-relaxed text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
+            <Filter size={13} className="mt-0.5 shrink-0" />
+            <span>Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}</span>
+          </div>
+        )}
         {renderWidget(w)}
       </div>
     )
   }
+
+  if (configLoading) return <DashboardHomeSkeleton />
+
+  const wbsWidget = widgetsExibidos.find((widget) => widget.id === 'wbs-table' && widget.visible)
+  const wbsVisivel = !!wbsWidget
+  const attentionActivities = wbsWidget ? activitiesParaFiltro(wbsWidget.filtros) : activities
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -281,12 +352,20 @@ export default function DashboardHome() {
         </div>
       )}
 
+      {isMobile && !isEditing && (
+        <DashboardAttention
+          activities={attentionActivities}
+          onOpenLate={wbsVisivel ? () => abrirWbsComFiltro('atrasadas') : undefined}
+          onOpenActive={wbsVisivel ? () => abrirWbsComFiltro('em-andamento') : undefined}
+        />
+      )}
+
       {isMobile ? (
         widgetsExibidos.map(renderWidgetFrame)
       ) : (
         <TooltipProvider delayDuration={300}>
           {widgetsExibidos.map((w, idx) => {
-            const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
+            const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && temFiltroAtivo(w.filtros)
             return (
               <Tooltip key={w.id}>
                 <TooltipTrigger asChild>{renderWidgetFrame(w, idx)}</TooltipTrigger>

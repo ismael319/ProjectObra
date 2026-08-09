@@ -42,7 +42,17 @@ export default function WorkforceSummary() {
     }
   }, [resources, laborEntries])
 
-  if (resources.length === 0 && laborEntries.length === 0) return null
+  if (resources.length === 0 && laborEntries.length === 0) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Users size={18} className="text-amber-600 dark:text-amber-400" />
+          <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Resumo do Efetivo</h2>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum recurso ou apontamento registrado.</p>
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">

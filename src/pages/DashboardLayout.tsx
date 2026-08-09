@@ -30,6 +30,10 @@ export default function DashboardLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [syncedProjectKey, setSyncedProjectKey] = useState<string | null>(null)
+  const projectSyncKey = currentProject
+    ? `${currentProject.id}:${(currentProject.cronogramas || []).map((cronograma) => `${cronograma.id}:${cronograma.versao}:${cronograma.ativo}:${cronograma.dataUpload}`).join('|')}`
+    : null
 
   useEffect(() => {
     if (!podeAcessarSistema) return
@@ -62,6 +66,7 @@ export default function DashboardLayout() {
     if (isLoadingProjects || isHydratingCurrentProject) return
 
     if (!currentProject) {
+      setSyncedProjectKey(null)
       navigate('/projects')
       return
     }
@@ -75,6 +80,7 @@ export default function DashboardLayout() {
       if (fallback && (!project || project !== fallback)) {
         setProject(fallback)
       }
+      setSyncedProjectKey(projectSyncKey)
       return
     }
 
@@ -85,9 +91,10 @@ export default function DashboardLayout() {
     } else {
       setMultipleProjects(dadosAtivos)
     }
-  }, [currentProject, isInsercaoPontual, isLoadingProjects, isHydratingCurrentProject])
+    setSyncedProjectKey(projectSyncKey)
+  }, [currentProject, isInsercaoPontual, isLoadingProjects, isHydratingCurrentProject, projectSyncKey])
 
-  if (!isInsercaoPontual && (isLoadingProjects || isHydratingCurrentProject)) {
+  if (!isInsercaoPontual && (isLoadingProjects || isHydratingCurrentProject || (currentProject && syncedProjectKey !== projectSyncKey))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Loader2 className="animate-spin text-blue-600" size={40} />

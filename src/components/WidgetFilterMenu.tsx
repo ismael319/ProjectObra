@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { GripVertical, X } from 'lucide-react'
+import { GripVertical, RotateCcw, X } from 'lucide-react'
 import { FILTERABLE_WIDGETS, type WidgetFiltros, type WidgetId } from '@/lib/dashboard-config'
 import ColumnValueFilter from '@/components/ColumnValueFilter'
 import type { CronogramaInfo } from '@/lib/project-store'
@@ -102,6 +102,7 @@ export default function WidgetFilterMenu({
   }
 
   const suportaFiltros = FILTERABLE_WIDGETS.includes(widgetId)
+  const activeFilterCount = (filtros.cronograma === 'todos' ? 0 : 1) + filtros.colunas.length
 
   // Só os cronogramas que entram no cálculo deste card — quando um cronograma
   // específico está selecionado, as colunas/valores disponíveis vêm só dele
@@ -170,6 +171,17 @@ export default function WidgetFilterMenu({
           ) : (
             <p className="text-xs text-gray-400 dark:text-gray-500 py-1">Nenhum cronograma disponível para filtrar.</p>
           )}
+          <div className="flex items-center justify-between border-t border-gray-100 pt-2 dark:border-gray-700">
+            <span className="text-[11px] text-gray-500 dark:text-gray-400">{activeFilterCount} filtro{activeFilterCount === 1 ? '' : 's'} ativo{activeFilterCount === 1 ? '' : 's'}</span>
+            <button
+              type="button"
+              onClick={() => onChange({ cronograma: 'todos', colunas: [] })}
+              disabled={activeFilterCount === 0}
+              className="flex min-h-11 items-center gap-1.5 rounded-lg px-2 text-xs font-semibold text-blue-600 disabled:opacity-40 dark:text-blue-400 sm:min-h-0 sm:py-1"
+            >
+              <RotateCcw size={13} /> Limpar filtros
+            </button>
+          </div>
         </div>
       )}
     </div>

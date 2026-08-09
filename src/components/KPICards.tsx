@@ -1,6 +1,8 @@
 import { TrendingUp, TrendingDown, FolderKanban, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { getActivityStatus, isActivityLate } from '@/lib/dashboard-insights'
+import { useToday } from '@/lib/use-today'
 
 type Props = {
   // Sobrescreve as atividades usadas nos cálculos (ex.: filtro por cronograma/
@@ -10,12 +12,13 @@ type Props = {
 
 export default function KPICards({ activities: activitiesProp }: Props = {}) {
   const { activities: activitiesContexto, indices } = useProject()
+  const today = useToday()
   const activities = activitiesProp ?? activitiesContexto
 
   const totalActivities = activities.filter((a) => !a.isSummary).length
-  const activeActivities = activities.filter((a) => !a.isSummary && a.percentComplete > 0 && a.percentComplete < 100).length
+  const activeActivities = activities.filter((a) => !a.isSummary && getActivityStatus(a, today) === 'em-andamento').length
   const completedActivities = activities.filter((a) => !a.isSummary && a.percentComplete === 100).length
-  const delayedActivities = activities.filter((a) => !a.isSummary && a.finish < new Date() && a.percentComplete < 100).length
+  const delayedActivities = activities.filter((a) => isActivityLate(a, today)).length
 
   const kpis = [
     {
@@ -65,7 +68,7 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
       {kpis.map((kpi) => (
         <div
           key={kpi.title}
-          className="group relative min-h-[150px] overflow-hidden rounded-2xl border border-gray-100 bg-white p-3.5 shadow-card transition-all duration-200 dark:border-gray-700/80 dark:bg-gray-800 sm:min-h-0 sm:rounded-xl sm:p-6 sm:hover:-translate-y-0.5 sm:hover:shadow-card-hover"
+          className={`group relative min-h-[124px] overflow-hidden rounded-2xl border bg-white p-3 shadow-card transition-all duration-200 dark:bg-gray-800 sm:min-h-0 sm:rounded-xl sm:border-gray-100 sm:bg-none sm:bg-white sm:p-6 sm:hover:-translate-y-0.5 sm:hover:shadow-card-hover sm:dark:border-gray-700/80 sm:dark:bg-gray-800 ${kpi.title === 'Atrasadas' && delayedActivities > 0 ? 'border-red-200 bg-gradient-to-br from-white to-red-50/70 dark:border-red-500/30 dark:from-gray-800 dark:to-red-500/5' : 'border-gray-100 dark:border-gray-700/80'}`}
         >
           <div
             className="absolute top-0 left-0 right-0 h-[3px] opacity-80"
@@ -86,11 +89,11 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
               {kpi.change}
             </span>
           </div>
-          <div className="mt-3 sm:mt-4">
-            <h3 className="text-[1.75rem] font-extrabold leading-none tracking-tight text-gray-900 dark:text-white sm:text-3xl sm:leading-9">{kpi.value}</h3>
+          <div className="mt-2.5 sm:mt-4">
+            <h3 className="text-[1.625rem] font-extrabold leading-none tracking-tight text-gray-900 dark:text-white sm:text-3xl sm:leading-9">{kpi.value}</h3>
             <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-600 dark:text-gray-300 sm:mt-1 sm:text-sm sm:font-medium sm:leading-5 sm:text-gray-500 sm:dark:text-gray-400">{kpi.title}</p>
             <div
-              className={`mt-3 flex items-center gap-1 text-[11px] font-medium leading-none sm:hidden ${
+              className={`mt-2.5 flex items-center gap-1 text-[10px] font-medium leading-none sm:hidden ${
                 kpi.trend === 'up'
                   ? 'text-green-700 dark:text-green-400'
                   : 'text-red-700 dark:text-red-400'
