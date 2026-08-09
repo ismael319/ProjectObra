@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react';
-import { ArrowRight, ArrowUp, GitBranch, Link2Off, MoveDown, MoveUp, Palette, Pencil, Users } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ArrowRight, ArrowUp, GitBranch, Link2Off, ListPlus, MoveDown, MoveUp, Palette, Pencil, Trash2, Users } from 'lucide-react';
 import type { Dependencia } from '@/lib/gantt/supabase';
 
 type Props = {
@@ -15,6 +15,8 @@ type Props = {
   onManageEquipes: () => void;
   onChangeColor: () => void;
   onAddAcima: () => void;
+  onAddSubitem: () => void;
+  onDelete: () => void;
   onMoverCima: () => void;
   onMoverBaixo: () => void;
   onStartSetPredecessora: () => void;
@@ -35,6 +37,8 @@ export function ContextMenu({
   onManageEquipes,
   onChangeColor,
   onAddAcima,
+  onAddSubitem,
+  onDelete,
   onMoverCima,
   onMoverBaixo,
   onStartSetPredecessora,
@@ -42,18 +46,33 @@ export function ContextMenu({
   onRemoveDependencia,
 }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const rect = menu.getBoundingClientRect();
+    setPosition({
+      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
+    });
+  }, [x, y, predecessoras.length]);
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
+    const handler = (e: PointerEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onClose();
       }
     };
-    window.addEventListener('mousedown', handler);
-    window.addEventListener('contextmenu', handler);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    menuRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    window.addEventListener('pointerdown', handler);
+    window.addEventListener('keydown', handleKeyDown);
     return () => {
-      window.removeEventListener('mousedown', handler);
-      window.removeEventListener('contextmenu', handler);
+      window.removeEventListener('pointerdown', handler);
+      window.removeEventListener('keydown', handleKeyDown);
     };
   }, [onClose]);
 
@@ -62,8 +81,10 @@ export function ContextMenu({
   return (
     <div
       ref={menuRef}
-      className="fixed z-50 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-xl py-1 min-w-[220px]"
-      style={{ left: x, top: y }}
+      role="menu"
+      aria-label={`Ações de ${atividadeNome}`}
+      className="fixed z-50 max-h-[calc(100dvh-16px)] min-w-[220px] overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-xl dark:border-slate-600 dark:bg-slate-800"
+      style={position}
     >
       <div className="px-3 py-1.5 text-xs text-gray-400 dark:text-slate-400 border-b border-gray-100 dark:border-slate-700 truncate">
         {atividadeNome}
@@ -99,6 +120,14 @@ export function ContextMenu({
       >
         <ArrowUp size={14} className="text-teal-500 dark:text-teal-400" />
         Adicionar tarefa acima
+      </button>
+
+      <button
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-900 transition-colors hover:bg-gray-100 dark:text-white dark:hover:bg-slate-700"
+        onClick={() => { onAddSubitem(); onClose(); }}
+      >
+        <ListPlus size={14} className="text-blue-500 dark:text-blue-400" />
+        Adicionar sub-item
       </button>
 
       <button
@@ -160,6 +189,15 @@ export function ContextMenu({
           })}
         </>
       )}
+
+      <div className="my-1 border-t border-gray-100 dark:border-slate-700" />
+      <button
+        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 transition-colors hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+        onClick={() => { onDelete(); onClose(); }}
+      >
+        <Trash2 size={14} />
+        Excluir atividade
+      </button>
     </div>
   );
 }

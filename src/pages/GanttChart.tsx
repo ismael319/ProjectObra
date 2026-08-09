@@ -51,8 +51,12 @@ export default function GanttChartPage() {
   const { loading, error, loadAll, atividades, equipes, activeScenarioId, updateAtividade } = useGanttStore();
   const [granularidade, setGranularidade] = useState<Granularidade>('semana');
   const [showImportModal, setShowImportModal] = useState(false);
-  const [equipesOpen, setEquipesOpen] = useState(true);
-  const [labelWidth, setLabelWidth] = useState(() => Math.min(DEFAULT_LABEL_WIDTH, Math.max(200, window.innerWidth - 160)));
+  const [equipesOpen, setEquipesOpen] = useState(() => window.innerWidth >= 1024);
+  const [labelWidth, setLabelWidth] = useState(() => (
+    window.innerWidth < 640
+      ? Math.min(220, Math.max(176, window.innerWidth * 0.56))
+      : Math.min(DEFAULT_LABEL_WIDTH, Math.max(200, window.innerWidth - 160))
+  ));
   const { presentationMode, setPresentationMode } = usePresentationMode();
   const ganttScrollRef = useRef<HTMLDivElement>(null);
   const histogramaScrollRef = useRef<HTMLDivElement>(null);
@@ -110,6 +114,22 @@ export default function GanttChartPage() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 639px)');
+    const compactar = (mobile: boolean) => {
+      if (mobile) {
+        setEquipesOpen(false);
+        setLabelWidth((atual) => Math.min(atual, Math.max(176, window.innerWidth * 0.56)));
+      } else {
+        setLabelWidth((atual) => Math.max(atual, Math.min(DEFAULT_LABEL_WIDTH, Math.max(200, window.innerWidth - 160))));
+      }
+    };
+    const handleChange = (event: MediaQueryListEvent) => compactar(event.matches);
+    compactar(media.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     if (scenarioAtividades.length === 0) return;
@@ -260,10 +280,11 @@ export default function GanttChartPage() {
   }
 
   return (
-    // -m-6 cancela o padding do <main> do DashboardLayout (p-6) — o Gantt
+    // As margens cancelam o padding responsivo do DashboardLayout — p-4 no
+    // celular e p-6 a partir de sm — sem criar overflow lateral.
     // Livre é uma tela densa de planejamento, então usa a viewport inteira
     // (menos o header fixo de 64px) em vez de sobrar moldura vazia ao redor.
-    <div className="-m-6" style={{ height: 'calc(100vh - 4rem)' }}>
+    <div className="-m-4 h-[calc(100dvh-4rem)] sm:-m-6">
       <div className="bg-white dark:bg-slate-900 h-full overflow-hidden">
         <div className="h-full flex flex-col">
           <div className="relative">
@@ -271,14 +292,14 @@ export default function GanttChartPage() {
             <button
               onClick={handleTogglePresentation}
               title={presentationMode ? 'Sair do modo apresentação' : 'Modo apresentação (esconde a barra lateral do app)'}
-              className={`absolute right-2 top-2 z-10 flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md transition-colors ${
+              className={`absolute right-2 top-1 z-10 flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-2.5 text-xs transition-colors sm:top-2 sm:min-h-0 sm:min-w-0 sm:py-1.5 ${
                 presentationMode
                   ? 'bg-blue-600 text-white hover:bg-blue-500'
                   : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200/60 dark:hover:bg-slate-700/50'
               }`}
             >
               {presentationMode ? <X size={14} /> : <Presentation size={14} />}
-              {presentationMode ? 'Sair da apresentação' : 'Apresentação'}
+              <span className="sr-only sm:not-sr-only">{presentationMode ? 'Sair da apresentação' : 'Apresentação'}</span>
             </button>
           </div>
           <input
@@ -300,20 +321,20 @@ export default function GanttChartPage() {
             onImportExcel={() => excelFileRef.current?.click()}
             onImportCronograma={() => setShowImportModal(true)}
           />
-          <div className="flex flex-1 overflow-hidden">
+          <div className="flex min-w-0 flex-1 overflow-hidden">
             {equipesOpen ? (
               <EquipesSidebar onCollapse={() => setEquipesOpen(false)} />
             ) : (
               <button
                 onClick={() => setEquipesOpen(true)}
-                className="shrink-0 w-8 flex flex-col items-center justify-center gap-2 bg-gray-50 dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+                className="flex w-11 shrink-0 flex-col items-center justify-center gap-2 border-r border-gray-200 bg-gray-50 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-900 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white sm:w-8"
                 title="Mostrar equipes"
               >
                 <PanelLeftOpen size={16} />
                 <span className="text-[10px] font-medium tracking-wide uppercase [writing-mode:vertical-rl]">Equipes</span>
               </button>
             )}
-            <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
               <div className="flex-1 overflow-hidden">
                 <GanttLivro
                   granularidade={granularidade}

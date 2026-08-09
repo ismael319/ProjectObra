@@ -29,12 +29,12 @@ export function Toolbar({
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="flex flex-wrap items-center gap-1 px-3 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+    <div className="flex flex-wrap items-center gap-1 border-b border-gray-200 bg-gray-50 px-2 py-2 dark:border-slate-700 dark:bg-slate-800 sm:px-3">
       <Tooltip>
         <TooltipTrigger asChild>
           <button
             onClick={onImportCronograma}
-            className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+            className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white sm:min-h-0"
           >
             <Calendar size={16} /> Cronograma
           </button>
@@ -49,7 +49,7 @@ export function Toolbar({
         <TooltipTrigger asChild>
           <button
             onClick={onPrint}
-            className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+            className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white sm:min-h-0"
           >
             <Printer size={16} /> Imprimir
           </button>
@@ -61,7 +61,7 @@ export function Toolbar({
           <TooltipTrigger asChild>
             <button
               onClick={() => setExcelMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-3 py-1.5 rounded-md transition-colors"
+              className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white sm:min-h-0"
             >
               <FileSpreadsheet size={16} /> Excel
             </button>
@@ -91,7 +91,7 @@ export function Toolbar({
       <div className="w-px h-6 bg-gray-200 dark:bg-slate-700" />
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex items-center gap-1">
+          <div className="flex shrink-0 items-center gap-1">
             {granOptions.map((opt) => {
               const Icon = opt.icon;
               const active = granularidade === opt.value;
@@ -99,7 +99,7 @@ export function Toolbar({
                 <button
                   key={opt.value}
                   onClick={() => onGranularidadeChange(opt.value)}
-                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md transition-colors ${
+                  className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition-colors sm:min-h-0 ${
                     active
                       ? 'bg-blue-600 text-white'
                       : 'text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700'

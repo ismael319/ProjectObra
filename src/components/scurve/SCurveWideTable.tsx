@@ -36,7 +36,7 @@ function abbreviateBLLabel(label: string): string {
 const COL1_WIDTH = 260
 
 export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit, defaultOpen = true }: SCurveWideTableProps) {
-  const [open, setOpen] = useState(defaultOpen)
+  const [open, setOpen] = useState(() => defaultOpen && !window.matchMedia('(max-width: 639px)').matches)
 
   if (curveData.length === 0) return null
 
@@ -66,13 +66,13 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
   rows.push({ metric: 'Trabalho real acumulado', total: last.actual, values: curveData.map((p) => p.actual) })
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
       <div className="flex items-center justify-between gap-2 mb-1">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex-1 flex items-center justify-between gap-2 group min-w-0"
+          className="group flex min-h-11 min-w-0 flex-1 items-center justify-between gap-2 sm:min-h-0"
         >
-          <h3 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 min-w-0">
+          <h3 className="flex min-w-0 items-center gap-2 text-base font-semibold text-gray-900 dark:text-white sm:text-lg">
             {color && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />}
             <span className="truncate">{title}</span>
           </h3>
@@ -85,9 +85,9 @@ export function SCurveWideTable({ title, color, curveData, selectedBLInfo, unit,
         <button
           onClick={async () => { await exportWideTableToExcel(title, rows, curveData.map((p) => p.label), unitSuffix) }}
           title={`Exportar valores em ${unitSuffix}`}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition shrink-0"
+          className="flex min-h-11 shrink-0 items-center gap-1.5 rounded-lg border border-gray-200 px-2.5 py-1.5 text-xs font-medium text-gray-600 transition hover:bg-gray-50 dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-700 sm:min-h-0"
         >
-          <Download size={13} /> Exportar ({unitSuffix})
+          <Download size={13} /> <span className="hidden sm:inline">Exportar ({unitSuffix})</span><span className="sm:hidden">Exportar</span>
         </button>
       </div>
       <p className="text-xs text-gray-400 dark:text-gray-500 mb-3">

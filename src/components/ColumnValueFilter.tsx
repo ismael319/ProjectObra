@@ -207,7 +207,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
       <div className="flex items-center justify-between mb-2">
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 cursor-help underline decoration-dotted underline-offset-2">
+            <span className="cursor-help text-xs font-medium text-gray-500 underline decoration-dotted underline-offset-2 dark:text-gray-400">
               Filtrar por Coluna
             </span>
           </TooltipTrigger>
@@ -224,7 +224,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
           {filters.map((f) => (
             <span
               key={f.key}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-[11px] text-blue-700 dark:text-blue-300"
+              className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300"
             >
               <span className="font-medium">{f.label}:</span>
               <span className="max-w-[140px] truncate">
@@ -242,7 +242,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
         <button
           type="button"
           onClick={startAdd}
-          className="flex items-center gap-1.5 text-[11px] font-medium text-blue-600 dark:text-blue-400 hover:underline"
+          className="flex min-h-10 items-center gap-1.5 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400 sm:min-h-0"
         >
           <Plus size={13} /> Adicionar filtro por coluna
         </button>
@@ -252,7 +252,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
             <>
               {topUsed.length > 0 && !columnSearch && (
                 <div className="mb-2 pb-2 border-b border-gray-100 dark:border-gray-700">
-                  <div className="flex items-center gap-1 text-[10px] font-medium text-gray-400 dark:text-gray-500 mb-1">
+                  <div className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-400 dark:text-gray-500">
                     <Clock size={11} /> Mais usados
                   </div>
                   <div className="space-y-0.5">
@@ -307,7 +307,7 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
             <>
               <button
                 onClick={() => setStep('column')}
-                className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 hover:underline mb-2"
+                className="mb-2 flex min-h-10 items-center gap-1 text-xs text-gray-500 hover:underline dark:text-gray-400 sm:min-h-0"
               >
                 <ChevronLeft size={12} /> {allColumns.find((c) => c.key === pendingKey)?.label}
               </button>
@@ -333,13 +333,13 @@ export default function ColumnValueFilter({ sources, filters, onChange }: Column
                 )}
               </div>
               <div className="flex justify-end gap-2">
-                <button onClick={resetAdd} className="text-[11px] text-gray-500 dark:text-gray-400 hover:underline px-2 py-1">
+                <button onClick={resetAdd} className="min-h-10 px-2 py-1 text-xs text-gray-500 hover:underline dark:text-gray-400 sm:min-h-0">
                   Cancelar
                 </button>
                 <button
                   onClick={confirmAdd}
                   disabled={pendingValues.size === 0}
-                  className="text-[11px] font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed rounded-md px-3 py-1"
+                  className="min-h-10 rounded-md bg-blue-600 px-3 py-1 text-xs font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
                 >
                   Adicionar
                 </button>

@@ -574,7 +574,7 @@ export default function SCurve() {
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="space-y-6">
+    <div className="space-y-4 sm:space-y-6">
       <SCurveHeader
         projectName={project.nome}
         unit={unit}
@@ -582,14 +582,14 @@ export default function SCurve() {
         scheduleInfo={scheduleInfo}
       />
 
-      <div className="flex items-center gap-2">
+      <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center">
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Modo de exibição</span>
-        <div className="inline-flex rounded-lg border border-gray-200 dark:border-gray-700 overflow-hidden">
+        <div className="inline-flex max-w-full overflow-hidden rounded-lg border border-gray-200 dark:border-gray-700">
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 onClick={() => handleShowTableChange(false)}
-                className={`px-3 py-1.5 text-xs font-medium transition ${!showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                className={`min-h-11 px-3 py-1.5 text-xs font-medium transition sm:min-h-0 ${!showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
               >
                 Modo geral
               </button>
@@ -603,7 +603,7 @@ export default function SCurve() {
             <TooltipTrigger asChild>
               <button
                 onClick={() => handleShowTableChange(true)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition border-l border-gray-200 dark:border-gray-700 ${showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
+                className={`flex min-h-11 items-center gap-1.5 border-l border-gray-200 px-3 py-1.5 text-xs font-medium transition dark:border-gray-700 sm:min-h-0 ${showTable ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}
               >
                 <Table2 size={13} /> Modo de planejamento
               </button>
@@ -629,9 +629,9 @@ export default function SCurve() {
       )}
 
       {/* S-Curve Chart */}
-      <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+      <div className="rounded-xl border border-gray-100 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-1">
-          <h3 className="text-xl font-semibold text-gray-900 dark:text-white">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white sm:text-xl">
             Curva S - Percentual Acumulado (%)
           </h3>
           <div className="flex flex-wrap items-center gap-3">

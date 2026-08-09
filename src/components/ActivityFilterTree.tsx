@@ -91,7 +91,7 @@ function Row({ node, excluded, onToggle, expanded, onToggleExpand, searchTerm }:
           <span className="w-3.5 flex-shrink-0" />
         )}
         <TriStateCheckbox checked={checked} indeterminate={indeterminate} onChange={() => onToggle(leafUids, !checked)} />
-        <span className="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0 w-14 truncate" title={activity.wbs}>
+        <span className="w-14 flex-shrink-0 truncate font-mono text-xs text-gray-400 dark:text-gray-500" title={activity.wbs}>
           {activity.wbs}
         </span>
         <span className={`text-xs truncate ${activity.isSummary ? 'font-semibold text-gray-800 dark:text-gray-100' : 'text-gray-600 dark:text-gray-300'}`}>
@@ -155,8 +155,8 @@ export default function ActivityFilterTree({ activities, excluded, onChange }: A
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">Filtrar Atividades</span>
-        <span className="text-[10px] text-gray-400 dark:text-gray-500">
+        <span className="text-xs font-medium text-gray-500 dark:text-gray-400">Filtrar Atividades</span>
+        <span className="text-xs text-gray-400 dark:text-gray-500">
           {includedCount} de {allLeafUids.length} incluídas
         </span>
       </div>
@@ -178,11 +178,11 @@ export default function ActivityFilterTree({ activities, excluded, onChange }: A
       </div>
 
       <div className="flex items-center gap-2 mb-2">
-        <button onClick={() => onChange(new Set())} className="text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:underline">
+        <button onClick={() => onChange(new Set())} className="min-h-10 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400 sm:min-h-0">
           Incluir todas
         </button>
         <span className="text-gray-300 dark:text-gray-600">|</span>
-        <button onClick={() => onChange(new Set(allLeafUids))} className="text-[10px] font-medium text-blue-600 dark:text-blue-400 hover:underline">
+        <button onClick={() => onChange(new Set(allLeafUids))} className="min-h-10 text-xs font-medium text-blue-600 hover:underline dark:text-blue-400 sm:min-h-0">
           Excluir todas
         </button>
       </div>

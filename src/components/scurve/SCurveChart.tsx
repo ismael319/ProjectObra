@@ -128,7 +128,7 @@ export function SCurveChart({
 
   if (chartData.length === 0) {
     return (
-      <div className="h-[640px] flex items-center justify-center text-gray-400">
+      <div className="flex h-[360px] items-center justify-center text-gray-400 sm:h-[500px] xl:h-[640px]">
         Sem dados para exibir
       </div>
     )
@@ -136,7 +136,7 @@ export function SCurveChart({
 
   return (
     <>
-      <div className="h-[640px]" ref={chartContainerRef}>
+      <div className="h-[360px] sm:h-[500px] xl:h-[640px]" ref={chartContainerRef}>
         <ResponsiveContainer width="100%" height="100%">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           <ComposedChart data={chartData} onMouseMove={(state: any) => {
@@ -251,7 +251,7 @@ export function SCurveChart({
       </div>
       {tooltipState?.active && chartContainerRef.current && (() => {
         const rect = chartContainerRef.current!.getBoundingClientRect()
-        const tooltipWidth = 380
+        const tooltipWidth = Math.min(380, window.innerWidth - 16)
         const tooltipHeight = 260
         const margin = 12
 

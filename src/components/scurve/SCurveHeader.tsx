@@ -34,7 +34,7 @@ export function SCurveHeader({ projectName, overallPace, scheduleInfo }: SCurveH
     <div className="flex flex-col gap-3">
       <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Curva S</h1>
+          <h1 className="text-xl font-bold text-gray-900 dark:text-white sm:text-2xl">Curva S</h1>
           <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">Análise de Earned Value - {projectName}</p>
         </div>
         {overallPace?.terminoLabel && (
@@ -47,7 +47,25 @@ export function SCurveHeader({ projectName, overallPace, scheduleInfo }: SCurveH
       </div>
 
       {scheduleInfo.length > 0 && (
-        <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-x-auto">
+        <>
+        <div className="grid gap-2 sm:hidden">
+          {scheduleInfo.map((s) => (
+            <div key={s.id} className="rounded-lg border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900">
+              <div className="mb-3 flex min-w-0 items-center gap-2 font-semibold text-gray-800 dark:text-gray-200">
+                <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: s.cor }} />
+                <span className="truncate">{s.nome}</span>
+              </div>
+              <dl className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs">
+                <div><dt className="text-gray-400">Início</dt><dd className="font-medium text-gray-700 dark:text-gray-300">{fmtDate(s.start)}</dd></div>
+                <div><dt className="text-gray-400">Término</dt><dd className="font-medium text-gray-700 dark:text-gray-300">{fmtDate(s.finish)}</dd></div>
+                <div><dt className="text-gray-400">Término LB</dt><dd className="font-medium text-gray-700 dark:text-gray-300">{fmtDate(s.blFinish)}</dd></div>
+                <div><dt className="text-purple-500">Avanço real</dt><dd className="font-semibold text-purple-600 dark:text-purple-400">{fmtPct(s.realPct)}</dd></div>
+                <div><dt className="text-blue-500">Avanço BL0</dt><dd className="font-semibold text-blue-600 dark:text-blue-400">{fmtPct(s.plannedPct)}</dd></div>
+              </dl>
+            </div>
+          ))}
+        </div>
+        <div className="hidden overflow-x-auto rounded-lg border border-gray-200 dark:border-gray-700 sm:block">
           <table className="w-full text-xs border-collapse">
             <thead>
               <tr className="bg-gray-50 dark:bg-gray-800/60">
@@ -100,6 +118,7 @@ export function SCurveHeader({ projectName, overallPace, scheduleInfo }: SCurveH
             </tbody>
           </table>
         </div>
+        </>
       )}
     </div>
   )

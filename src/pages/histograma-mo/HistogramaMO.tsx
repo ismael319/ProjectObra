@@ -89,7 +89,7 @@ const HORAS_SEMANAIS_PADRAO = 44
 // empilhados na mesma célula); DATA_ROW_H cobre Planejado e Real.
 const HEADER_ROW_H = 22
 const HEADER_WEEK_ROW_H = 34
-const DATA_ROW_H = 44
+const DATA_ROW_H = 60
 
 interface Semana {
   iso: string
@@ -892,7 +892,7 @@ export default function HistogramaMO() {
               barra "invadindo" a área do cargo. As alturas de linha são fixas
               (HEADER_ROW_H/DATA_ROW_H) pra alinhar as linhas entre os dois painéis. */}
           {semanas.length > 0 && cargosPorCategoria.map((grupo) => (
-              <Card key={grupo.chave} className="overflow-hidden">
+                <Card key={grupo.chave} className="overflow-hidden">
                 <div className="px-4 py-2 bg-muted/50 font-semibold text-sm">{CATEGORIA_GRUPO_LABEL[grupo.chave]}</div>
                 <CardContent className="p-0">
                   <div className="flex">
@@ -900,9 +900,9 @@ export default function HistogramaMO() {
                       <table className="text-xs border-collapse">
                         <thead>
                           <tr className="border-b" style={{ height: HEADER_ROW_H * 2 + HEADER_WEEK_ROW_H }}>
-                            <th className="text-left px-3 py-2 w-36 align-bottom">Cargo</th>
+                            <th className="w-28 px-2 py-2 text-left align-bottom sm:w-36 sm:px-3">Cargo</th>
                             <th
-                              className="text-center px-2 py-2 w-16 align-bottom"
+                              className="w-14 px-1 py-2 text-center align-bottom sm:w-16 sm:px-2"
                               title="Soma de todo o período — Planejado e Real somam cada semana lançada"
                             >
                               Total
@@ -915,16 +915,16 @@ export default function HistogramaMO() {
                             return (
                               <Fragment key={cargo.id}>
                                 <tr className="border-b border-border/50 bg-muted/40" style={{ height: DATA_ROW_H }}>
-                                  <td className="px-3 py-1.5 w-36 truncate" title={cargo.nome}>
+                                  <td className="w-28 truncate px-2 py-1.5 sm:w-36 sm:px-3" title={cargo.nome}>
                                     <span className="font-medium">{cargo.nome}</span>
-                                    <span className="block text-[10px] text-blue-600 dark:text-blue-400">Planejado (semana)</span>
+                                    <span className="block text-xs text-blue-600 dark:text-blue-400">Planejado</span>
                                   </td>
                                   <td className="px-2 py-1.5 text-center font-semibold text-blue-600 dark:text-blue-400" title="Total planejado no período (soma das semanas)">
                                     {total.planejado}
                                   </td>
                                 </tr>
                                 <tr className="border-b" style={{ height: DATA_ROW_H }}>
-                                  <td className="px-3 py-1.5 w-36 text-muted-foreground text-[11px] truncate" title={cargo.nome}>Real (semana)</td>
+                                  <td className="w-28 truncate px-2 py-1.5 text-xs text-muted-foreground sm:w-36 sm:px-3" title={cargo.nome}>Real</td>
                                   <td className="px-2 py-1.5 text-center font-semibold text-red-600 dark:text-red-400" title="Total real apontado no período (soma das semanas)">
                                     {total.real}
                                   </td>
@@ -956,7 +956,7 @@ export default function HistogramaMO() {
                           <tr className="border-b" style={{ height: HEADER_WEEK_ROW_H }}>
                             {semanas.map((s) => (
                               <th key={s.iso} className="px-2 text-center min-w-[64px] font-medium text-muted-foreground" title={`Semana ISO ${s.isoYear}-${String(s.isoWeek).padStart(2, '0')} — mesmo cálculo da Curva S`}>
-                                <div className="text-[9px] font-normal text-muted-foreground/70">{s.isoYear}-{String(s.isoWeek).padStart(2, '0')}</div>
+                                <div className="text-[11px] font-normal text-muted-foreground/70">{s.isoYear}-{String(s.isoWeek).padStart(2, '0')}</div>
                                 <div>{s.label}</div>
                               </th>
                             ))}
@@ -978,7 +978,7 @@ export default function HistogramaMO() {
                                           value={valor}
                                           disabled={!podeEditarPlano || !baselineAtiva}
                                           onChange={(e) => handlePlanejadoChange(cargo.id, s.iso, e.target.value)}
-                                          className="w-14 rounded border border-input bg-background text-center text-blue-600 dark:text-blue-400 disabled:opacity-50"
+                                          className="h-9 w-16 rounded border border-input bg-background text-center text-blue-600 disabled:opacity-50 dark:text-blue-400 sm:h-auto sm:w-14"
                                         />
                                       </td>
                                     )
@@ -997,7 +997,7 @@ export default function HistogramaMO() {
                                           value={valor}
                                           disabled={!podeEditarReal}
                                           onChange={(e) => handleRealChange(cargo.id, s.iso, e.target.value)}
-                                          className="w-14 rounded border border-input bg-background text-center text-red-600 dark:text-red-400 disabled:opacity-50"
+                                          className="h-9 w-16 rounded border border-input bg-background text-center text-red-600 disabled:opacity-50 dark:text-red-400 sm:h-auto sm:w-14"
                                         />
                                         {/* Espaço sempre reservado (mesmo sem sugestão) pra linha não mudar de
                                             altura conforme a semana/cargo — o painel Cargo/Total, numa tabela
@@ -1009,7 +1009,7 @@ export default function HistogramaMO() {
                                               disabled={!podeEditarReal}
                                               title="Vem do Cadastro de Funcionários (Administração) — clique pra usar esse valor"
                                               onClick={() => handleRealChange(cargo.id, s.iso, String(referencia))}
-                                              className="block w-full text-center text-[10px] text-muted-foreground hover:text-primary underline decoration-dotted disabled:pointer-events-none"
+                                              className="block w-full text-center text-[11px] text-muted-foreground underline decoration-dotted hover:text-primary disabled:pointer-events-none"
                                             >
                                               Cadastro: {referencia}
                                             </button>

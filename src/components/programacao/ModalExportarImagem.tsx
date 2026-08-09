@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Loader2, Download, FileText, Share2, Image, MessageSquareText, Copy, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -48,6 +48,47 @@ function slugify(s: string): string {
     .trim()
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9-]/g, '')
+}
+
+function ScaledPreview({ width, children }: { width: number; children: ReactNode }) {
+  const viewportRef = useRef<HTMLDivElement>(null)
+  const contentRef = useRef<HTMLDivElement>(null)
+  const [metrics, setMetrics] = useState({ scale: 1, height: 0 })
+
+  useEffect(() => {
+    const viewport = viewportRef.current
+    const content = contentRef.current
+    if (!viewport || !content) return
+
+    const update = () => {
+      const scale = Math.min(1, viewport.clientWidth / width)
+      const height = content.scrollHeight * scale
+      setMetrics((current) => (
+        Math.abs(current.scale - scale) < 0.001 && Math.abs(current.height - height) < 0.5
+          ? current
+          : { scale, height }
+      ))
+    }
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(viewport)
+    observer.observe(content)
+    return () => observer.disconnect()
+  }, [width])
+
+  return (
+    <div ref={viewportRef} className="w-full overflow-hidden">
+      <div className="relative mx-auto" style={{ width: width * metrics.scale, height: metrics.height }}>
+        <div
+          ref={contentRef}
+          className="absolute left-0 top-0 origin-top-left shadow-xl"
+          style={{ width, transform: `scale(${metrics.scale})` }}
+        >
+          {children}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // Gera a imagem PNG (Fechamento/Programação de um dia, ou a semana por Engenheiro) pra
@@ -223,7 +264,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${alvo.tipo === 'semana' ? 'max-w-[1200px]' : 'max-w-4xl'} max-h-[90vh] flex flex-col overflow-x-auto`}>
+      <DialogContent className={`${alvo.tipo === 'semana' ? 'max-w-[1200px]' : 'max-w-4xl'} flex max-h-[92dvh] w-[calc(100vw-1rem)] flex-col overflow-hidden`}>
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Image size={18} /> {tipoLabel}
@@ -256,7 +297,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
         )}
 
         {alvo.tipo === 'semana' && matriz && matriz.engenheiros.length > 1 && (
-          <div className="flex items-center gap-2 -mt-1">
+          <div className="-mt-1 flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-2">
             <label htmlFor="engenheiro-filtro" className="text-xs font-medium text-gray-500 dark:text-gray-400">
               Engenheiro:
             </label>
@@ -264,7 +305,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
               id="engenheiro-filtro"
               value={engenheiroFiltro}
               onChange={(e) => setEngenheiroFiltro(e.target.value)}
-              className="text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white"
+              className="min-h-11 w-full rounded-md border border-gray-200 bg-white px-2 py-1 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-white sm:min-h-0 sm:w-auto"
             >
               <option value="todos">Todos os engenheiros</option>
               {matriz.engenheiros.map((eng) => (
@@ -276,7 +317,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
           </div>
         )}
 
-        <div className="flex-1 overflow-auto flex justify-center py-2">
+        <div className="min-h-0 flex-1 overflow-y-auto py-2">
           {loading ? (
             <div className="flex items-center justify-center py-24">
               <Loader2 className="animate-spin text-gray-400" size={28} />
@@ -289,9 +330,9 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
             />
           ) : alvo.tipo === 'semana' ? (
             matrizFiltrada && (
-              <div className="shadow-xl rounded-2xl overflow-hidden shrink-0">
+              <ScaledPreview width={1100}>
+                <div className="overflow-hidden rounded-2xl">
                 <CardProgramacaoSemanal
-                  ref={cardRef}
                   codigo={currentProject?.codigo ?? '—'}
                   nomeProjeto={currentProject?.nome ?? '—'}
                   gestor={currentProject?.gestor}
@@ -299,13 +340,14 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
                   matriz={matrizFiltrada}
                   getDetalhe={getDetalhe}
                 />
-              </div>
+                </div>
+              </ScaledPreview>
             )
           ) : (
             relatorio && (
-              <div className="shadow-xl rounded-2xl overflow-hidden shrink-0">
+              <ScaledPreview width={600}>
+                <div className="overflow-hidden rounded-2xl">
                 <CardRelatorioVisual
-                  ref={cardRef}
                   codigo={currentProject?.codigo ?? '—'}
                   nomeProjeto={currentProject?.nome ?? '—'}
                   gestor={currentProject?.gestor}
@@ -314,10 +356,40 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
                   emitidoAs={emitidoAs}
                   relatorio={relatorio}
                 />
-              </div>
+                </div>
+              </ScaledPreview>
             )
           )}
         </div>
+
+        {/* A prévia acima é escalada para caber no celular. A captura usa esta
+            cópia fora da viewport, sem transform, preservando resolução e corte. */}
+        {modo === 'imagem' && pronto && (
+          <div className="pointer-events-none fixed left-[-20000px] top-0" aria-hidden="true">
+            {alvo.tipo === 'semana' && matrizFiltrada ? (
+              <CardProgramacaoSemanal
+                ref={cardRef}
+                codigo={currentProject?.codigo ?? '—'}
+                nomeProjeto={currentProject?.nome ?? '—'}
+                gestor={currentProject?.gestor}
+                dataLabel={`${formatDataCompleta(alvo.weekDays[0])} a ${formatDataCompleta(alvo.weekDays[6])}`}
+                matriz={matrizFiltrada}
+                getDetalhe={getDetalhe}
+              />
+            ) : alvo.tipo === 'dia' && relatorio ? (
+              <CardRelatorioVisual
+                ref={cardRef}
+                codigo={currentProject?.codigo ?? '—'}
+                nomeProjeto={currentProject?.nome ?? '—'}
+                gestor={currentProject?.gestor}
+                tipo={tipoLabel}
+                dataLabel={formatDataComDiaSemana(alvo.data)}
+                emitidoAs={emitidoAs}
+                relatorio={relatorio}
+              />
+            ) : null}
+          </div>
+        )}
 
         <div className="pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-col gap-2">
           {modo === 'texto' ? (
@@ -332,7 +404,7 @@ export default function ModalExportarImagem({ open, onOpenChange, alvo }: Props)
                 : <>Pra manter a qualidade original, envie o PDF como <strong>documento</strong> (anexo → Documento, não Foto).</>}
             </p>
           )}
-          <div className="flex items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {modo === 'texto' ? (
               <>
                 <button

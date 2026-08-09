@@ -385,7 +385,7 @@ export function Histograma({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 return (
                   <div
                     key={i}
-                    className={`text-center text-[9px] flex items-center justify-center border-r border-gray-100 dark:border-slate-800 whitespace-nowrap overflow-hidden ${
+                    className={`flex items-center justify-center overflow-hidden whitespace-nowrap border-r border-gray-100 text-center text-[11px] dark:border-slate-800 ${
                       isParada ? 'text-red-500 dark:text-red-400 font-semibold' : 'text-gray-400 dark:text-slate-500'
                     }`}
                     style={{ width: colWidth, height: DATE_ROW_HEIGHT }}

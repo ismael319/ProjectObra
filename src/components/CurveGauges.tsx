@@ -87,7 +87,7 @@ export function SemiGauge({ value, label, min = 0.5, max = 1.3 }: SemiGaugeProps
         <circle cx={cx} cy={cy} r={3} fill={color} />
       </svg>
       <span className="text-sm font-bold -mt-1" style={{ color }}>{value === null ? '–' : value.toFixed(2)}</span>
-      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide text-center">{label}</span>
+      <span className="text-center text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</span>
     </div>
   )
 }
@@ -109,7 +109,7 @@ export function AdherenceBar({ value, label }: AdherenceBarProps) {
 
   return (
     <div className="flex flex-col items-center gap-1.5 min-w-[120px] justify-center">
-      <span className="text-[10px] text-gray-400 dark:text-gray-500 uppercase tracking-wide text-center">{label}</span>
+      <span className="text-center text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500">{label}</span>
       <div className="relative w-full h-2 rounded-full bg-gray-200 dark:bg-gray-700 mt-3">
         <div className="absolute inset-y-0 left-0 rounded-full" style={{ width: `${width}%`, backgroundColor: color }} />
         <div className="absolute -top-1.5 bottom-[-2px] w-px bg-gray-400 dark:bg-gray-500" style={{ left: '100%' }} />
@@ -195,7 +195,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
       <div className="flex items-center gap-2 mb-3">
         <span className="text-sm font-semibold text-gray-900 dark:text-white">{period.label}</span>
         {isStatusPeriod && (
-          <span className="px-2 py-0.5 rounded-full bg-red-600 text-white text-[10px] font-bold uppercase tracking-wide">
+          <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">
             Status
           </span>
         )}
@@ -205,7 +205,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
         <SemiGauge value={ritmo} label={`Ritmo ${periodColLabel}`} />
         <AdherenceBar value={aderencia} label="Aderência Base" />
       </div>
-      <div className="text-center text-[11px] text-gray-400 dark:text-gray-500 mb-3 pb-3 border-b border-gray-100 dark:border-gray-700">
+      <div className="mb-3 border-b border-gray-100 pb-3 text-center text-xs text-gray-400 dark:border-gray-700 dark:text-gray-500">
         {realDeltaPP > 0 ? '+' : ''}{realDeltaPP.toFixed(1)}pp / base {blDeltaPP > 0 ? '+' : ''}{blDeltaPP.toFixed(1)}pp
       </div>
 
@@ -232,7 +232,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
                 </td>
                 <td className="text-right py-0.5 pr-2">
                   <div className="text-gray-900 dark:text-white font-medium">{rowPct.toFixed(1)}%</div>
-                  <div className="text-[10px] text-gray-400 dark:text-gray-500">{fmtVal(row.value, unit)}</div>
+                  <div className="text-xs text-gray-400 dark:text-gray-500">{fmtVal(row.value, unit)}</div>
                 </td>
                 <td className="text-right py-0.5">
                   <span className={`inline-flex items-center gap-0.5 ${deltaPP > 0 ? 'text-green-600 dark:text-green-400' : deltaPP < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
@@ -248,7 +248,7 @@ export function CurveTooltip({ active, label, granularity, unit, curveData, avai
 
       {desvioVsBase !== null && (
         <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-100 dark:border-gray-700">
-          <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wide">Desvio vs Base</span>
+          <span className="text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">Desvio vs Base</span>
           <span className={`text-sm font-bold inline-flex items-center gap-1 ${desvioVsBase > 0 ? 'text-green-600 dark:text-green-400' : desvioVsBase < 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-400 dark:text-gray-500'}`}>
             {desvioVsBase > 0 ? <ArrowUp size={12} /> : desvioVsBase < 0 ? <ArrowDown size={12} /> : <Minus size={12} />}
             {desvioVsBase > 0 ? '+' : ''}{desvioVsBase.toFixed(1)}%

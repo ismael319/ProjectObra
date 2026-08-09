@@ -113,7 +113,7 @@ export default function DashboardLayout() {
           <div className="flex items-center gap-3 sm:gap-4 min-w-0">
             <button
               onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-slate-300 transition-colors hover:bg-white/5 hover:text-white lg:hidden"
               aria-label="Abrir menu"
             >
               <Menu size={20} />
@@ -126,12 +126,12 @@ export default function DashboardLayout() {
               <>
                 <button
                   onClick={() => navigate('/projects')}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
+                  className="hidden shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white sm:flex"
                 >
                   <FolderOpen size={18} />
                   <span className="hidden md:inline">Meus Projetos</span>
                 </button>
-                <div className="h-6 w-px bg-white/10 shrink-0" />
+                <div className="hidden h-6 w-px shrink-0 bg-white/10 sm:block" />
               </>
             )}
             <div className="min-w-0">
@@ -165,7 +165,7 @@ export default function DashboardLayout() {
             <div className="relative" ref={userMenuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 p-1 pr-2 hover:bg-white/5 rounded-full transition-colors"
+                className="flex min-h-11 min-w-11 items-center justify-center gap-2 rounded-full p-1 transition-colors hover:bg-white/5 sm:pr-2"
               >
                 <div
                   className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white ring-2 ring-white/15"
@@ -173,7 +173,7 @@ export default function DashboardLayout() {
                 >
                   {userInitials}
                 </div>
-                <ChevronDown size={14} className={`text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                <ChevronDown size={14} className={`hidden text-slate-400 transition-transform sm:block ${userMenuOpen ? 'rotate-180' : ''}`} />
               </button>
 
               {userMenuOpen && (
@@ -237,8 +237,8 @@ export default function DashboardLayout() {
       )}
 
       {/* Conteúdo principal */}
-      <main className={`pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
-        <div className="p-4 sm:p-6">
+      <main className={`min-w-0 pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
+        <div className="min-w-0 p-4 sm:p-6">
           <Outlet />
         </div>
       </main>
