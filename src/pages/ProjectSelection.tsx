@@ -442,8 +442,8 @@ export default function ProjectSelection() {
         {/* Create/Edit Form Modal */}
         {showForm && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-md shadow-2xl">
-              <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
+            <div className="max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-2xl bg-white shadow-2xl dark:bg-gray-800">
+              <div className="sticky top-0 z-10 flex items-center justify-between border-b border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-800 sm:p-6">
                 <h2 className="text-xl font-bold text-gray-900 dark:text-white">
                   {editingProject ? 'Editar Projeto' : 'Novo Projeto'}
                 </h2>
@@ -452,7 +452,7 @@ export default function ProjectSelection() {
                 </button>
               </div>
 
-              <form onSubmit={handleSubmit(onSubmit)} className="p-6 space-y-4">
+              <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 p-4 sm:p-6">
                 {/* Cover Image Upload */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Imagem de Capa</label>

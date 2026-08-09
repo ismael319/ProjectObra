@@ -3,7 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Save, ArrowRight, ArrowLeft, Plus, Minus, RotateCcw } from 'lucide-react'
+import { Loader2, Save, ArrowRight, Plus, Minus, RotateCcw } from 'lucide-react'
 import { getWeekAnalysis, updateWeekAnalise, type WeekAnalysisItem } from '@/lib/programacao-db'
 import { computeWeekAnalysisSummary, type WeekAnalysisSummary } from '@/lib/adherence'
 
@@ -96,7 +96,6 @@ export default function ModalAnaliseSemana({
   }
 
   const reprogramados = itens.filter(i => i.was_reprogrammed)
-  const naoConcluidos = itens.filter(i => i.was_removed_after_lock || (i.baseline_status !== 'concluida' && i.baseline_status !== 'parcial' && !i.was_added_after_lock))
   const extrasAdicionados = itens.filter(i => i.was_added_after_lock)
 
   return (
@@ -141,17 +140,17 @@ export default function ModalAnaliseSemana({
 
             {/* Aderência */}
             {resumo && (
-              <div className="rounded-lg border p-3 flex items-center justify-between">
+              <div className="flex flex-col items-start gap-2 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="text-sm">
                   <span className="text-muted-foreground">Aderência do Cronograma:</span>{' '}
                   <span className="font-semibold">{Math.round(resumo.aderenciaBaseline * 100)}%</span>
                 </div>
-                <ArrowRight size={14} className="text-muted-foreground" />
+                <ArrowRight size={14} className="hidden text-muted-foreground sm:block" />
                 <div className="text-sm">
                   <span className="text-muted-foreground">Aderência Atual:</span>{' '}
                   <span className="font-semibold">{Math.round(resumo.aderenciaAtual * 100)}%</span>
                 </div>
-                <Badge variant={resumo.delta >= 0 ? 'default' : 'destructive'} className="ml-2">
+                <Badge variant={resumo.delta >= 0 ? 'default' : 'destructive'} className="sm:ml-2">
                   {resumo.delta >= 0 ? '+' : ''}{Math.round(resumo.delta * 100)}pp
                 </Badge>
               </div>

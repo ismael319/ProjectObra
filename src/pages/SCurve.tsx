@@ -688,7 +688,7 @@ export default function SCurve() {
           {openPanel === 'filtros' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-              <div className="absolute top-full left-0 mt-1 w-[min(380px,calc(100vw-1rem))] max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
+              <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-[min(380px,calc(100vw-1rem))] space-y-4">
                 {activeCronogramas.length > 0 && (
                   <div>
                     <div className="flex items-center gap-2 mb-2">
@@ -803,7 +803,7 @@ export default function SCurve() {
           {openPanel === 'opcoes' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-              <div className="absolute top-full left-0 mt-1 w-64 max-h-[70vh] overflow-y-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-4 space-y-4">
+              <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-64 space-y-4">
                 {consolidatedBLs.length > 0 && (
                   <div>
                     <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">LB de referência</span>
@@ -943,7 +943,7 @@ export default function SCurve() {
           {openPanel === 'ferramentas' && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-              <div className="absolute top-full left-0 mt-1 w-60 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-2 space-y-1">
+              <div className="fixed inset-x-2 top-20 z-20 rounded-lg border border-gray-200 bg-white p-2 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:w-60 space-y-1">
                 <button
                    onClick={async () => { await exportSCurveToExcel(curveData, consolidatedBLs.map((b) => b.id), unitLabel, project.nome, advances ? { statusDate: advances.statusDate, statusDateFormatted: advances.statusDateFormatted, real: advances.real, baselines: advanceBaselines } : undefined, periodColLabel); setOpenPanel(null) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"

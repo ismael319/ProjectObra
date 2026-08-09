@@ -21,6 +21,7 @@ import {
 import { toast } from 'sonner'
 import { useProjects } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
+import { useMediaQuery } from '@/lib/use-media-query'
 import { toISODateStr, parseISODateStr, startOfWeek, addDays, formatShortDate, getISOWeekYearAndNumber } from '@/lib/iso-week'
 import { lerArquivoComoLinhas } from '@/lib/administracao/parse-shared'
 import { Button } from '@/components/ui/button'
@@ -166,6 +167,7 @@ function corAderencia(pct: number): string {
 }
 
 export default function HistogramaMO() {
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const { currentProject } = useProjects()
   const { userProfile } = useAuth()
   const podeEditarPlano = !!userProfile?.is_super_admin || userProfile?.papel === 'edicao'
@@ -618,6 +620,7 @@ export default function HistogramaMO() {
     const linhas = mensalPorCargo.get(cargoSelecionado) ?? []
     return linhas.map((l) => ({ mes: l.monthLabel, Planejado: Math.round(l.planejado), Real: l.real !== null ? Math.round(l.real) : null }))
   }, [cargoSelecionado, mensalPorCargo, mensalTotal])
+  const intervaloMesesGrafico = isMobile ? Math.max(0, Math.ceil(dadosGrafico.length / 5) - 1) : 0
 
   // Total do período (soma, não média) por cargo — soma o valor de cada semana
   // lançada, Planejado e Real do mesmo jeito agora que os dois são semanais. Existe
@@ -1062,18 +1065,18 @@ export default function HistogramaMO() {
 
           <Card>
             <CardContent className="pt-4">
-              <ResponsiveContainer width="100%" height={340}>
-                <BarChart data={dadosGrafico} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={isMobile ? 240 : 340}>
+                <BarChart data={dadosGrafico} margin={isMobile ? { top: 8, right: 4, left: -24, bottom: 0 } : { top: 24, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                  <YAxis allowDecimals={false} />
+                  <XAxis dataKey="mes" tick={{ fontSize: isMobile ? 9 : 11 }} interval={isMobile ? intervaloMesesGrafico : undefined} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} />
                   <Tooltip />
-                  <Legend />
+                  <Legend wrapperStyle={isMobile ? { fontSize: 10 } : undefined} iconSize={isMobile ? 8 : 14} />
                   <Bar dataKey="Planejado" fill="#3b82f6">
-                    <LabelList dataKey="Planejado" position="top" fontSize={11} />
+                    {!isMobile && <LabelList dataKey="Planejado" position="top" fontSize={11} />}
                   </Bar>
                   <Bar dataKey="Real" fill="#ef4444">
-                    <LabelList dataKey="Real" position="top" fontSize={11} />
+                    {!isMobile && <LabelList dataKey="Real" position="top" fontSize={11} />}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -1154,15 +1157,15 @@ export default function HistogramaMO() {
 
           <Card>
             <CardContent className="pt-4">
-              <ResponsiveContainer width="100%" height={360}>
-                <LineChart data={curvaHoras} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+              <ResponsiveContainer width="100%" height={isMobile ? 260 : 360}>
+                <LineChart data={curvaHoras} margin={isMobile ? { top: 8, right: 4, left: -24, bottom: 0 } : { top: 24, right: 16, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
-                  <YAxis allowDecimals={false} />
+                  <XAxis dataKey="mes" tick={{ fontSize: isMobile ? 9 : 11 }} interval={isMobile ? Math.max(0, Math.ceil(curvaHoras.length / 5) - 1) : undefined} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} />
                   <Tooltip />
-                  <Legend />
-                  <Line type="monotone" dataKey="Planejado" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3 }} />
-                  <Line type="monotone" dataKey="Real" stroke="#ef4444" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+                  <Legend wrapperStyle={isMobile ? { fontSize: 10 } : undefined} iconSize={isMobile ? 8 : 14} />
+                  <Line type="monotone" dataKey="Planejado" stroke="#3b82f6" strokeWidth={2} dot={{ r: isMobile ? 2 : 3 }} />
+                  <Line type="monotone" dataKey="Real" stroke="#ef4444" strokeWidth={2} dot={{ r: isMobile ? 2 : 3 }} connectNulls />
                 </LineChart>
               </ResponsiveContainer>
             </CardContent>

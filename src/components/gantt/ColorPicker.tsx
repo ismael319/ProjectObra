@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 // Mesma paleta de COLORS do GanttChart.tsx (não exportada de lá, então
 // repetida aqui) — os presets clicáveis, além do seletor de cor livre.
@@ -17,6 +17,18 @@ type Props = {
 // GanttChart.tsx onde a barra é desenhada).
 export function ColorPicker({ x, y, corAtual, onClose, onSelect }: Props) {
   const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ left: x, top: y });
+
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+
+    const rect = element.getBoundingClientRect();
+    setPosition({
+      left: Math.max(8, Math.min(x, window.innerWidth - rect.width - 8)),
+      top: Math.max(8, Math.min(y, window.innerHeight - rect.height - 8)),
+    });
+  }, [x, y]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -24,9 +36,11 @@ export function ColorPicker({ x, y, corAtual, onClose, onSelect }: Props) {
     };
     window.addEventListener('mousedown', handler);
     window.addEventListener('contextmenu', handler);
+    window.addEventListener('resize', onClose);
     return () => {
       window.removeEventListener('mousedown', handler);
       window.removeEventListener('contextmenu', handler);
+      window.removeEventListener('resize', onClose);
     };
   }, [onClose]);
 
@@ -34,7 +48,7 @@ export function ColorPicker({ x, y, corAtual, onClose, onSelect }: Props) {
     <div
       ref={ref}
       className="fixed z-50 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-lg shadow-xl p-3 w-56"
-      style={{ left: x, top: y }}
+      style={position}
     >
       <p className="text-xs font-medium text-gray-700 dark:text-slate-200 mb-2">Cor da atividade</p>
       <div className="grid grid-cols-8 gap-1.5">

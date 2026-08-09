@@ -4,8 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import { Layers, RefreshCw, Download, Upload, ChevronDown, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
+import { Layers, RefreshCw, Download, ChevronDown, Trash2, ToggleLeft, ToggleRight } from "lucide-react";
 import type { CronogramaItem, Atividade } from "../lib/catalog";
 
 interface ApontamentosTabelaProps {
@@ -80,13 +79,13 @@ export function ApontamentosTabela({
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base">
             <Layers className="inline h-4 w-4 mr-1" />
             Itens do Cronograma ({items.length})
           </CardTitle>
-          <div className="flex gap-2">
-            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} className="text-sm border rounded px-2 py-1 dark:bg-gray-700 dark:text-white dark:border-gray-600">
+          <div className="flex flex-wrap gap-2">
+            <select value={groupBy} onChange={(e) => setGroupBy(e.target.value as GroupBy)} className="min-w-0 flex-1 rounded border px-2 py-1 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white sm:flex-none">
               <option value="none">Sem agrupamento</option>
               <option value="status">Agrupar por status</option>
               <option value="nivel">Agrupar por nível</option>

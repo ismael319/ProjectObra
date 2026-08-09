@@ -96,12 +96,10 @@
 html {
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow-x: hidden;
 }
 
 body {
   min-width: 0;
-  overflow-x: hidden;
   font-family: var(--font-sans);
   background-color: var(--background);
   color: var(--foreground);
@@ -109,6 +107,16 @@ body {
 
 #root {
   min-width: 0;
+}
+
+img,
+video {
+  max-width: 100%;
+}
+
+img:not([class]),
+video:not([class]) {
+  height: auto;
 }
 
 @media (max-width: 640px) {

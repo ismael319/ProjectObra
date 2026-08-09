@@ -16,6 +16,7 @@ import {
 import { useProjects } from '@/lib/project-store'
 import { buildCurveFromRawPoints, consolidateCurves } from '@/lib/curve-utils'
 import { useTheme } from '@/lib/theme-context'
+import { useMediaQuery } from '@/lib/use-media-query'
 
 const projectStatusData = [
   { name: 'Em andamento', value: 18, color: '#3b82f6' },
@@ -33,7 +34,7 @@ const monthlyData = [
   { month: 'Jun', projetos: 24, concluidos: 6 },
 ]
 
-function useTooltipStyle() {
+function useTooltipStyle(isMobile: boolean) {
   const { isDark } = useTheme()
   return useMemo(() => ({
     borderRadius: 10,
@@ -41,25 +42,26 @@ function useTooltipStyle() {
     background: isDark ? '#1f2937' : '#ffffff',
     color: isDark ? '#e5e7eb' : '#111827',
     boxShadow: isDark ? '0 4px 12px -2px rgb(0 0 0 / 0.4)' : '0 4px 12px -2px rgb(15 23 42 / 0.08)',
-    fontSize: 13,
+    fontSize: isMobile ? 11 : 13,
     fontFamily: 'var(--font-sans)',
-  }), [isDark])
+  }), [isDark, isMobile])
 }
 
 export function StatusPieChart() {
-  const tooltipStyle = useTooltipStyle()
+  const isMobile = useMediaQuery('(max-width: 639px)')
+  const tooltipStyle = useTooltipStyle(isMobile)
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Status dos Projetos</h3>
-      <div className="h-64">
+      <div className="h-[216px] sm:h-64">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
               data={projectStatusData}
               cx="50%"
               cy="50%"
-              innerRadius={60}
-              outerRadius={90}
+              innerRadius={isMobile ? 46 : 60}
+              outerRadius={isMobile ? 70 : 90}
               paddingAngle={4}
               dataKey="value"
               stroke="none"
@@ -73,11 +75,11 @@ export function StatusPieChart() {
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex flex-wrap gap-4 mt-4">
+      <div className="flex flex-wrap gap-x-3 gap-y-2 sm:gap-4 mt-3 sm:mt-4">
         {projectStatusData.map((item) => (
           <div key={item.name} className="flex items-center gap-2">
             <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-            <span className="text-sm text-gray-600 dark:text-gray-300">
+            <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">
               {item.name} <span className="text-gray-400 dark:text-gray-500">({item.value})</span>
             </span>
           </div>
@@ -88,19 +90,20 @@ export function StatusPieChart() {
 }
 
 export function MonthlyBarChart() {
-  const tooltipStyle = useTooltipStyle()
+  const isMobile = useMediaQuery('(max-width: 639px)')
+  const tooltipStyle = useTooltipStyle(isMobile)
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Projetos por Mês</h3>
-      <div className="h-64">
+      <div className="h-[216px] sm:h-64">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={monthlyData}>
+          <BarChart data={monthlyData} margin={isMobile ? { top: 4, right: 0, bottom: 0, left: -20 } : undefined}>
             <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="month" tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis width={isMobile ? 30 : undefined} tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
             <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />
-            <Bar dataKey="projetos" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
-            <Bar dataKey="concluidos" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+            <Bar dataKey="projetos" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false} />
+            <Bar dataKey="concluidos" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -113,7 +116,8 @@ export function MonthlyBarChart() {
 // Previsto em %, sem barras de período, baselines ou legenda interativa.
 export function ProgressAreaChart() {
   const { currentProject } = useProjects()
-  const tooltipStyle = useTooltipStyle()
+  const isMobile = useMediaQuery('(max-width: 639px)')
+  const tooltipStyle = useTooltipStyle(isMobile)
 
   const chartData = useMemo(() => {
     const cronogramas = (currentProject?.cronogramas || []).filter((c) => c.ativo)
@@ -140,14 +144,14 @@ export function ProgressAreaChart() {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card">
       <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-4">Curva S - Progresso Geral (%)</h3>
-      <div className="h-64">
+      <div className="h-[216px] sm:h-64">
         {chartData.length === 0 ? (
           <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
             Sem dados de Curva S
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData}>
+            <AreaChart data={chartData} margin={isMobile ? { top: 4, right: 0, bottom: 0, left: -20 } : undefined}>
               <defs>
                 <linearGradient id="progressFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25} />
@@ -155,8 +159,8 @@ export function ProgressAreaChart() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 12, fill: '#94a3b8' }} domain={[0, 100]} axisLine={false} tickLine={false} />
+              <XAxis dataKey="label" tick={{ fontSize: isMobile ? 9 : 12, fill: '#94a3b8' }} minTickGap={isMobile ? 24 : 5} axisLine={false} tickLine={false} />
+              <YAxis width={isMobile ? 32 : undefined} tick={{ fontSize: isMobile ? 9 : 12, fill: '#94a3b8' }} domain={[0, 100]} axisLine={false} tickLine={false} />
               <Tooltip contentStyle={tooltipStyle} formatter={(v) => `${v}%`} />
               <Area
                 type="monotone"

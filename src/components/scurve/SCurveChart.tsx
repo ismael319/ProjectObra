@@ -18,7 +18,6 @@ import {
   BL_COLORS,
   COLOR_REAL,
   COLOR_FORECAST,
-  fmtVal,
   formatAxisTick,
   type CalculationUnit,
   type CurveGranularity,
@@ -27,6 +26,7 @@ import {
 import type { BaselineInfo } from '@/lib/xml-parser'
 import type { Occurrence } from '@/lib/project-context'
 import { getCategoryDef, getSeverityDef } from '@/lib/occurrence-types'
+import { useMediaQuery } from '@/lib/use-media-query'
 
 interface ChartDataItem {
   date: number
@@ -89,6 +89,7 @@ export function SCurveChart({
   onTooltipChange,
   occurrences,
 }: SCurveChartProps) {
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const chartContainerRef = React.useRef<HTMLDivElement>(null)
   const [chartWidth, setChartWidth] = React.useState(0)
   const [occTooltip, setOccTooltip] = React.useState<{ occurrence: Occurrence; coordinate: { x: number; y: number } } | null>(null)
@@ -114,21 +115,23 @@ export function SCurveChart({
     return Math.max(2, Math.min(32, clusterWidth / 3))
   }, [chartData.length, chartWidth])
 
-  // Eixo X: cada tick corresponde a um período real do gráfico.
-  // Para granularidade semanal, mostra todas as semanas; para mensal/anual,
-  // limita a ~15 rótulos para evitar sobreposição.
+  // Mantém primeiro e último períodos visíveis, reduzindo a densidade de
+  // semanas principalmente nas telas estreitas.
   const xTicks = useMemo(() => {
     const n = chartData.length
     if (n === 0) return undefined
-    const step = granularity === 'week' ? 1 : Math.max(1, Math.ceil(n / 15))
-    const ticks: number[] = []
-    for (let i = 0; i < n; i += step) ticks.push(chartData[i].date)
-    return ticks
-  }, [chartData, granularity])
+    const maxTicks = isMobile ? 4 : 15
+    const tickCount = Math.min(n, maxTicks)
+    if (tickCount === 1) return [chartData[0].date]
+    return Array.from({ length: tickCount }, (_, i) => {
+      const index = Math.round((i * (n - 1)) / (tickCount - 1))
+      return chartData[index].date
+    })
+  }, [chartData, isMobile])
 
   if (chartData.length === 0) {
     return (
-      <div className="flex h-[360px] items-center justify-center text-gray-400 sm:h-[500px] xl:h-[640px]">
+      <div className="flex h-[280px] items-center justify-center text-gray-400 sm:h-[500px] xl:h-[640px]">
         Sem dados para exibir
       </div>
     )
@@ -136,7 +139,7 @@ export function SCurveChart({
 
   return (
     <>
-      <div className="h-[360px] sm:h-[500px] xl:h-[640px]" ref={chartContainerRef}>
+      <div className="h-[280px] sm:h-[500px] xl:h-[640px]" ref={chartContainerRef}>
         <ResponsiveContainer width="100%" height="100%">
           {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
           <ComposedChart data={chartData} onMouseMove={(state: any) => {
@@ -153,15 +156,15 @@ export function SCurveChart({
             {statusX !== null && chartData.length > 0 && (
               <ReferenceArea x1={chartData[0].date} x2={statusX} fill={COLOR_REAL} fillOpacity={0.06} />
             )}
-            <XAxis dataKey="date" type="number" domain={['dataMin', 'dataMax']} ticks={xTicks} tick={{ fontSize: 11 }} tickFormatter={(v) => formatAxisTick(new Date(v), granularity, weekStartDay)} />
+            <XAxis dataKey="date" type="number" domain={['dataMin', 'dataMax']} ticks={xTicks} tick={{ fontSize: isMobile ? 9 : 11 }} tickFormatter={(v) => formatAxisTick(new Date(v), granularity, weekStartDay)} />
             <YAxis
-              tick={{ fontSize: 11 }}
-              width={60}
+              tick={{ fontSize: isMobile ? 9 : 11 }}
+              width={isMobile ? 40 : 60}
               domain={[0, 100]}
-              ticks={[0, 25, 50, 75, 100]}
+              ticks={isMobile ? [0, 50, 100] : [0, 25, 50, 75, 100]}
               tickFormatter={(v) => `${v}%`}
             />
-            <Legend wrapperStyle={{ fontSize: 11 }} />
+            <Legend wrapperStyle={{ fontSize: isMobile ? 9 : 11 }} iconSize={isMobile ? 8 : 14} />
 
             {selectedBLInfo && (
               <Bar
@@ -217,7 +220,7 @@ export function SCurveChart({
                 x={statusX}
                 stroke="#dc2626"
                 strokeDasharray="4 4"
-                label={{ value: 'Status', position: 'top', fill: '#dc2626', fontSize: 14, fontWeight: 600 }}
+                label={{ value: 'Status', position: 'top', fill: '#dc2626', fontSize: isMobile ? 10 : 14, fontWeight: 600 }}
               />
             )}
 
@@ -240,7 +243,7 @@ export function SCurveChart({
                       onMouseEnter={() => setOccTooltip({ occurrence: occ, coordinate: { x: props.cx, y: props.cy } })}
                       onMouseLeave={() => setOccTooltip(null)}
                     >
-                      <circle r={6} fill={categoryDef.color} stroke="#fff" strokeWidth={1.5} />
+                      <circle r={isMobile ? 5 : 6} fill={categoryDef.color} stroke="#fff" strokeWidth={1.5} />
                     </g>
                   )}
                 />

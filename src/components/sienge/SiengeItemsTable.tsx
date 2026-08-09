@@ -242,12 +242,12 @@ export default function SiengeItemsTable({ colunas, colunasDetalhe, colunasVisiv
         </Table>
 
         {totalPaginas > 1 && (
-          <div className="flex items-center justify-between gap-3 px-4 py-2.5 border-t border-gray-100 dark:border-gray-700/80">
+          <div className="flex flex-col gap-2 border-t border-gray-100 px-4 py-2.5 dark:border-gray-700/80 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Mostrando <span className="font-medium text-gray-700 dark:text-gray-200">{itensPagina.length ? paginaAtual * TAMANHO_PAGINA + 1 : 0}–{paginaAtual * TAMANHO_PAGINA + itensPagina.length}</span> de{' '}
               <span className="font-medium text-gray-700 dark:text-gray-200">{itensOrdenados.length}</span> itens
             </p>
-            <div className="flex items-center gap-1">
+            <div className="flex w-full items-center justify-between gap-1 sm:w-auto sm:justify-start">
               <Button variant="outline" size="sm" onClick={() => setPagina((p) => Math.max(0, p - 1))} disabled={paginaAtual === 0}>
                 <ChevronLeft size={14} /> Anterior
               </Button>

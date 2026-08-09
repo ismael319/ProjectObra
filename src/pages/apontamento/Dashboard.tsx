@@ -8,7 +8,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Combobox, MultiCombobox } from "@/components/ui/combobox";
+import { MultiCombobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   Tooltip as InfoTooltip, TooltipContent as InfoTooltipContent,
@@ -20,6 +20,7 @@ import { Download, Loader2, CalendarDays, LineChart as LineChartIcon } from "luc
 import { Button } from "@/components/ui/button";
 import { downloadPdf } from "./lib/pdf-export";
 import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
 
@@ -145,6 +146,7 @@ export default function DashboardPage() {
 // Página 1 — mesmo conteúdo que já existia (visão de um único dia, com
 // gráficos e tabelas por empresa/função/encarregado/área).
 function ResumoDiarioTab() {
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const [data, setData] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
   const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
@@ -197,6 +199,7 @@ function ResumoDiarioTab() {
     for (const a of apontamentos) map.set(a.empresa_nome, (map.get(a.empresa_nome) ?? 0) + a.total);
     return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
   }, [apontamentos]);
+  const porEmpresaGrafico = isMobile ? porEmpresa.slice(0, 5) : porEmpresa;
 
   // Encarregados da BDR (empresa própria) separados do restante das
   // empreiteiras — dois quadros em vez de uma lista só misturada, mais fácil
@@ -319,16 +322,29 @@ function ResumoDiarioTab() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-base">Por Empresa</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Por Empresa{isMobile && porEmpresa.length > 5 ? " (Top 5)" : ""}</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porEmpresa}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
+              <BarChart
+                data={porEmpresaGrafico}
+                layout={isMobile ? "vertical" : "horizontal"}
+                margin={isMobile ? { top: 0, right: 8, left: 0, bottom: 0 } : undefined}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                <YAxis />
+                {isMobile ? (
+                  <>
+                    <XAxis type="number" tick={{ fontSize: 9 }} tickCount={4} allowDecimals={false} />
+                    <YAxis dataKey="name" type="category" width={78} tick={{ fontSize: 9 }} />
+                  </>
+                ) : (
+                  <>
+                    <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                    <YAxis />
+                  </>
+                )}
                 <Tooltip />
-                <Bar dataKey="value" name="Pessoas" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                  {porEmpresa.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Bar dataKey="value" name="Pessoas" fill="#2563eb" radius={isMobile ? [0, 4, 4, 0] : [4, 4, 0, 0]}>
+                  {porEmpresaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -338,13 +354,21 @@ function ResumoDiarioTab() {
         <Card>
           <CardHeader><CardTitle className="text-base">Por Função</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <PieChart>
-                <Pie data={porFuncao} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} label={({ name, value }) => `${name}: ${value}`}>
+                <Pie
+                  data={porFuncao}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={isMobile ? 68 : 100}
+                  label={isMobile ? false : ({ name, value }) => `${name}: ${value}`}
+                >
                   {porFuncao.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
-                <Legend />
+                <Legend wrapperStyle={isMobile ? { fontSize: 10 } : undefined} iconSize={isMobile ? 8 : 14} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -440,6 +464,7 @@ function EfetivoTooltip({ active, payload }: { active?: boolean; payload?: { pay
 // com o mesmo conjunto de filtros (empresa/liderança/setor/área/etapa/
 // atividade) da página de Resumo diário, reaproveitando apontamentos_diarios.
 function LinhaDoTempoTab() {
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const [dataInicio, setDataInicio] = useState(() => isoDaysAgo(29));
   const [dataFim, setDataFim] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
@@ -507,6 +532,7 @@ function LinhaDoTempoTab() {
       pico,
     };
   }, [porDia]);
+  const intervaloTicks = isMobile ? Math.max(0, Math.ceil(porDia.length / 5) - 1) : 0;
 
   return (
     <div className="space-y-6">
@@ -574,11 +600,11 @@ function LinhaDoTempoTab() {
           ) : porDia.length === 0 ? (
             <div className="py-24 text-center text-sm text-muted-foreground">Nenhum apontamento no período/filtro selecionado.</div>
           ) : (
-            <ResponsiveContainer width="100%" height={360}>
-              <LineChart data={porDia} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 250 : 360}>
+              <LineChart data={porDia} margin={isMobile ? { top: 12, right: 8, left: -24, bottom: 0 } : { top: 24, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                <YAxis allowDecimals={false} />
+                <XAxis dataKey="label" tick={{ fontSize: isMobile ? 9 : 11 }} interval={isMobile ? intervaloTicks : undefined} />
+                <YAxis allowDecimals={false} tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} />
                 <Tooltip content={<EfetivoTooltip />} />
                 <Line
                   type="monotone"
@@ -586,9 +612,9 @@ function LinhaDoTempoTab() {
                   name="Total"
                   stroke={COLORS[0]}
                   strokeWidth={2}
-                  dot={{ r: 3, fill: COLORS[0] }}
-                  activeDot={{ r: 5 }}
-                  label={{ position: "top", fontSize: 11, fill: COLORS[0] }}
+                  dot={{ r: isMobile ? 2 : 3, fill: COLORS[0] }}
+                  activeDot={{ r: isMobile ? 4 : 5 }}
+                  label={isMobile ? false : { position: "top", fontSize: 11, fill: COLORS[0] }}
                 />
               </LineChart>
             </ResponsiveContainer>

@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { todayISO, formatBR } from "./lib/date-utils";
+import { todayISO } from "./lib/date-utils";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
 } from "./lib/catalog";
@@ -9,11 +9,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, LineChart, Line } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { useMediaQuery } from "@/lib/use-media-query";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
 
 export default function EvolucaoPage() {
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const [dataInicio, setDataInicio] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); });
   const [dataFim, setDataFim] = useState(todayISO());
   const [empresaId, setEmpresaId] = useState<string | null>(null);
@@ -71,6 +73,9 @@ export default function EvolucaoPage() {
     for (const a of apontamentos) map.set(a.setor_nome, (map.get(a.setor_nome) ?? 0) + a.total);
     return [...map.entries()].map(([name, total]) => ({ name, total })).sort((a, b) => b.total - a.total).slice(0, 10);
   }, [apontamentos]);
+  const atividadesGrafico = isMobile ? topAtividades.slice(0, 5) : topAtividades;
+  const setoresGrafico = isMobile ? topSetores.slice(0, 5) : topSetores;
+  const intervaloSemanas = isMobile ? Math.max(0, Math.ceil(porSemana.length / 5) - 1) : 0;
 
   return (
     <div className="space-y-6">
@@ -94,13 +99,13 @@ export default function EvolucaoPage() {
       <Card>
         <CardHeader><CardTitle className="text-base">Evolução Semanal</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={porSemana}>
+          <ResponsiveContainer width="100%" height={isMobile ? 250 : 400}>
+            <BarChart data={porSemana} margin={isMobile ? { top: 0, right: 4, left: -24, bottom: 0 } : undefined}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="semana" tick={{ fontSize: 11 }} />
-              <YAxis />
+              <XAxis dataKey="semana" tick={{ fontSize: isMobile ? 9 : 11 }} interval={isMobile ? intervaloSemanas : undefined} />
+              <YAxis tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} />
               <Tooltip />
-              <Legend />
+              <Legend wrapperStyle={isMobile ? { fontSize: 10 } : undefined} iconSize={isMobile ? 8 : 14} />
               <Bar dataKey="pedreiro" name="Pedreiro" fill={COLORS[0]} stackId="a" />
               <Bar dataKey="servente" name="Servente" fill={COLORS[1]} stackId="a" />
               <Bar dataKey="carpinteiro" name="Carpinteiro" fill={COLORS[2]} stackId="a" />
@@ -112,13 +117,13 @@ export default function EvolucaoPage() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-base">Top 10 Atividades</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Top {isMobile ? 5 : 10} Atividades</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={topAtividades} layout="vertical">
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
+              <BarChart data={atividadesGrafico} layout="vertical" margin={isMobile ? { top: 0, right: 8, left: 0, bottom: 0 } : undefined}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
+                <XAxis type="number" tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} allowDecimals={false} />
+                <YAxis dataKey="name" type="category" width={isMobile ? 82 : 120} tick={{ fontSize: isMobile ? 9 : 11 }} />
                 <Tooltip />
                 <Bar dataKey="total" fill={COLORS[4]} radius={[0, 4, 4, 0]} />
               </BarChart>
@@ -127,13 +132,13 @@ export default function EvolucaoPage() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Top 10 Setores</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Top {isMobile ? 5 : 10} Setores</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={topSetores} layout="vertical">
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
+              <BarChart data={setoresGrafico} layout="vertical" margin={isMobile ? { top: 0, right: 8, left: 0, bottom: 0 } : undefined}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" />
-                <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 11 }} />
+                <XAxis type="number" tick={{ fontSize: isMobile ? 9 : 12 }} tickCount={isMobile ? 4 : 5} allowDecimals={false} />
+                <YAxis dataKey="name" type="category" width={isMobile ? 82 : 120} tick={{ fontSize: isMobile ? 9 : 11 }} />
                 <Tooltip />
                 <Bar dataKey="total" fill={COLORS[5]} radius={[0, 4, 4, 0]} />
               </BarChart>
