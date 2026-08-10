@@ -10,10 +10,13 @@ import {
 } from 'lucide-react'
 import { useProjects, type Project, type CronogramaInfo } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
+import { useOnlineStatus } from '@/lib/offline-query'
 import { parseMSProjectXML } from '@/lib/xml-parser'
 import CronogramaManager from '@/components/CronogramaManager'
 import CronogramaUploadModal from '@/components/CronogramaUploadModal'
+import { OfflineBanner } from '@/components/OfflineBanner'
 import fgiLogo from '@/assets/fgi-logo.png'
+import { toast } from 'sonner'
 
 const projectSchema = z.object({
   nome: z.string().min(1, 'Nome é obrigatório'),
@@ -25,13 +28,14 @@ const projectSchema = z.object({
 type ProjectFormData = z.infer<typeof projectSchema>
 
 export default function ProjectSelection() {
-  const { projects, currentProject, setCurrentProject, createProject, updateProject, deleteProject, duplicateProject, archiveProject, addCronograma } = useProjects()
+  const { projects, currentProject, isLoadingProjects, usingOfflineCache, setCurrentProject, createProject, updateProject, deleteProject, duplicateProject, archiveProject, addCronograma } = useProjects()
   const { user, userProfile, signOut } = useAuth()
+  const online = useOnlineStatus()
   const navigate = useNavigate()
   // RLS real em projetos-acesso-edicao-migration.sql já restringe a escrita
   // a Edição — isso aqui só espelha na tela pra não oferecer um botão que
   // vai falhar (ou pior, funcionar por engano num ambiente sem a RLS nova).
-  const podeGerenciarProjetos = !!userProfile?.is_super_admin || userProfile?.papel === 'edicao'
+  const podeGerenciarProjetos = online && !usingOfflineCache && !isLoadingProjects && (!!userProfile?.is_super_admin || userProfile?.papel === 'edicao')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [search, setSearch] = useState('')
@@ -59,7 +63,7 @@ export default function ProjectSelection() {
     resolver: zodResolver(projectSchema),
   })
 
-  const onSubmit = (data: ProjectFormData) => {
+  const onSubmit = async (data: ProjectFormData) => {
     const projectData = {
       nome: data.nome,
       codigo: `PRJ-${String(projects.length + 1).padStart(3, '0')}`,
@@ -89,7 +93,8 @@ export default function ProjectSelection() {
       })
     } else {
       const newProject = createProject(projectData)
-      setCurrentProject(newProject)
+      if (!newProject) return
+      if (!await setCurrentProject(newProject)) return
     }
 
     reset()
@@ -108,9 +113,13 @@ export default function ProjectSelection() {
     setShowForm(true)
   }
 
-  const handleDuplicate = (id: string) => {
-    duplicateProject(id)
-    setMenuOpen(null)
+  const handleDuplicate = async (id: string) => {
+    try {
+      await duplicateProject(id)
+      setMenuOpen(null)
+    } catch (error) {
+      toast.error('Não foi possível duplicar o projeto.', { description: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   const handleArchive = (id: string) => {
@@ -125,14 +134,22 @@ export default function ProjectSelection() {
     setMenuOpen(null)
   }
 
-  const openProject = (project: Project) => {
-    setCurrentProject(project)
-    navigate('/dashboard')
+  const openProject = async (project: Project) => {
+    try {
+      if (!await setCurrentProject(project)) return
+      navigate('/dashboard')
+    } catch (error) {
+      toast.error('Não foi possível abrir o projeto.', { description: error instanceof Error ? error.message : String(error) })
+    }
   }
 
-  const openManager = (project: Project) => {
-    setCurrentProject(project)
-    setManagingProjectId(project.id)
+  const openManager = async (project: Project) => {
+    try {
+      if (!await setCurrentProject(project)) return
+      setManagingProjectId(project.id)
+    } catch (error) {
+      toast.error('Não foi possível carregar os cronogramas.', { description: error instanceof Error ? error.message : String(error) })
+    }
   }
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -212,6 +229,7 @@ export default function ProjectSelection() {
       </header>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
+        <OfflineBanner />
         {/* Title + Actions */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
           <div>

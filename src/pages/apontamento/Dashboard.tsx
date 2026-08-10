@@ -21,8 +21,46 @@ import { Button } from "@/components/ui/button";
 import { downloadPdf } from "./lib/pdf-export";
 import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { useAuth } from "@/lib/auth-context";
+import { fetchWithOfflineCacheDetailed } from "@/lib/offline-query";
 
 const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const DASHBOARD_CACHE_MAX_AGE = 30 * 24 * 60 * 60_000;
+const EMPTY_APONTAMENTOS: Apontamento[] = [];
+
+function buildDashboardCacheKey(name: string, scope: string, values: unknown[]) {
+  return `${name}:v1:${scope}:${JSON.stringify(values)}`;
+}
+
+function sortFilters(filters: string[][]) {
+  return filters.map((items) => [...items].sort());
+}
+
+function CachedDataNotice({ cachedAt }: { cachedAt: number }) {
+  const updatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(cachedAt));
+  return (
+    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/40 dark:text-amber-100">
+      Sem conexão: exibindo dados salvos em {updatedAt}.
+    </p>
+  );
+}
+
+function DataUnavailableNotice() {
+  return (
+    <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-900/70 dark:bg-red-950/40 dark:text-red-100">
+      Dados indisponíveis para este período e filtro. Conecte-se à internet para carregá-los.
+    </p>
+  );
+}
+
+function DataLoadingNotice() {
+  return (
+    <div className="flex items-center justify-center gap-2 rounded-lg border bg-card px-4 py-10 text-sm text-muted-foreground">
+      <Loader2 className="size-4 animate-spin" />
+      Carregando dados...
+    </div>
+  );
+}
 
 function formatDiaMes(iso: string): string {
   const [, m, d] = iso.split("-");
@@ -147,6 +185,9 @@ export default function DashboardPage() {
 // gráficos e tabelas por empresa/função/encarregado/área).
 function ResumoDiarioTab() {
   const isMobile = useMediaQuery("(max-width: 639px)");
+  const { user, userProfile } = useAuth();
+  const cacheScope = user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending";
+  const cacheReady = !!user && !!userProfile;
   const [data, setData] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
   const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
@@ -162,25 +203,35 @@ function ResumoDiarioTab() {
   const { data: subareas = [] } = useSubareas(null, false);
   const { data: atividades = [] } = useAtividades(false);
 
-  const { data: apontamentos = [], isLoading } = useQuery({
-    queryKey: ["dashboard", data, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
-    queryFn: async () => {
-      let q = supabase
-        .from("apontamentos_diarios")
-        .select("*")
-        .eq("data", data)
-        .order("data", { ascending: true });
-      if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
-      if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
-      if (setorIds.length > 0) q = q.in("setor_id", setorIds);
-      if (areaIds.length > 0) q = q.in("area_id", areaIds);
-      if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
-      if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
-      const { data: rows, error } = await q;
-      if (error) throw error;
-      return (rows ?? []) as Apontamento[];
-    },
+  const sortedFilters = sortFilters([empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds]);
+  const { data: apontamentosResult, isLoading, isError } = useQuery({
+    queryKey: ["dashboard", cacheScope, data, ...sortedFilters],
+    queryFn: () => fetchWithOfflineCacheDetailed(
+      buildDashboardCacheKey("apontamento-dashboard", cacheScope, [data, ...sortedFilters]),
+      async () => {
+        let q = supabase
+          .from("apontamentos_diarios")
+          .select("*")
+          .eq("data", data)
+          .order("data", { ascending: true })
+          .retry(false);
+        if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
+        if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
+        if (setorIds.length > 0) q = q.in("setor_id", setorIds);
+        if (areaIds.length > 0) q = q.in("area_id", areaIds);
+        if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
+        if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
+        const { data: rows, error, status } = await q;
+        return { data: error ? null : (rows ?? []) as Apontamento[], error, status };
+      },
+      { maxAgeMs: DASHBOARD_CACHE_MAX_AGE },
+    ),
+    enabled: cacheReady,
+    networkMode: "always",
+    retry: false,
+    refetchOnReconnect: "always",
   });
+  const apontamentos = apontamentosResult?.data ?? EMPTY_APONTAMENTOS;
 
   const resumo = useMemo(() => {
     const acc = { pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, total: 0, registros: apontamentos.length };
@@ -270,11 +321,13 @@ function ResumoDiarioTab() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra em {formatBR(data)}.</p>
-        <Button onClick={handleDownloadPdf} disabled={isLoading}>
+        <Button onClick={handleDownloadPdf} disabled={isLoading || isError}>
           {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
           Exportar PDF
         </Button>
       </div>
+
+      {apontamentosResult?.source === "cache" && <CachedDataNotice cachedAt={apontamentosResult.cachedAt} />}
 
       <Card>
         <CardContent className="pt-6">
@@ -311,6 +364,7 @@ function ResumoDiarioTab() {
         </CardContent>
       </Card>
 
+      {isLoading ? <DataLoadingNotice /> : isError ? <DataUnavailableNotice /> : <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-6">
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Registros</div><div className="mt-1 text-3xl font-bold">{resumo.registros}</div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Total pessoas</div><div className="mt-1 text-3xl font-bold">{resumo.total}</div></CardContent></Card>
@@ -427,6 +481,7 @@ function ResumoDiarioTab() {
           />
         </div>
       </div>
+      </>}
     </div>
   );
 }
@@ -465,6 +520,9 @@ function EfetivoTooltip({ active, payload }: { active?: boolean; payload?: { pay
 // atividade) da página de Resumo diário, reaproveitando apontamentos_diarios.
 function LinhaDoTempoTab() {
   const isMobile = useMediaQuery("(max-width: 639px)");
+  const { user, userProfile } = useAuth();
+  const cacheScope = user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending";
+  const cacheReady = !!user && !!userProfile;
   const [dataInicio, setDataInicio] = useState(() => isoDaysAgo(29));
   const [dataFim, setDataFim] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
@@ -481,26 +539,36 @@ function LinhaDoTempoTab() {
   const { data: subareas = [] } = useSubareas(null, false);
   const { data: atividades = [] } = useAtividades(false);
 
-  const { data: apontamentos = [], isLoading } = useQuery({
-    queryKey: ["linha-do-tempo", dataInicio, dataFim, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
-    queryFn: async () => {
-      let q = supabase
-        .from("apontamentos_diarios")
-        .select("*")
-        .gte("data", dataInicio)
-        .lte("data", dataFim)
-        .order("data", { ascending: true });
-      if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
-      if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
-      if (setorIds.length > 0) q = q.in("setor_id", setorIds);
-      if (areaIds.length > 0) q = q.in("area_id", areaIds);
-      if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
-      if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
-      const { data: rows, error } = await q;
-      if (error) throw error;
-      return (rows ?? []) as Apontamento[];
-    },
+  const sortedFilters = sortFilters([empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds]);
+  const { data: apontamentosResult, isLoading, isError } = useQuery({
+    queryKey: ["linha-do-tempo", cacheScope, dataInicio, dataFim, ...sortedFilters],
+    queryFn: () => fetchWithOfflineCacheDetailed(
+      buildDashboardCacheKey("apontamento-timeline", cacheScope, [dataInicio, dataFim, ...sortedFilters]),
+      async () => {
+        let q = supabase
+          .from("apontamentos_diarios")
+          .select("*")
+          .gte("data", dataInicio)
+          .lte("data", dataFim)
+          .order("data", { ascending: true })
+          .retry(false);
+        if (empresaIds.length > 0) q = q.in("empresa_id", empresaIds);
+        if (liderancaIds.length > 0) q = q.in("lideranca_id", liderancaIds);
+        if (setorIds.length > 0) q = q.in("setor_id", setorIds);
+        if (areaIds.length > 0) q = q.in("area_id", areaIds);
+        if (subareaIds.length > 0) q = q.in("subarea_id", subareaIds);
+        if (atividadeIds.length > 0) q = q.in("atividade_id", atividadeIds);
+        const { data: rows, error, status } = await q;
+        return { data: error ? null : (rows ?? []) as Apontamento[], error, status };
+      },
+      { maxAgeMs: DASHBOARD_CACHE_MAX_AGE },
+    ),
+    enabled: cacheReady,
+    networkMode: "always",
+    retry: false,
+    refetchOnReconnect: "always",
   });
+  const apontamentos = apontamentosResult?.data ?? EMPTY_APONTAMENTOS;
 
   // Um ponto na linha do tempo por dia — soma pedreiro/servente/carpinteiro/
   // outros de todos os apontamentos daquele dia já filtrados acima.
@@ -537,6 +605,8 @@ function LinhaDoTempoTab() {
   return (
     <div className="space-y-6">
       <p className="text-sm text-muted-foreground">Evolução do efetivo dia a dia no período selecionado.</p>
+
+      {apontamentosResult?.source === "cache" && <CachedDataNotice cachedAt={apontamentosResult.cachedAt} />}
 
       <Card>
         <CardContent className="pt-6">
@@ -577,6 +647,7 @@ function LinhaDoTempoTab() {
         </CardContent>
       </Card>
 
+      {isLoading ? <DataLoadingNotice /> : isError ? <DataUnavailableNotice /> : <>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Dias com apontamento</div><div className="mt-1 text-3xl font-bold">{resumoPeriodo.diasComApontamento}</div></CardContent></Card>
         <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Total pessoas-dia</div><div className="mt-1 text-3xl font-bold">{resumoPeriodo.totalPessoasDia}</div></CardContent></Card>
@@ -621,6 +692,7 @@ function LinhaDoTempoTab() {
           )}
         </CardContent>
       </Card>
+      </>}
     </div>
   );
 }

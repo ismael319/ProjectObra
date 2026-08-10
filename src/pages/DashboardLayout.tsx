@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import ChatWidget from '@/components/ChatWidget'
+import { OfflineBanner } from '@/components/OfflineBanner'
 import { PwaInstallBanner } from '@/components/PwaInstallBanner'
 import { PwaUpdateBanner } from '@/components/PwaUpdateBanner'
 import { DashboardHeader } from '@/components/layout/DashboardHeader'
@@ -155,6 +156,7 @@ export default function DashboardLayout() {
       {/* Conteúdo principal */}
       <main className={`dashboard-app-content min-w-0 pt-14 transition-all duration-300 sm:pt-16 ${isMobile ? 'mobile-app-content' : ''} ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-[calc(4rem+env(safe-area-inset-left,0px))]' : 'lg:ml-[calc(16rem+env(safe-area-inset-left,0px))]'}`}>
         <div className={`dashboard-content-inner min-w-0 p-4 sm:p-6 ${hasMobileBottomNav ? 'mobile-content-with-nav' : ''}`}>
+          <OfflineBanner />
           <PwaUpdateBanner />
           <PwaInstallBanner />
           <Outlet />
