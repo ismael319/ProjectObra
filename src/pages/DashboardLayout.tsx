@@ -10,6 +10,9 @@ import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { useQuery } from '@tanstack/react-query'
+import { usePendenciasValidacao, useMeusRejeitados } from '@/lib/validacao/validacao-db'
+import { ShieldCheck } from 'lucide-react'
 
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
@@ -25,18 +28,27 @@ export default function DashboardLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const [pendingCount, setPendingCount] = useState(0)
   const userMenuRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!podeGerenciarUsuarios) return
+  // Solicitações de acesso aguardando decisão — só quem administra o sistema vê.
+  // Era um useEffect que rodava uma vez e deixava o contador congelado até um
+  // F5; com useQuery ele reflete a aprovação assim que ela acontece.
+  const { data: solicitacoesPendentes = 0 } = useQuery({
+    queryKey: ['solicitacoes_pendentes'],
+    enabled: podeGerenciarUsuarios,
+    queryFn: async () => {
+      const { count } = await supabase
+        .from('user_profiles')
+        .select('id', { count: 'exact', head: true })
+        .eq('status_solicitacao', 'pendente')
+      return count ?? 0
+    },
+  })
 
-    supabase
-      .from('user_profiles')
-      .select('id', { count: 'exact', head: true })
-      .eq('status_solicitacao', 'pendente')
-      .then(({ count }) => setPendingCount(count ?? 0))
-  }, [podeGerenciarUsuarios])
+  const { data: validacoesPendentes = [] } = usePendenciasValidacao()
+  const { data: meusRejeitados = [] } = useMeusRejeitados()
+  const totalConferir = validacoesPendentes.reduce((soma, p) => soma + p.total, 0)
+  const totalValidacoes = totalConferir + meusRejeitados.length
 
   const userInitials = user?.email
     ? user.email.split('@')[0].slice(0, 2).toUpperCase()
@@ -147,6 +159,33 @@ export default function DashboardLayout() {
           </div>
           <div className="flex items-center gap-2 shrink-0">
 
+            {/* Ícone próprio, separado do sino: validação pendente é trabalho de
+                qualquer conferente, enquanto o sino é fila de admin. Juntar os
+                dois números num contador só esconderia o que precisa ser feito. */}
+            {totalValidacoes > 0 && (
+              <button
+                onClick={() => navigate('/dashboard/validacoes')}
+                className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
+                title={
+                  meusRejeitados.length > 0
+                    ? `${meusRejeitados.length} lançamento(s) seu(s) voltaram para correção`
+                    : 'Lançamentos aguardando sua conferência'
+                }
+              >
+                <ShieldCheck size={19} />
+                {/* Vermelho quando há coisa SUA rejeitada: conferir o trabalho
+                    dos outros pode esperar, corrigir o próprio não — ninguém
+                    mais consegue destravar aquele registro. */}
+                <span
+                  className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold text-white rounded-full ring-2 ring-slate-900 ${
+                    meusRejeitados.length > 0 ? 'bg-red-500' : 'bg-amber-500'
+                  }`}
+                >
+                  {totalValidacoes > 9 ? '9+' : totalValidacoes}
+                </span>
+              </button>
+            )}
+
             {podeGerenciarUsuarios && (
               <button
                 onClick={() => navigate('/dashboard/admin/users')}
@@ -154,9 +193,9 @@ export default function DashboardLayout() {
                 title="Solicitações de acesso pendentes"
               >
                 <Bell size={19} />
-                {pendingCount > 0 && (
+                {solicitacoesPendentes > 0 && (
                   <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full ring-2 ring-slate-900">
-                    {pendingCount > 9 ? '9+' : pendingCount}
+                    {solicitacoesPendentes > 9 ? '9+' : solicitacoesPendentes}
                   </span>
                 )}
               </button>

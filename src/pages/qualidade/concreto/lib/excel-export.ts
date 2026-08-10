@@ -1,5 +1,7 @@
 import type { WorkBook } from "xlsx";
 import { supabase } from "@/lib/supabase";
+import { formatBR } from "@/lib/utils";
+import type { ValidacaoStatus } from "@/lib/validacao/status";
 
 export type DestinoRow = {
   quantidade_m3_aplicada: number;
@@ -23,6 +25,10 @@ export type CargaRow = {
   peso_balanca_kg: number | null;
   preco_total: number | null;
   validado: boolean;
+  // Opcional porque o export de Excel não pede essa coluna no CARGA_SELECT —
+  // só a Consulta traz. `validado` continua sendo o espelho de
+  // validacao_status = 'aprovado', mantido pelo trigger de propagação.
+  validacao_status?: ValidacaoStatus;
   criado_por_nome: string | null;
   fornecedores_concreto: { nome: string } | null;
   tracos_concreto: { nome: string; fck_mpa: number } | null;
@@ -52,11 +58,6 @@ export async function listarTodasCargasConcreto(organizacaoId: string): Promise<
     if (!data || data.length < PAGE_SIZE) break;
   }
   return rows;
-}
-
-function formatBR(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-");
-  return `${d}/${m}/${y}`;
 }
 
 // Uma carga pode ter mais de um destino (dividida entre áreas) — cada campo
