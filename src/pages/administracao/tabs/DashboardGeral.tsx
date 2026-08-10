@@ -5,8 +5,9 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cel
 import { useAuth } from "@/lib/auth-context";
 import { useFuncionarios, useRhCargos, useRhSetores, useRhGrupos, useAlertasDocumentos } from "@/lib/administracao/catalog";
 import { funcaoBase } from "@/lib/administracao/cargo-nivel";
+import { CHART_COLORS } from "@/lib/chart-colors";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const COLORS = CHART_COLORS;
 
 function contar<T>(itens: T[], chave: (item: T) => string): { nome: string; total: number }[] {
   const map = new Map<string, number>();

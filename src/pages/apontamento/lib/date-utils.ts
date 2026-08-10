@@ -1,3 +1,5 @@
+export { todayISO, formatBR } from '@/lib/utils'
+
 export function toAnoMes(isoDate: string): string {
   return isoDate.slice(0, 7);
 }
@@ -15,19 +17,6 @@ export function toAnoSemana(isoDate: string): string {
   const [y, m, d] = isoDate.split("-").map(Number);
   const { year, week } = isoWeek(new Date(y, m - 1, d));
   return `${year}-${String(week).padStart(2, "0")}`;
-}
-
-export function formatBR(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-");
-  return `${d}/${m}/${y}`;
-}
-
-export function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
 }
 
 export function computeApontamento(payload: Record<string, any>): Record<string, any> {

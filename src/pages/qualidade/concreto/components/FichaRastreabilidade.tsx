@@ -8,12 +8,7 @@ import { Upload } from "lucide-react";
 import { usePapelModulo } from "@/lib/auth-context";
 import { useEnsaiosDaCarga, type EnsaioCorpoProva, type RastreabilidadeCarga } from "../lib/ensaios-catalog";
 import { LancarResultadoModal } from "./LancarResultadoModal";
-
-function formatBR(iso: string | null): string {
-  if (!iso) return "—";
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
+import { formatBR } from "@/lib/utils";
 
 function ConformidadeBadge({ status, atrasado }: { status: EnsaioCorpoProva["status_conformidade"]; atrasado: boolean }) {
   if (status === "dispensado") return <Badge variant="outline" className="text-[10px]">Dispensado</Badge>;

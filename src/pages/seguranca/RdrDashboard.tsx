@@ -21,8 +21,9 @@ import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { CHART_COLORS_EXTENDED } from "@/lib/chart-colors";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6", "#f97316"];
+const COLORS = CHART_COLORS_EXTENDED;
 
 type FiltroStatus = "todos" | "desvios" | "reconhecimentos" | "concluidos" | "pendentes";
 

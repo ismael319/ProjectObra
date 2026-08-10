@@ -582,7 +582,7 @@ export type DocumentoFuncionarioRow = {
 };
 
 export async function listarDocumentosPorFuncionario(funcionarioId: string): Promise<DocumentoFuncionarioRow[]> {
-  const { data, error } = await supabase.from("documentos_funcionario").select("*").eq("funcionario_id", funcionarioId);
+  const { data, error } = await supabase.from("documentos_funcionario").select("id, funcionario_id, tipo_documento_id, data_emissao, validade_dias_no_momento, data_vencimento").eq("funcionario_id", funcionarioId);
   if (error) throw new Error(error.message);
   return data as DocumentoFuncionarioRow[];
 }

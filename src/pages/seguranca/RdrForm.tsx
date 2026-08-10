@@ -20,10 +20,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
-
-function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+import { todayISO } from "@/lib/utils";
 
 function horaAtual(): string {
   const d = new Date();
@@ -112,7 +109,7 @@ export default function RdrForm() {
 
   const nomePadrao = user?.user_metadata?.nome ?? user?.email ?? "";
 
-  const [data, setData] = useState(hojeISO());
+  const [data, setData] = useState(todayISO());
   const [hora, setHora] = useState(horaAtual());
   const [tipo, setTipo] = useState("Desvio");
   const [local, setLocal] = useState("");
@@ -151,7 +148,7 @@ export default function RdrForm() {
   }, [record]);
 
   useEffect(() => {
-    if (data === hojeISO() && !hora) setHora(horaAtual());
+    if (data === todayISO() && !hora) setHora(horaAtual());
   }, [data, hora]);
 
   const { data: setores = [] } = useSetores();

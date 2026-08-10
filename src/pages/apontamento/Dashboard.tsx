@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO, formatBR } from "./lib/date-utils";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
 } from "./lib/catalog";
@@ -21,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { downloadPdf } from "./lib/pdf-export";
 import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const COLORS = CHART_COLORS;
 
 function formatDiaMes(iso: string): string {
   const [, m, d] = iso.split("-");
