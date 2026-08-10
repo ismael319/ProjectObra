@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useFornecedoresConcreto, useAreasConcreto } from "./lib/catalog";
 import { downloadNodeAsA4Png, downloadNodeAsPdf } from "@/lib/png-export";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
@@ -16,7 +17,7 @@ import {
   PieChart, Pie, Cell, ResponsiveContainer,
 } from "recharts";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const COLORS = CHART_COLORS;
 
 type Carga = { id: string; data: string; ano_mes: string | null; fornecedor_id: string; quantidade_m3: number | string };
 type Destino = { carga_id: string; area_concreto_id: string | null; quantidade_m3_aplicada: number | string };

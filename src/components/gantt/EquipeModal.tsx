@@ -2,8 +2,9 @@ import { useState, useEffect } from 'react';
 import { X, Plus, Trash2, Users, Wrench } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
 import type { Equipe, FuncaoRow, EquipamentoRow } from '@/lib/gantt/supabase';
+import { GANTT_COLORS } from '@/lib/chart-colors';
 
-const COLORS = ['#2F6FE4', '#E07B2F', '#2FAE54', '#B23FE0', '#E0B23F', '#E03F5F', '#3FE0C0', '#5F3FE0'];
+const COLORS = GANTT_COLORS;
 
 type Props = {
   open: boolean;
@@ -17,7 +18,9 @@ type Props = {
 export function EquipeModal({ open, onClose, editingEquipe, onCreated }: Props) {
   const { addEquipe, updateEquipe } = useGanttStore();
   const [nome, setNome] = useState('');
-  const [cor, setCor] = useState(COLORS[0]);
+  // <string> explícito: GANTT_COLORS é `as const`, então COLORS[0] tem tipo
+  // literal '#2F6FE4' e o estado ficaria preso a essa única cor.
+  const [cor, setCor] = useState<string>(COLORS[0]);
   const [funcoes, setFuncoes] = useState<FuncaoRow[]>([]);
   const [equipamentos, setEquipamentos] = useState<EquipamentoRow[]>([]);
 

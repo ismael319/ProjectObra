@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Loader2, Save, ArrowRight, Plus, Minus, RotateCcw } from 'lucide-react'
 import { getWeekAnalysis, updateWeekAnalise, type WeekAnalysisItem } from '@/lib/programacao-db'
 import { computeWeekAnalysisSummary, type WeekAnalysisSummary } from '@/lib/adherence'
+import { formatBR } from '@/lib/utils'
 
 interface Props {
   open: boolean
@@ -15,12 +16,6 @@ interface Props {
   weekLabel: string
   analiseAtual: string | null
   onSaved: () => void
-}
-
-function formatBR(iso: string | null): string {
-  if (!iso) return '—'
-  const [y, m, d] = iso.split('-')
-  return `${d}/${m}/${y}`
 }
 
 export default function ModalAnaliseSemana({

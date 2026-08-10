@@ -1,4 +1,5 @@
 import type { Classificacao, ClassificacaoResultado, SiengeItem, TipoRelatorio } from './types'
+import { todayISO } from '@/lib/utils'
 
 export const DIAS_LIMITE_ATRASO = 7
 
@@ -13,12 +14,7 @@ export function paraData(dataStr: string): Date | null {
 }
 
 /** Data de hoje no fuso local em formato ISO (YYYY-MM-DD), sem os bugs de UTC do toISOString. */
-export function hojeISO(): string {
-  const hoje = new Date()
-  const mes = String(hoje.getMonth() + 1).padStart(2, '0')
-  const dia = String(hoje.getDate()).padStart(2, '0')
-  return `${hoje.getFullYear()}-${mes}-${dia}`
-}
+export const hojeISO = todayISO
 
 /** Converte "YYYY-MM-DD" em Date local (meia-noite) — sem o deslocamento de UTC do new Date(iso). */
 export function paraDataISO(iso: string): Date | null {

@@ -34,6 +34,8 @@ import ModalExportarImagem, { type AlvoExportacao } from '@/components/programac
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
 import ModalAnaliseSemana from '@/components/programacao/ModalAnaliseSemana'
+import PainelValidacaoSemana from '@/components/programacao/PainelValidacaoSemana'
+import { programacaoProntaParaBloqueio } from '@/lib/validacao/programacao'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
 // Intervalo "sem limite prático" pra busca de atividade em todo o cronograma
@@ -324,6 +326,17 @@ export default function DailyProgramming() {
   const handleLock = async () => {
     if (!weekData?.week) return
     try {
+      // Bloquear a semana congela o baseline: fazer isso antes de todo mundo
+      // confirmar deixaria a aderência sendo medida contra um plano que ninguém
+      // validou. Só avisa — quem tem papel Edição decide seguir mesmo assim.
+      const pronta = await programacaoProntaParaBloqueio(weekData.week.id)
+      if (!pronta) {
+        const seguir = confirm(
+          'Nem todos os engenheiros confirmaram a programação desta semana.\n\n' +
+            'Bloquear agora salva o baseline mesmo sem as confirmações. Deseja continuar?',
+        )
+        if (!seguir) return
+      }
       await lockWeekWithBaseline(organizacaoId, weekData.week.id)
       toast.success('Semana bloqueada com baseline salvo')
       fetchData(false)
@@ -526,6 +539,8 @@ export default function DailyProgramming() {
           <CardDia key={d} date={d} activities={activitiesByDate.get(d) ?? []} onOpen={setOpenDate} />
         ))}
       </div>
+
+      <PainelValidacaoSemana weekId={weekData.week.id} />
 
       <IndicadoresSemana ind={indicators} aderenciaCronograma={indicatorsCronograma.aderencia} />
 

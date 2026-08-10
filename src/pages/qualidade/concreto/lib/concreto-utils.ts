@@ -40,13 +40,7 @@ export type ComputeCargaResult = {
   ano_semana: string;
 };
 
-export function todayISO(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
+export { todayISO } from '@/lib/utils';
 
 function toAnoMes(isoDate: string): string {
   return isoDate.slice(0, 7);

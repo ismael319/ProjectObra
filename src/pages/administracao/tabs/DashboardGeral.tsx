@@ -6,8 +6,9 @@ import { useAuth } from "@/lib/auth-context";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useFuncionarios, useRhCargos, useRhSetores, useRhGrupos, useAlertasDocumentos } from "@/lib/administracao/catalog";
 import { funcaoBase } from "@/lib/administracao/cargo-nivel";
+import { CHART_COLORS } from "@/lib/chart-colors";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const COLORS = CHART_COLORS;
 const LOCAL_LABEL: Record<string, string> = {
   obra: "Obra", alojamento: "Alojamento", em_viagem: "Em viagem", turno_noite: "Turno à noite",
 };

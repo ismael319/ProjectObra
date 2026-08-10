@@ -22,11 +22,17 @@ import {
   downloadCargasConcretoWorkbook,
   type CargaRow,
 } from "./lib/excel-export";
+import { formatBR } from "@/lib/utils";
+import { ROTULO_STATUS, type ValidacaoStatus } from "@/lib/validacao/status";
 
-function formatBR(isoDate: string): string {
-  const [y, m, d] = isoDate.split("-");
-  return `${d}/${m}/${y}`;
-}
+// Cargas antigas (importadas antes da dupla validação) podem não ter
+// validacao_status preenchido — cai no `validado` como antes.
+const STATUS_VARIANT: Record<ValidacaoStatus, "default" | "secondary" | "destructive" | "outline"> = {
+  pendente: "outline",
+  parcial: "secondary",
+  aprovado: "default",
+  rejeitado: "destructive",
+};
 
 type Filters = {
   dataInicio: string;
@@ -77,7 +83,7 @@ export default function ConcretoConsulta() {
       let q = supabase
         .from("cargas_concreto")
         .select(
-          `id, codigo_rastreabilidade, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, criado_por_nome,
+          `id, codigo_rastreabilidade, data, numero_carga, quantidade_m3, tipo_origem, peso_balanca_kg, preco_total, validado, validacao_status, criado_por_nome,
            fornecedores_concreto(nome),
            tracos_concreto(nome, fck_mpa),
            ${destinosEmbed}`,
@@ -266,7 +272,9 @@ export default function ConcretoConsulta() {
                           ))}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={r.validado ? "default" : "outline"} className="text-[10px]">{r.validado ? "Sim" : "Não"}</Badge>
+                      <Badge variant={STATUS_VARIANT[r.validacao_status ?? (r.validado ? "aprovado" : "pendente")]} className="text-[10px]">
+                        {ROTULO_STATUS[r.validacao_status ?? (r.validado ? "aprovado" : "pendente")]}
+                      </Badge>
                     </TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground text-xs">{r.criado_por_nome ?? "—"}</TableCell>
                     <TableCell>

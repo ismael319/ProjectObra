@@ -139,7 +139,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
   for (let from = 0; ; from += PAGE_SIZE) {
     const query = supabase
       .from('activities')
-      .select('*')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao')
       .eq('week_id', week.id)
       .eq('organizacao_id', organizacaoId)
       .order('planned_date', { ascending: true })
@@ -218,7 +218,7 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
   for (let from = 0; ; from += PAGE_SIZE) {
     const query = supabase
       .from('activities')
-      .select('*')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao')
       .gte('planned_date', startDate)
       .lte('planned_date', endDate)
       .eq('organizacao_id', organizacaoId)
@@ -561,12 +561,14 @@ export async function mergeExcel(
 
   const { data: existing } = await supabase
     .from('activities')
-    .select('*')
+    .select('id, task_uid, status, observation, actual_productivity')
     .eq('week_id', weekId)
     .eq('organizacao_id', organizacaoId)
 
   const byUid = new Map(
-    (existing ?? []).filter((a: ActivityRow) => a.task_uid).map((a: ActivityRow) => [a.task_uid!, a]),
+    // Sem anotar como ActivityRow: o select acima é parcial (5 colunas), então
+    // o tipo inferido é o que realmente vem do banco.
+    (existing ?? []).filter((a) => a.task_uid).map((a) => [a.task_uid as string, a] as const),
   )
 
   const STATUS_MAP: Record<string, ActivityStatus> = {
@@ -699,7 +701,7 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('activities')
-      .select('*')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, source_cronograma, task_uid')
       .eq('week_id', weekId)
       .eq('organizacao_id', organizacaoId)
       .range(from, from + PAGE_SIZE - 1)

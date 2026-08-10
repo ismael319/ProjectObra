@@ -2,6 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO, formatBR } from "./lib/date-utils";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
 } from "./lib/catalog";
@@ -39,7 +40,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { EffortDashboardSkeleton, EffortKpiCard } from "./components/EffortKpiCard";
 import { FilterPanel } from "./components/FilterPanel";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#14b8a6"];
+const COLORS = CHART_COLORS;
 const DASHBOARD_CACHE_MAX_AGE = 30 * 24 * 60 * 60_000;
 const EMPTY_APONTAMENTOS: Apontamento[] = [];
 const FILTER_CONTROL_CLASS = "min-h-11 sm:min-h-9";

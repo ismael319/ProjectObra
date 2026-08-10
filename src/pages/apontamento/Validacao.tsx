@@ -10,9 +10,22 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import { useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades } from "./lib/catalog";
-import { CheckCircle2, Undo2, Loader2, Clock, Pencil, Trash2, Save, X } from "lucide-react";
+import { CheckCircle2, XCircle, Undo2, Loader2, Clock, Pencil, Trash2, Save, X } from "lucide-react";
 import { Calendar, CalendarDayButton } from "@/components/ui/calendar";
 import { Combobox } from "@/components/ui/combobox";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/lib/auth-context";
+import {
+  useValidacaoEtapas, useValidacaoResponsaveis, useConfirmacoes, useDecidir, useDesfazerDecisao,
+} from "@/lib/validacao/validacao-db";
+import {
+  computeValidacaoStatus, agruparPorRegistro, ROTULO_STATUS, type ValidacaoStatus,
+} from "@/lib/validacao/status";
+import { sincronizarHorasHomem } from "./lib/horas-homem";
 
 interface HorasDia {
   inicio: string;
@@ -74,8 +87,20 @@ interface Apontamento {
   obs_planejamento: string | null;
   validado: boolean;
   validado_em: string | null;
+  validacao_status: ValidacaoStatus;
   criado_em?: string | null;
 }
+
+const CORES_STATUS: Record<ValidacaoStatus, string> = {
+  pendente: "bg-slate-200 text-slate-800 dark:bg-slate-700 dark:text-slate-100",
+  parcial: "bg-amber-200 text-amber-900 dark:bg-amber-800 dark:text-amber-50",
+  aprovado: "bg-green-200 text-green-900 dark:bg-green-800 dark:text-green-50",
+  rejeitado: "bg-red-200 text-red-900 dark:bg-red-800 dark:text-red-50",
+};
+
+// Bolinha do calendário: o dia herda o estado mais "atrasado" dos apontamentos
+// dele — um único pendente já deixa o dia pendente.
+const PRIORIDADE_DIA: ValidacaoStatus[] = ["rejeitado", "pendente", "parcial", "aprovado"];
 
 export default function ValidacaoPage() {
   const qc = useQueryClient();
@@ -87,6 +112,31 @@ export default function ValidacaoPage() {
     const [y, m] = todayISO().split("-").map(Number);
     return new Date(y, m - 1, 1);
   });
+
+  const { user, userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const [etapaChave, setEtapaChave] = useState<string | null>(null);
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [motivo, setMotivo] = useState("");
+  const [confirmandoRejeicao, setConfirmandoRejeicao] = useState(false);
+
+  const { data: etapas = [] } = useValidacaoEtapas(organizacaoId);
+  const { data: responsaveis = [] } = useValidacaoResponsaveis(organizacaoId);
+  const decidir = useDecidir();
+  const desfazer = useDesfazerDecisao();
+
+  const etapasApontamento = useMemo(
+    () => etapas.filter((e) => e.entidade === "apontamento" && e.ativo).sort((a, b) => a.ordem - b.ordem),
+    [etapas],
+  );
+
+  // As etapas em que EU sou responsável — as únicas que posso decidir.
+  const minhasEtapas = useMemo(() => {
+    const meus = responsaveis.filter((r) => r.usuario_id === user?.id);
+    return etapasApontamento.filter((e) => meus.some((r) => r.etapa_id === e.id));
+  }, [responsaveis, etapasApontamento, user?.id]);
+
+  const etapaAtiva = minhasEtapas.find((e) => e.chave === etapaChave) ?? minhasEtapas[0];
 
   const { data: empresas = [] } = useEmpresas();
   const { data: liderancas = [] } = useLiderancas();
@@ -147,25 +197,46 @@ export default function ValidacaoPage() {
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from("apontamentos_diarios")
-        .select("data,validado")
+        .select("data,validacao_status")
         .gte("data", calStart)
         .lte("data", calEnd);
       if (error) throw error;
-      return (rows ?? []) as { data: string; validado: boolean }[];
+      return (rows ?? []) as { data: string; validacao_status: ValidacaoStatus }[];
     },
   });
 
   const calDayStatus = useMemo(() => {
-    const map = new Map<string, "pendente" | "validado">();
+    const map = new Map<string, ValidacaoStatus>();
     for (const r of calData) {
-      const existing = map.get(r.data);
-      if (existing === "pendente") continue;
-      map.set(r.data, r.validado ? "validado" : "pendente");
+      const atual = map.get(r.data);
+      const novo = r.validacao_status ?? "pendente";
+      if (!atual || PRIORIDADE_DIA.indexOf(novo) < PRIORIDADE_DIA.indexOf(atual)) {
+        map.set(r.data, novo);
+      }
     }
     return map;
   }, [calData]);
 
-  const todosValidados = apontamentos.length > 0 && apontamentos.every((a) => a.validado);
+  const ids = useMemo(() => apontamentos.map((a) => a.id), [apontamentos]);
+  const { data: confirmacoes = [] } = useConfirmacoes("apontamento", ids);
+  const porRegistro = useMemo(() => agruparPorRegistro(confirmacoes), [confirmacoes]);
+
+  // Só faz sentido selecionar o que eu ainda não decidi nesta etapa.
+  const selecionaveis = useMemo(() => {
+    if (!etapaAtiva) return [];
+    return apontamentos.filter(
+      (a) => !(porRegistro.get(a.id) ?? []).some((d) => d.etapa_chave === etapaAtiva.chave),
+    );
+  }, [apontamentos, porRegistro, etapaAtiva]);
+
+  const alternar = (id: string) => {
+    setSelecionados((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const resumo = useMemo(() => {
     const acc = { pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, total: 0 };
@@ -181,7 +252,21 @@ export default function ValidacaoPage() {
 
   const editarMut = useMutation({
     mutationFn: async ({ id, dados }: { id: string; dados: Record<string, unknown> }) => {
-      const { criado_em, atualizado_em, validado, validado_em, id: _id, ...rest } = dados;
+      // Campos que o banco controla e o client não deve mandar de volta.
+      // `validado`/`validado_em` costumavam ser um buraco: descartá-los aqui
+      // fazia um apontamento já validado continuar validado depois de editado.
+      // Agora quem zera isso é o trigger trg_invalidar_validacao_apontamento
+      // (20260810020000), que apaga as confirmações quando um campo material
+      // muda — descartar aqui virou só higiene de payload.
+      const {
+        criado_em: _criado_em,
+        atualizado_em: _atualizado_em,
+        validado: _validado,
+        validado_em: _validado_em,
+        validacao_status: _validacao_status,
+        id: _id,
+        ...rest
+      } = dados;
       const payload = computeApontamento({
         ...rest,
         pedreiro: Number(rest.pedreiro ?? 0),
@@ -242,109 +327,58 @@ export default function ValidacaoPage() {
     setDraft({});
   };
 
-  const validarMut = useMutation({
+  // A jornada é propriedade do DIA, não de cada apontamento — por isso virou
+  // ação própria quando a validação passou a ser registro a registro. Antes ela
+  // era salva de carona no botão "Confirmar validação".
+  const salvarJornadaMut = useMutation({
     mutationFn: async () => {
-      const validar = !todosValidados;
-      const now = validar ? new Date().toISOString() : null;
-
-      const { error: updErr } = await supabase
-        .from("apontamentos_diarios")
-        .update({ validado: validar, validado_em: now })
-        .eq("data", data);
-      if (updErr) throw updErr;
-
-      // Grava a jornada do dia — é o que falta pra "Total pessoas" virar
-      // horas-homem de verdade (pessoas × horas trabalhadas) em vez de só
-      // contagem de gente, tanto aqui quanto na tela de EAP.
-      if (validar) {
-        const { error: diaErr } = await supabase
-          .from("dias_trabalho")
-          .upsert({ data, horas_dia: horasTrab, atualizado_em: new Date().toISOString() });
-        if (diaErr) throw diaErr;
-      }
-
-      const { data: validados } = await supabase
-        .from("apontamentos_diarios")
-        .select("atividade_id,atividade_nome,total,data")
-        .eq("validado", true);
-      if (!validados) throw new Error("Erro ao buscar apontamentos validados");
-
-      const { data: diasTrabalho } = await supabase.from("dias_trabalho").select("data,horas_dia");
-      const horasDiaMap = new Map<string, number>((diasTrabalho ?? []).map((d) => [d.data, d.horas_dia]));
-      const HORAS_DIA_PADRAO = 8; // fallback pra apontamentos validados antes desta jornada existir
-
-      // cronograma_itens é do fluxo antigo de EAP por importação de XML —
-      // quem não usa mais esse fluxo pode nem ter a tabela no banco. A EAP
-      // atual (eap_modelos) já calcula HH direto de apontamentos_diarios, então
-      // sem essa tabela só pulamos a sincronização em vez de falhar a validação.
-      const { data: itens, error: itensErr } = await supabase
-        .from("cronograma_itens")
-        .select("id,cronograma_id,nome,atividade_id,pai_id,ativo");
-      if (itensErr) {
-        if (itensErr.code === "PGRST205") return;
-        throw itensErr;
-      }
-      if (!itens) return;
-
-      const horasPorAtivId = new Map<string, number>();
-      const horasPorNome = new Map<string, number>();
-      for (const a of validados) {
-        const horasHomem = a.total * (horasDiaMap.get(a.data) ?? HORAS_DIA_PADRAO);
-        if (a.atividade_id) {
-          horasPorAtivId.set(a.atividade_id, (horasPorAtivId.get(a.atividade_id) ?? 0) + horasHomem);
-        }
-        horasPorNome.set(a.atividade_nome, (horasPorNome.get(a.atividade_nome) ?? 0) + horasHomem);
-      }
-
-      const itensAtivos = (itens ?? []).filter((i) => i.ativo !== false);
-
-      const filhosByPai = new Map<string, typeof itensAtivos>();
-      for (const item of itensAtivos) {
-        if (item.pai_id) {
-          const list = filhosByPai.get(item.pai_id) ?? [];
-          list.push(item);
-          filhosByPai.set(item.pai_id, list);
-        }
-      }
-
-      const hhMap = new Map<string, number>();
-      function calcHh(item: (typeof itensAtivos)[0]): number {
-        const filhos = filhosByPai.get(item.id) ?? [];
-        if (filhos.length === 0) {
-          let horas = 0;
-          if (item.atividade_id) {
-            horas = horasPorAtivId.get(item.atividade_id) ?? 0;
-          } else {
-            horas = horasPorNome.get(item.nome) ?? 0;
-          }
-          hhMap.set(item.id, horas);
-          return horas;
-        }
-        let total = 0;
-        for (const filho of filhos) {
-          total += calcHh(filho);
-        }
-        hhMap.set(item.id, total);
-        return total;
-      }
-
-      const raizes = itensAtivos.filter((i) => !i.pai_id);
-      for (const raiz of raizes) {
-        calcHh(raiz);
-      }
-
-      for (const [id, hh] of hhMap) {
-        await supabase.from("cronograma_itens").update({ hh_consumido: hh }).eq("id", id);
-      }
+      const { error } = await supabase
+        .from("dias_trabalho")
+        .upsert({ data, horas_dia: horasTrab, atualizado_em: new Date().toISOString() });
+      if (error) throw error;
+      // A jornada entra na conta de horas-homem: mudou a jornada, a EAP muda.
+      await sincronizarHorasHomem();
     },
     onSuccess: () => {
-      const acao = todosValidados ? "desfeita" : "confirmada";
-      toast.success(`Validação ${acao}`);
-      qc.invalidateQueries({ queryKey: ["validacao", data] });
+      toast.success(`Jornada de ${horasTrab}h salva para ${formatBR(data)}`);
+      qc.invalidateQueries({ queryKey: ["dias_trabalho", data] });
       qc.invalidateQueries({ queryKey: ["cronograma_itens"] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
+
+  async function aplicar(decisao: "confirmado" | "rejeitado", observacao?: string) {
+    if (!etapaAtiva || selecionados.size === 0) return;
+    const quantos = selecionados.size;
+    try {
+      await decidir.mutateAsync({
+        entidade: "apontamento",
+        registroIds: [...selecionados],
+        etapaChave: etapaAtiva.chave,
+        decisao,
+        observacao,
+      });
+      setSelecionados(new Set());
+      setMotivo("");
+      setConfirmandoRejeicao(false);
+      toast.success(
+        `${quantos} apontamento(s) ${decisao === "confirmado" ? "confirmado(s)" : "rejeitado(s)"}`,
+      );
+      // O trigger já atualizou `validado` das linhas que fecharam todas as
+      // etapas; agora a EAP reflete o novo conjunto de aprovados.
+      await sincronizarHorasHomem();
+      qc.invalidateQueries({ queryKey: ["validacao", data] });
+      qc.invalidateQueries({ queryKey: ["validacao-calendar", calMonthStr] });
+      qc.invalidateQueries({ queryKey: ["cronograma_itens"] });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(
+        /row-level security|violates/i.test(msg)
+          ? "Você não responde por esta etapa de validação."
+          : `Não foi possível registrar: ${msg}`,
+      );
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -388,7 +422,13 @@ export default function ValidacaoPage() {
                         {status && (
                           <span
                             className={`absolute bottom-0 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full ${
-                              status === "validado" ? "bg-green-500" : "bg-red-500"
+                              status === "aprovado"
+                                ? "bg-green-500"
+                                : status === "parcial"
+                                  ? "bg-amber-500"
+                                  : status === "rejeitado"
+                                    ? "bg-red-600"
+                                    : "bg-slate-400"
                             }`}
                           />
                         )}
@@ -399,12 +439,18 @@ export default function ValidacaoPage() {
               />
             </div>
           </div>
-          <div className="mt-2 flex items-center gap-4 text-xs text-muted-foreground">
+          <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted-foreground">
             <span className="flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-500 inline-block" /> Aguardando validação
+              <span className="h-2 w-2 rounded-full bg-slate-400 inline-block" /> Aguardando conferência
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-amber-500 inline-block" /> Falta uma conferência
             </span>
             <span className="flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-green-500 inline-block" /> Validação concluída
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="h-2 w-2 rounded-full bg-red-600 inline-block" /> Rejeitado
             </span>
           </div>
         </CardContent>
@@ -461,9 +507,23 @@ export default function ValidacaoPage() {
             )}
             {diaTrabalho && diaTrabalho.horas_dia !== horasTrab && (
               <span className="text-xs text-muted-foreground">
-                Jornada já validada para este dia: <strong>{diaTrabalho.horas_dia}h</strong> — confirmar de novo substitui pelo valor acima.
+                Jornada salva para este dia: <strong>{diaTrabalho.horas_dia}h</strong> — salvar substitui pelo valor acima.
               </span>
             )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="ml-auto"
+              onClick={() => salvarJornadaMut.mutate()}
+              disabled={salvarJornadaMut.isPending || horasTrab <= 0}
+            >
+              {salvarJornadaMut.isPending ? (
+                <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="mr-1 h-3.5 w-3.5" />
+              )}
+              Salvar jornada
+            </Button>
           </div>
           <p className="mt-2 text-xs text-muted-foreground">
             Essas horas multiplicam a quantidade de pessoas de cada apontamento e viram horas-homem na EAP.
@@ -506,6 +566,67 @@ export default function ValidacaoPage() {
             </Card>
           </div>
 
+          {minhasEtapas.length === 0 ? (
+            <Card>
+              <CardContent className="py-6 text-sm text-muted-foreground">
+                Você não está cadastrado como responsável por nenhuma etapa de validação do
+                apontamento. Peça a quem administra o sistema para incluir você em{" "}
+                <span className="font-medium">Validações</span>. Enquanto isso, dá para consultar e
+                editar os apontamentos abaixo normalmente.
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6 flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="space-y-1 sm:max-w-xs flex-1">
+                  <Label>Conferir como</Label>
+                  <Combobox
+                    options={minhasEtapas.map((e) => ({ value: e.chave, label: e.nome }))}
+                    value={etapaAtiva?.chave ?? null}
+                    onChange={(v) => { setEtapaChave(v); setSelecionados(new Set()); }}
+                    allowClear={false}
+                  />
+                  {etapaAtiva?.descricao && (
+                    <p className="text-xs text-muted-foreground">{etapaAtiva.descricao}</p>
+                  )}
+                </div>
+                {selecionaveis.length > 0 && (
+                  <label className="flex items-center gap-2 text-sm pb-2">
+                    <Checkbox
+                      checked={selecionados.size > 0 && selecionados.size === selecionaveis.length}
+                      onCheckedChange={(v) =>
+                        setSelecionados(v ? new Set(selecionaveis.map((a) => a.id)) : new Set())
+                      }
+                    />
+                    Selecionar os {selecionaveis.length} que faltam
+                  </label>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {selecionados.size > 0 && (
+            <div className="sticky top-16 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3 shadow-sm">
+              <span className="text-sm font-medium">{selecionados.size} selecionado(s)</span>
+              <Button size="sm" onClick={() => aplicar("confirmado")} disabled={decidir.isPending}>
+                <CheckCircle2 className="mr-1 h-4 w-4" />
+                Confirmar
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => setConfirmandoRejeicao(true)}
+                disabled={decidir.isPending}
+              >
+                <XCircle className="mr-1 h-4 w-4" />
+                Rejeitar
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setSelecionados(new Set())}>
+                Limpar seleção
+              </Button>
+            </div>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Apontamentos do dia</CardTitle>
@@ -513,10 +634,21 @@ export default function ValidacaoPage() {
             <CardContent className="space-y-2">
               {apontamentos.map((a) => {
                 const emEdicao = editandoId === a.id;
+                const decisoes = porRegistro.get(a.id) ?? [];
+                const minhaDecisao = decisoes.find(
+                  (d) => d.etapa_chave === etapaAtiva?.chave && d.usuario_id === user?.id,
+                );
+                const status = computeValidacaoStatus(etapasApontamento, decisoes);
                 return (
                   <div
                     key={a.id}
-                    className={`rounded-lg border p-3 text-sm ${a.validado ? "bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-800" : ""}`}
+                    className={`rounded-lg border p-3 text-sm ${
+                      status === "aprovado"
+                        ? "bg-green-50 border-green-200 dark:bg-green-900/30 dark:border-green-800"
+                        : status === "rejeitado"
+                          ? "bg-red-50 border-red-200 dark:bg-red-900/30 dark:border-red-800"
+                          : ""
+                    }`}
                   >
                     {emEdicao ? (
                       <div className="space-y-3">
@@ -692,25 +824,30 @@ export default function ValidacaoPage() {
                     ) : (
                       <>
                         <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <div className="font-medium">
-                              {a.empresa_nome} · {a.atividade_nome}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              {a.lideranca_nome} ({a.lideranca_tipo}) · {a.setor_nome}
-                              {a.area_nome ? ` / ${a.area_nome}` : ""}
-                              {a.subarea_nome ? ` / ${a.subarea_nome}` : ""}
+                          <div className="flex items-start gap-2">
+                            {etapaAtiva && (
+                              <Checkbox
+                                className="mt-1"
+                                checked={selecionados.has(a.id)}
+                                disabled={!!minhaDecisao}
+                                onCheckedChange={() => alternar(a.id)}
+                              />
+                            )}
+                            <div>
+                              <div className="font-medium">
+                                {a.empresa_nome} · {a.atividade_nome}
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {a.lideranca_nome} ({a.lideranca_tipo}) · {a.setor_nome}
+                                {a.area_nome ? ` / ${a.area_nome}` : ""}
+                                {a.subarea_nome ? ` / ${a.subarea_nome}` : ""}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-1.5">
-                            {a.validado ? (
-                              <Badge variant="default" className="bg-green-600">
-                                <CheckCircle2 className="mr-1 h-3 w-3" />
-                                Validado
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Pendente</Badge>
-                            )}
+                            <span className={`rounded px-2 py-0.5 text-xs font-medium ${CORES_STATUS[status]}`}>
+                              {ROTULO_STATUS[status]}
+                            </span>
                             <Button
                               size="icon"
                               variant="ghost"
@@ -758,6 +895,55 @@ export default function ValidacaoPage() {
                             <span className="font-medium text-foreground">Observações:</span> {a.obs_planejamento}
                           </div>
                         )}
+                        {/* Motivo visível, não só no tooltip do badge: quem
+                            lançou precisa saber o que corrigir sem caçar. */}
+                        {decisoes
+                          .filter((d) => d.decisao === "rejeitado" && d.observacao)
+                          .map((d) => (
+                            <p key={d.id} className="mt-2 text-xs text-red-700 dark:text-red-400">
+                              <span className="font-medium">Rejeitado:</span> {d.observacao}
+                            </p>
+                          ))}
+                        {etapasApontamento.length > 0 && (
+                          <div className="mt-2 flex flex-wrap items-center gap-1">
+                            {etapasApontamento.map((e) => {
+                              const d = decisoes.find((x) => x.etapa_chave === e.chave);
+                              return (
+                                <Badge
+                                  key={e.chave}
+                                  variant={d ? (d.decisao === "confirmado" ? "secondary" : "destructive") : "outline"}
+                                  title={d?.observacao ?? e.nome}
+                                >
+                                  {e.nome}
+                                  {d && (d.decisao === "confirmado" ? " ✓" : " ✕")}
+                                </Badge>
+                              );
+                            })}
+                            {minhaDecisao && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2"
+                                title="Desfazer minha decisão"
+                                onClick={async () => {
+                                  try {
+                                    await desfazer.mutateAsync(minhaDecisao.id);
+                                    await sincronizarHorasHomem();
+                                    qc.invalidateQueries({ queryKey: ["validacao", data] });
+                                    qc.invalidateQueries({ queryKey: ["validacao-calendar", calMonthStr] });
+                                    toast.success("Decisão desfeita");
+                                  } catch (err) {
+                                    toast.error(
+                                      `Não foi possível desfazer: ${err instanceof Error ? err.message : err}`,
+                                    );
+                                  }
+                                }}
+                              >
+                                <Undo2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        )}
                         {a.validado && a.validado_em && (
                           <div className="mt-1 text-[11px] text-green-600">
                             Validado em {new Date(a.validado_em).toLocaleString("pt-BR")}
@@ -771,25 +957,38 @@ export default function ValidacaoPage() {
             </CardContent>
           </Card>
 
-          <div className="flex justify-end gap-2">
-            <Button
-              size="lg"
-              onClick={() => validarMut.mutate()}
-              disabled={validarMut.isPending}
-              variant={todosValidados ? "outline" : "default"}
-            >
-              {validarMut.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : todosValidados ? (
-                <Undo2 className="h-4 w-4" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              {todosValidados ? "Desfazer validação" : "Confirmar validação"}
-            </Button>
-          </div>
         </>
       )}
+
+      <AlertDialog open={confirmandoRejeicao} onOpenChange={setConfirmandoRejeicao}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Rejeitar {selecionados.size} apontamento(s)</AlertDialogTitle>
+            <AlertDialogDescription>
+              Diga o que precisa ser corrigido — quem lançou vai ler esse texto.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Textarea
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Ex.: quantidade de serventes não bate com o efetivo do dia"
+            rows={3}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setMotivo("")}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={!motivo.trim()}
+              onClick={(e) => {
+                // Segura o fechamento pra não perder o texto se o insert falhar.
+                e.preventDefault();
+                aplicar("rejeitado", motivo);
+              }}
+            >
+              Rejeitar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

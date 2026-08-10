@@ -20,6 +20,7 @@ import type { Granularidade } from '@/lib/gantt/histograma';
 import { ContextMenu } from './ContextMenu';
 import { ColorPicker } from './ColorPicker';
 import { EquipeAssocModal } from './EquipeAssocModal';
+import { GANTT_COLORS } from '@/lib/chart-colors';
 
 type Props = {
   granularidade: Granularidade;
@@ -48,7 +49,7 @@ const MAX_LABEL_WIDTH = 520;
 // indentação da hierarquia (que agora fica só dentro da célula do nome).
 const LABEL_GRID_COLS = '1fr 34px 42px 42px 44px';
 
-const COLORS = ['#2F6FE4', '#E07B2F', '#2FAE54', '#B23FE0', '#E0B23F', '#E03F5F', '#3FE0C0', '#5F3FE0'];
+const COLORS = GANTT_COLORS;
 // Índice bate com Date.getDay(): 0=domingo, 1=segunda, ..., 6=sábado.
 const WEEKDAY_LABELS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
@@ -60,7 +61,10 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   // irmãos — ver handleStartAddAcima, disparado pelo menu de contexto.
   const [insertAboveId, setInsertAboveId] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
-  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null as string | null, percentualConcluido: 0 });
+  // `cor` anotado como string: GANTT_COLORS é `as const`, então COLORS[0]
+  // entraria como o tipo literal '#2F6FE4' e o campo não aceitaria a cor de uma
+  // atividade já existente ao abrir a edição.
+  const [form, setForm] = useState({ nome: '', equipes: [] as string[], cor: COLORS[0] as string, duracao: 7, dataInicio: '', dataFim: '', parentId: null as string | null, percentualConcluido: 0 });
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);
   const [colorMenu, setColorMenu] = useState<{ x: number; y: number; atvId: string } | null>(null);

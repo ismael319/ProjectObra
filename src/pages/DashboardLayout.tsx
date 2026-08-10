@@ -15,6 +15,7 @@ import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { useMediaQuery } from '@/lib/use-media-query'
 import { getDashboardRouteTitle } from '@/lib/nav-config'
+import { usePendenciasValidacao, useMeusRejeitados } from '@/lib/validacao/validacao-db'
 
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
@@ -51,6 +52,11 @@ export default function DashboardLayout() {
   useEffect(() => {
     if (isMobile) setMobileMenuOpen(false)
   }, [isMobile])
+
+  const { data: validacoesPendentes = [] } = usePendenciasValidacao()
+  const { data: meusRejeitados = [] } = useMeusRejeitados()
+  const totalConferir = validacoesPendentes.reduce((soma, p) => soma + p.total, 0)
+  const totalValidacoes = totalConferir + meusRejeitados.length
 
   const userInitials = user?.email
     ? user.email.split('@')[0].slice(0, 2).toUpperCase()
@@ -120,6 +126,8 @@ export default function DashboardLayout() {
     totalCount,
     podeGerenciarUsuarios: podeAcessarSistema,
     pendingCount,
+    totalValidacoes,
+    meusRejeitados: meusRejeitados.length,
     userEmail: user?.email,
     userInitials,
     brandColor,

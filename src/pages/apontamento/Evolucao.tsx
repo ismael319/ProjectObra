@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO } from "./lib/date-utils";
+import { CHART_COLORS } from "@/lib/chart-colors";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
 } from "./lib/catalog";
@@ -12,7 +13,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useMediaQuery } from "@/lib/use-media-query";
 
-const COLORS = ["#2563eb", "#16a34a", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4"];
+const COLORS = CHART_COLORS;
 
 export default function EvolucaoPage() {
   const isMobile = useMediaQuery("(max-width: 639px)");

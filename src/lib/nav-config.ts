@@ -80,6 +80,7 @@ export function buildNavSections(modulos: string[]): NavSection[] {
       children: [
         { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
         { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
+        { icon: CheckSquare, label: 'Validação', path: '/dashboard/qualidade/concreto/validacao' },
         { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
         { icon: FlaskConical, label: 'Ensaios', path: '/dashboard/qualidade/concreto/ensaios' },
         { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
@@ -129,6 +130,7 @@ const dashboardRouteTitles = [
   ['/dashboard/qualidade/concreto/ensaios/importar', 'Importar Ensaios'],
   ['/dashboard/qualidade/concreto/dashboard', 'Dashboard de Concreto'],
   ['/dashboard/qualidade/concreto/lancamento', 'Lançamento de Concreto'],
+  ['/dashboard/qualidade/concreto/validacao', 'Validação de Concreto'],
   ['/dashboard/qualidade/concreto/consulta', 'Consulta de Concreto'],
   ['/dashboard/qualidade/concreto/cadastro', 'Cadastro de Concreto'],
   ['/dashboard/qualidade/concreto/ensaios', 'Ensaios de Concreto'],

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   ChevronDown, ChevronRight, LayoutDashboard,
-  PanelLeftClose, PanelLeftOpen, Settings,
+  PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -326,24 +326,30 @@ export default function Sidebar({
 
         {podeGerenciarUsuarios && (
           <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-            <Link
-              to="/dashboard/admin/users"
-              onClick={() => onMobileClose()}
-              className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
-                collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-              } ${
-                isActive('/dashboard/admin/users')
-                  ? 'text-white'
-                  : 'text-white/80 hover:text-white'
-              }`}
-              style={activeStyle('/dashboard/admin/users')}
-              onMouseEnter={(e) => { if (!isActive('/dashboard/admin/users')) e.currentTarget.style.backgroundColor = sidebarHover }}
-              onMouseLeave={(e) => { if (!isActive('/dashboard/admin/users')) e.currentTarget.style.backgroundColor = 'transparent' }}
-              title="Sistema"
-            >
-              <Settings size={18} />
-              {!collapsed && <span>Sistema</span>}
-            </Link>
+            {[
+              { to: '/dashboard/admin/users', label: 'Sistema', Icon: Settings },
+              { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
+            ].map(({ to, label, Icon }) => (
+              <Link
+                key={to}
+                to={to}
+                onClick={() => onMobileClose()}
+                className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+                } ${
+                  isActive(to)
+                    ? 'text-white'
+                    : 'text-white/80 hover:text-white'
+                }`}
+                style={activeStyle(to)}
+                onMouseEnter={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = sidebarHover }}
+                onMouseLeave={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = 'transparent' }}
+                title={label}
+              >
+                <Icon size={18} />
+                {!collapsed && <span>{label}</span>}
+              </Link>
+            ))}
           </div>
         )}
       </aside>

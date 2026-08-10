@@ -17,11 +17,8 @@ import {
   type RastreabilidadeCarga,
 } from "./lib/ensaios-catalog";
 import { FichaRastreabilidade } from "./components/FichaRastreabilidade";
+import { formatBR } from "@/lib/utils";
 
-function formatBR(iso: string): string {
-  const [y, m, d] = iso.split("-");
-  return `${d}/${m}/${y}`;
-}
 
 const STATUS_OPTIONS = [
   { value: "nao_conforme", label: "Não conforme" },

@@ -36,6 +36,8 @@ const PlatformAdmin = lazy(() => import('@/pages/admin/PlatformAdmin'))
 const SiengeAlertas = lazy(() => import('@/pages/SiengeAlertas'))
 const AdministracaoHome = lazy(() => import('@/pages/administracao/AdministracaoHome'))
 const SecurityMonitoring = lazy(() => import('@/pages/admin/SecurityMonitoring'))
+const ValidacaoConfig = lazy(() => import('@/pages/admin/ValidacaoConfig'))
+const MinhasValidacoes = lazy(() => import('@/pages/MinhasValidacoes'))
 
 // Legal pages
 const Privacy = lazy(() => import('@/pages/legal/Privacy'))
@@ -52,6 +54,7 @@ const ConcretoLancamento = lazy(() => import('@/pages/qualidade/concreto/Lancame
 const ConcretoDashboard = lazy(() => import('@/pages/qualidade/concreto/Dashboard'))
 const ConcretoImportarHistorico = lazy(() => import('@/pages/qualidade/concreto/ImportarHistorico'))
 const ConcretoConsulta = lazy(() => import('@/pages/qualidade/concreto/Consulta'))
+const ConcretoValidacao = lazy(() => import('@/pages/qualidade/concreto/Validacao'))
 const ConcretoEnsaios = lazy(() => import('@/pages/qualidade/concreto/Ensaios'))
 const ConcretoImportarEnsaios = lazy(() => import('@/pages/qualidade/concreto/ImportarEnsaios'))
 
@@ -211,6 +214,7 @@ function App() {
                       <Route path="qualidade/concreto/dashboard" element={<RequireModulo modulo="qualidade"><ConcretoDashboard /></RequireModulo>} />
                       <Route path="qualidade/concreto/importar-historico" element={<RequireModulo modulo="qualidade"><ConcretoImportarHistorico /></RequireModulo>} />
                       <Route path="qualidade/concreto/consulta" element={<RequireModulo modulo="qualidade"><ConcretoConsulta /></RequireModulo>} />
+                      <Route path="qualidade/concreto/validacao" element={<RequireModulo modulo="qualidade"><ConcretoValidacao /></RequireModulo>} />
                       <Route path="qualidade/concreto/ensaios" element={<RequireModulo modulo="qualidade"><ConcretoEnsaios /></RequireModulo>} />
                       <Route path="qualidade/concreto/ensaios/importar" element={<RequireModulo modulo="qualidade"><ConcretoImportarEnsaios /></RequireModulo>} />
                       <Route path="seguranca" element={<RequireModulo modulo="seguranca"><RdrHome /></RequireModulo>} />
@@ -220,6 +224,11 @@ function App() {
                       <Route path="seguranca/registros/:id" element={<RequireModulo modulo="seguranca"><RdrForm /></RequireModulo>} />
                       <Route path="admin/users" element={<RequireModulo modulo="sistema"><UserApprovalManagement /></RequireModulo>} />
                       <Route path="admin/seguranca" element={<RequirePapel papeis={[]}><SecurityMonitoring /></RequirePapel>} />
+                      <Route path="admin/validacoes" element={<RequireModulo modulo="sistema"><ValidacaoConfig /></RequireModulo>} />
+                      {/* Sem RequireModulo: as pendências atravessam engenharia e
+                          qualidade, e a própria RPC já só devolve o que o usuário
+                          pode decidir. */}
+                      <Route path="validacoes" element={<MinhasValidacoes />} />
                     </Route>
 
                     <Route path="*" element={<Navigate to="/projects" replace />} />

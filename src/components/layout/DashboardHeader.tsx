@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, ChevronDown, FileText, FolderOpen, LogOut, Menu, Moon, Sun, User } from 'lucide-react'
+import { Bell, ChevronDown, FileText, FolderOpen, LogOut, Menu, Moon, ShieldCheck, Sun, User } from 'lucide-react'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 export interface DashboardHeaderProps {
@@ -11,6 +11,8 @@ export interface DashboardHeaderProps {
   totalCount: number
   podeGerenciarUsuarios: boolean
   pendingCount: number
+  totalValidacoes: number
+  meusRejeitados: number
   userEmail?: string
   userInitials: string
   brandColor: string
@@ -30,6 +32,8 @@ export function DashboardHeader({
   totalCount,
   podeGerenciarUsuarios,
   pendingCount,
+  totalValidacoes,
+  meusRejeitados,
   userEmail,
   userInitials,
   brandColor,
@@ -125,6 +129,27 @@ export function DashboardHeader({
         </div>
 
         <div className={`flex shrink-0 items-center ${isMobile ? 'gap-0.5' : 'gap-2'}`}>
+          {totalValidacoes > 0 && (
+            <button
+              onClick={() => onNavigate('/dashboard/validacoes')}
+              className={`relative rounded-lg text-slate-400 transition-colors hover:bg-white/5 hover:text-white ${isMobile ? 'flex h-10 w-10 items-center justify-center' : 'p-2'}`}
+              title={
+                meusRejeitados > 0
+                  ? `${meusRejeitados} lançamento(s) seu(s) voltaram para correção`
+                  : 'Lançamentos aguardando sua conferência'
+              }
+            >
+              <ShieldCheck size={19} />
+              <span
+                className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold text-white rounded-full ring-2 ring-slate-900 ${
+                  meusRejeitados > 0 ? 'bg-red-500' : 'bg-amber-500'
+                }`}
+              >
+                {totalValidacoes > 9 ? '9+' : totalValidacoes}
+              </span>
+            </button>
+          )}
+
           {podeGerenciarUsuarios && (
             <button
               onClick={() => onNavigate('/dashboard/admin/users')}
