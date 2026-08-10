@@ -101,6 +101,7 @@ interface MultiComboboxProps {
   placeholder?: string
   emptyText?: string
   className?: string
+  ariaLabel?: string
 }
 
 export function MultiCombobox({
@@ -108,9 +109,14 @@ export function MultiCombobox({
   placeholder = "Todos",
   emptyText = "Nenhum resultado",
   className,
+  ariaLabel,
 }: MultiComboboxProps) {
   const [open, setOpen] = React.useState(false)
   const selectedSet = new Set(value)
+  const selectedLabels = options.filter((option) => selectedSet.has(option.value)).map((option) => option.label)
+  const accessibleLabel = ariaLabel && value.length > 0
+    ? `${ariaLabel}: ${value.length <= 2 ? selectedLabels.join(", ") : `${value.length} selecionados`}`
+    : ariaLabel
 
   const toggle = (v: string) => {
     const next = new Set(selectedSet)
@@ -124,6 +130,7 @@ export function MultiCombobox({
         <Button
           type="button"
           variant="outline"
+          aria-label={accessibleLabel}
           className={cn("w-full justify-between font-normal min-h-9 h-auto", value.length === 0 && "text-muted-foreground", className)}
         >
           <div className="flex flex-wrap gap-1 items-center">
@@ -149,12 +156,12 @@ export function MultiCombobox({
             <CommandEmpty>{emptyText}</CommandEmpty>
             <CommandGroup>
               {value.length > 0 && (
-                <CommandItem onSelect={() => onChange([])} className="text-muted-foreground">
+                <CommandItem onSelect={() => onChange([])} className="min-h-11 text-muted-foreground sm:min-h-8">
                   Limpar seleção
                 </CommandItem>
               )}
               {options.map((o) => (
-                <CommandItem key={o.value} value={o.label} onSelect={() => toggle(o.value)}>
+                <CommandItem key={o.value} value={o.label} onSelect={() => toggle(o.value)} className="min-h-11 sm:min-h-8">
                   <Check className={cn("mr-2 h-4 w-4", selectedSet.has(o.value) ? "opacity-100" : "opacity-0")} />
                   {o.label}
                 </CommandItem>
