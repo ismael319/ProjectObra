@@ -399,9 +399,39 @@ export async function addSubEtapa(organizacaoId: string, activityId: string, nom
   return data as SubEtapa
 }
 
+/**
+ * Sub-etapas de UMA atividade, direto do banco.
+ *
+ * Existe pra quem precisa do estado recém-gravado sem esperar o refetch da
+ * semana inteira chegar por prop — ver sincronizarStatus em ModalDetalheDia.
+ */
+export async function listSubEtapas(organizacaoId: string, activityId: string): Promise<SubEtapa[]> {
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .select('id,activity_id,nome,status')
+    .eq('activity_id', activityId)
+    .eq('organizacao_id', organizacaoId)
+  if (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return []
+    throw new Error(error.message)
+  }
+  return (data ?? []) as SubEtapa[]
+}
+
 export async function setSubEtapaStatus(organizacaoId: string, id: string, status: SubEtapaStatus): Promise<void> {
-  const { error } = await supabase.from('activity_subetapas').update({ status }).eq('id', id).eq('organizacao_id', organizacaoId)
+  // .select() pelo mesmo motivo de deleteSubEtapa e setActivityStatus: um UPDATE
+  // barrado por RLS não gera erro no Supabase, só afeta 0 linhas em silêncio.
+  // Sem isso, marcar a sub-etapa "funcionava" na tela (o estado local mudava),
+  // o status da atividade era calculado em cima de um dado que nunca chegou ao
+  // banco, e no refetch tudo voltava ao que era — sem nenhum aviso.
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .update({ status })
+    .eq('id', id)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
   if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível marcar a sub-etapa — verifique se seu nível de acesso é Edição')
 }
 
 export async function deleteSubEtapa(organizacaoId: string, id: string): Promise<void> {

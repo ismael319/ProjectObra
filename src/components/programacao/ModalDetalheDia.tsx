@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa, type SubEtapaStatus } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate, WEEKDAY_LABELS } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
-import { addSubEtapa, setSubEtapaStatus, deleteSubEtapa, computeStatusFromSubetapas } from '@/lib/programacao-db'
+import { addSubEtapa, setSubEtapaStatus, deleteSubEtapa, listSubEtapas, computeStatusFromSubetapas } from '@/lib/programacao-db'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -487,7 +487,15 @@ function ActivityRow({
   // última), computeStatusFromSubetapas volta null e não há status pra sincronizar —
   // mas ainda assim precisa atualizar a lista, senão a sub-etapa excluída continua
   // aparecendo na tela até o modal ser reaberto.
-  async function sincronizarStatus(lista: SubEtapa[]) {
+  //
+  // Relê do banco em vez de calcular sobre `activity.subetapas`: aquela prop só
+  // muda quando o fetchData(false) do pai termina, e duas marcações seguidas
+  // chegavam aqui com a lista da marcação ANTERIOR. O cálculo então via uma
+  // sub-etapa ainda "pendente", devolvia null, e a atividade mãe não era
+  // atualizada — de forma intermitente, porque bastava o refetch anterior ter
+  // chegado a tempo pra dar certo.
+  async function sincronizarStatus() {
+    const lista = await listSubEtapas(organizacaoId, activity.id)
     const status = computeStatusFromSubetapas(lista)
     if (status) await onSetStatus(activity.id, status, obs || null)
     else onRefresh()
@@ -498,9 +506,9 @@ function ActivityRow({
     if (!nome) return
     setSavingSubetapa(true)
     try {
-      const nova = await addSubEtapa(organizacaoId, activity.id, nome)
+      await addSubEtapa(organizacaoId, activity.id, nome)
       setNovaSubetapa('')
-      await sincronizarStatus([...subetapas, nova])
+      await sincronizarStatus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao adicionar sub-etapa')
     } finally {
@@ -515,7 +523,7 @@ function ActivityRow({
     setSavingSubetapa(true)
     try {
       await setSubEtapaStatus(organizacaoId, sub.id, novoStatus)
-      await sincronizarStatus(subetapas.map((s) => (s.id === sub.id ? { ...s, status: novoStatus } : s)))
+      await sincronizarStatus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao marcar sub-etapa')
     } finally {
@@ -527,7 +535,7 @@ function ActivityRow({
     setSavingSubetapa(true)
     try {
       await deleteSubEtapa(organizacaoId, sub.id)
-      await sincronizarStatus(subetapas.filter((s) => s.id !== sub.id))
+      await sincronizarStatus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao remover sub-etapa')
     } finally {
