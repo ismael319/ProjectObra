@@ -16,6 +16,7 @@ interface UserProfile {
   // Overrides de papel por módulo (chave = modulo_key) — ausência de chave
   // pra um módulo = usa `papel` (o padrão global). Ver papelEfetivo().
   papelPorModulo: Record<string, PapelUsuario>
+  nome: string | null
   funcao: string | null
   termos_aceitos_em: string | null
   versao_termos: string | null
@@ -40,6 +41,7 @@ interface AuthContextType {
   userProfile: UserProfile | null
   isLoadingProfile: boolean
   precisaAceitarTermos: boolean
+  perfilCompleto: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string) => Promise<{ error?: string }>
@@ -47,6 +49,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
   aceitarTermos: () => Promise<void>
+  completarPerfil: (nome: string, funcao: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -57,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [isLoadingProfile, setIsLoadingProfile] = useState(true)
   const [precisaAceitarTermos, setPrecisaAceitarTermos] = useState(false)
+  const [perfilCompleto, setPerfilCompleto] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -101,9 +105,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // contrato da empresa) — ausência de linhas = sem restrição.
     // user_papel_modulos são os overrides de papel por módulo — ausência de
     // linhas = usa o papel global em todo módulo (comportamento de hoje).
-    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
-    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
-    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
+    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
+    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
+    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
 
     let { data, error } = await supabase.from('user_profiles').select(SELECT_COMPLETO).eq('id', userId).single()
 
@@ -144,12 +148,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
         papelPorModulo,
+        nome: data.nome,
         funcao: data.funcao,
         termos_aceitos_em: data.termos_aceitos_em,
         versao_termos: data.versao_termos,
       }
       setUserProfile(profile)
       setPrecisaAceitarTermos(!data.termos_aceitos_em)
+      setPerfilCompleto(!!(data.nome && data.funcao))
       idbSet(profileCacheKey(userId), profile).catch(() => {})
     } else {
       // Sem rede (apontador em campo), a busca acima não retorna `data` nem
@@ -158,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const cached = await idbGet<UserProfile>(profileCacheKey(userId)).catch(() => undefined)
       if (requestId !== profileRequestId.current) return
       setUserProfile(cached ?? null)
+      setPerfilCompleto(!!(cached?.nome && cached?.funcao))
     }
     setIsLoadingProfile(false)
   }
@@ -230,6 +237,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const completarPerfil = async (nome: string, funcao: string) => {
+    const { error } = await supabase.rpc('completar_perfil', { p_nome: nome, p_funcao: funcao })
+    if (!error) {
+      setPerfilCompleto(true)
+      await refetchProfile()
+    }
+    return { error: error?.message }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -239,6 +255,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userProfile,
         isLoadingProfile,
         precisaAceitarTermos,
+        perfilCompleto,
         refetchProfile,
         signIn,
         signUp,
@@ -246,6 +263,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         updatePassword,
         aceitarTermos,
+        completarPerfil,
       }}
     >
       {children}

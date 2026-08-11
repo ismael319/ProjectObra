@@ -10,7 +10,7 @@ import {
   FolderTree, FileSpreadsheet, CloudRain,
   Settings, PackageSearch, UserCog,
   Truck, LineChart, Database, FlaskConical,
-  ShieldCheck,
+  ShieldCheck, Map,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
@@ -72,6 +72,7 @@ function buildNavSections(modulos: string[]): { title: string; items: NavItem[] 
         { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
       ],
     },
+    { icon: Map, label: 'Gestão à Vista', path: '/dashboard/gestao-vista' },
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
     { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
   ] : []
