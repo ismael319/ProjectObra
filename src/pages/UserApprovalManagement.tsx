@@ -23,6 +23,7 @@ import {
 interface SolicitacaoRow {
   id: string
   email: string | null
+  nome: string | null
   papel: PapelUsuario | null
   funcao: string | null
   status_solicitacao: 'pendente' | 'aprovado' | 'rejeitado'
@@ -84,6 +85,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const [selectedPapel, setSelectedPapel] = useState<Record<string, PapelUsuario>>({})
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [editNome, setEditNome] = useState('')
   const [editPapel, setEditPapel] = useState<PapelUsuario>('edicao')
   const [editStatus, setEditStatus] = useState<'aprovado' | 'rejeitado'>('aprovado')
 
@@ -123,7 +125,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
     setIsLoading(true)
     let query = supabase
       .from('user_profiles')
-      .select('id, email, papel, funcao, status_solicitacao, criado_em')
+      .select('id, email, nome, papel, funcao, status_solicitacao, criado_em')
       .order('criado_em', { ascending: false })
 
     if (tab === 'pendentes') {
@@ -260,18 +262,24 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
 
   const startEdit = (row: SolicitacaoRow) => {
     setEditingId(row.id)
+    setEditNome(row.nome ?? '')
     setEditPapel(row.papel ?? papeisDisponiveis[0])
     setEditStatus(row.status_solicitacao === 'rejeitado' ? 'rejeitado' : 'aprovado')
   }
 
-  const cancelEdit = () => setEditingId(null)
+  const cancelEdit = () => {
+    setEditingId(null)
+    setEditNome('')
+  }
 
   const handleSalvarEdicao = async (row: SolicitacaoRow) => {
     setProcessingId(row.id)
     // A constraint do banco exige papel=NULL quando não está aprovado — ao
     // revogar o acesso (rejeitado), o papel some junto.
-    const patch: { status_solicitacao: 'aprovado' | 'rejeitado'; papel: PapelUsuario | null } =
-      editStatus === 'aprovado' ? { status_solicitacao: 'aprovado', papel: editPapel } : { status_solicitacao: 'rejeitado', papel: null }
+    const patch: { status_solicitacao: 'aprovado' | 'rejeitado'; papel: PapelUsuario | null; nome: string | null } =
+      editStatus === 'aprovado'
+        ? { status_solicitacao: 'aprovado', papel: editPapel, nome: editNome.trim() || null }
+        : { status_solicitacao: 'rejeitado', papel: null, nome: editNome.trim() || null }
 
     const { data, error } = await supabase
       .from('user_profiles')
@@ -412,7 +420,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Email</TableHead>
+              <TableHead>Usuário</TableHead>
               <TableHead>Solicitado em</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Papel</TableHead>
@@ -440,8 +448,26 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
               return (
                 <TableRow key={row.id}>
                   <TableCell className="font-medium">
-                    {row.email ?? '—'}
-                    {row.funcao && <span className="block text-xs font-normal text-gray-400 dark:text-gray-500">{row.funcao}</span>}
+                    {isEditing ? (
+                      <Input
+                        value={editNome}
+                        onChange={(e) => setEditNome(e.target.value)}
+                        placeholder="Nome do usuário"
+                        className="w-44 text-sm"
+                      />
+                    ) : (
+                      <>
+                        {row.nome ? (
+                          <span className="block">{row.nome}</span>
+                        ) : null}
+                        <span className={row.nome ? 'block text-xs font-normal text-gray-400 dark:text-gray-500' : ''}>
+                          {row.email ?? '—'}
+                        </span>
+                      </>
+                    )}
+                    {!isEditing && row.funcao && (
+                      <span className="block text-xs font-normal text-gray-400 dark:text-gray-500">{row.funcao}</span>
+                    )}
                   </TableCell>
                   <TableCell>{new Date(row.criado_em).toLocaleString('pt-BR')}</TableCell>
                   <TableCell>

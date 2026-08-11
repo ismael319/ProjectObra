@@ -13,6 +13,7 @@ export interface DashboardHeaderProps {
   pendingCount: number
   totalValidacoes: number
   meusRejeitados: number
+  userName?: string
   userEmail?: string
   userInitials: string
   brandColor: string
@@ -34,6 +35,7 @@ export function DashboardHeader({
   pendingCount,
   totalValidacoes,
   meusRejeitados,
+  userName,
   userEmail,
   userInitials,
   brandColor,
@@ -187,7 +189,10 @@ export function DashboardHeader({
             {userMenuOpen && (
               <div className="absolute right-0 top-full mt-2 w-60 bg-white dark:bg-gray-800 rounded-xl shadow-2xl ring-1 ring-black/5 border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
                 <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{userEmail}</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{userName ?? userEmail}</p>
+                  {userName && userEmail && (
+                    <p className="text-xs text-gray-400 dark:text-gray-500 truncate">{userEmail}</p>
+                  )}
                 </div>
                 <div className="py-1">
                   {!isInsercaoPontual && (

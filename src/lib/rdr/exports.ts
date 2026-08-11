@@ -30,6 +30,10 @@ export interface DashboardDados {
   txConclusaoNoPrazo: number
   prazoMedioDias: number
   metaMensal: number
+  taxaDesvios: number
+  reincidenciaPct: number
+  reincidenciaRegistros: number
+  reincidenciaTotalDesvios: number
   porTecnico: Record<string, number>
   porCategoria: Record<string, number>
   porLocal: Record<string, number>
@@ -193,6 +197,8 @@ export async function gerarPdfDashboard(dados: DashboardDados): Promise<void> {
     14,
     y
   )
+  y += 6
+  doc.text(`Taxa de desvios: ${dados.taxaDesvios}%  ·  Reincidência: ${dados.reincidenciaPct}%`, 14, y)
   y += 10
 
   doc.setFontSize(11)
@@ -371,6 +377,9 @@ export async function exportarExcelRdr(records: RdrRecord[], dados?: DashboardDa
       { "Indicador": "Conclusão no prazo", "Valor": `${dados.txConclusaoNoPrazo}%` },
       { "Indicador": "Prazo médio de atendimento (dias)", "Valor": dados.prazoMedioDias },
       { "Indicador": "Meta mensal", "Valor": dados.metaMensal || "—" },
+      { "Indicador": "Taxa de desvios", "Valor": `${dados.taxaDesvios}%` },
+      { "Indicador": "Índice de reincidência", "Valor": `${dados.reincidenciaPct}%` },
+      { "Indicador": "Registros de categorias recorrentes", "Valor": `${dados.reincidenciaRegistros} de ${dados.reincidenciaTotalDesvios} desvios` },
     )
   }
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(resumo), "Resumo")

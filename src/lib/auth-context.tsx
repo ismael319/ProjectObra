@@ -16,6 +16,7 @@ interface UserProfile {
   // Overrides de papel por módulo (chave = modulo_key) — ausência de chave
   // pra um módulo = usa `papel` (o padrão global). Ver papelEfetivo().
   papelPorModulo: Record<string, PapelUsuario>
+  nome: string | null
   funcao: string | null
   termos_aceitos_em: string | null
   versao_termos: string | null
@@ -42,7 +43,7 @@ interface AuthContextType {
   precisaAceitarTermos: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
-  signUp: (email: string, password: string) => Promise<{ error?: string }>
+  signUp: (email: string, password: string, nome?: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
@@ -101,9 +102,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // contrato da empresa) — ausência de linhas = sem restrição.
     // user_papel_modulos são os overrides de papel por módulo — ausência de
     // linhas = usa o papel global em todo módulo (comportamento de hoje).
-    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
-    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
-    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
+    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
+    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
+    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
 
     let { data, error } = await supabase.from('user_profiles').select(SELECT_COMPLETO).eq('id', userId).single()
 
@@ -144,6 +145,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         modulos,
         papelPorModulo,
+        nome: data.nome,
         funcao: data.funcao,
         termos_aceitos_em: data.termos_aceitos_em,
         versao_termos: data.versao_termos,
@@ -201,8 +203,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message }
   }
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+  const signUp = async (email: string, password: string, nome?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: nome?.trim() ? { data: { nome: nome.trim() } } : undefined,
+    })
     return { error: error?.message }
   }
 

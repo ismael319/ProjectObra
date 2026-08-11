@@ -58,9 +58,12 @@ export default function DashboardLayout() {
   const totalConferir = validacoesPendentes.reduce((soma, p) => soma + p.total, 0)
   const totalValidacoes = totalConferir + meusRejeitados.length
 
-  const userInitials = user?.email
-    ? user.email.split('@')[0].slice(0, 2).toUpperCase()
-    : 'U'
+  const nomePerfil = userProfile?.nome || user?.user_metadata?.nome
+  const userInitials = nomePerfil
+    ? nomePerfil.slice(0, 2).toUpperCase()
+    : user?.email
+      ? user.email.split('@')[0].slice(0, 2).toUpperCase()
+      : 'U'
 
   useEffect(() => {
     // Apontadores (papel "insercao_pontual") não navegam pela seleção de projetos/cronogramas —
@@ -128,6 +131,7 @@ export default function DashboardLayout() {
     pendingCount,
     totalValidacoes,
     meusRejeitados: meusRejeitados.length,
+    userName: userProfile?.nome ?? user?.user_metadata?.nome,
     userEmail: user?.email,
     userInitials,
     brandColor,
