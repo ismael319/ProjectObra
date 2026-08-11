@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, BarChart3, GanttChart,
@@ -22,6 +22,15 @@ interface NavItem {
   children?: NavItem[]
   disabled?: boolean
 }
+
+// Telas de administração do sistema — agrupadas sob "Sistema" no rodapé da
+// sidebar, visíveis só pra quem tem papel Edição no módulo 'sistema'.
+// A chave não é uma rota: o grupo só abre/fecha, não navega pra lugar nenhum.
+const SISTEMA_KEY = 'grupo:sistema'
+const SISTEMA_ITEMS = [
+  { to: '/dashboard/admin/users', label: 'Usuários', Icon: UserCog },
+  { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
+]
 
 // Telas do Gantt Livre, Apontamento/EAP, Programação semanal e Mapa de Chuvas
 // (módulo "engenharia") e RDR (módulo "seguranca") só aparecem pra empresas
@@ -174,6 +183,72 @@ export default function Sidebar({
   const location = useLocation()
   const { brandColor } = useTheme()
 
+  // Mapeia cada módulo para seus paths e título da seção na sidebar
+  const moduloPaths: Record<string, { title: string; paths: string[]; expandiveis: string[] }> = {
+    engenharia: {
+      title: 'Engenharia',
+      paths: [
+        '/dashboard/planning', '/dashboard/daily', '/dashboard/gantt', '/dashboard/histograma-mo',
+        '/dashboard/people', '/dashboard/people/lancamento', '/dashboard/people/validacao',
+        '/dashboard/people/consulta', '/dashboard/people/resumo', '/dashboard/people/cadastro',
+        '/dashboard/people/eap', '/dashboard/people/importar-eap',
+        '/dashboard/occurrences', '/dashboard/mapa-chuvas',
+      ],
+      expandiveis: ['/dashboard/planning', '/dashboard/people'],
+    },
+    seguranca: {
+      title: 'Segurança',
+      paths: ['/dashboard/seguranca/dashboard', '/dashboard/seguranca/novo', '/dashboard/seguranca/registros'],
+      expandiveis: [],
+    },
+    suprimentos: {
+      title: 'Suprimentos',
+      paths: ['/dashboard/suprimentos'],
+      expandiveis: [],
+    },
+    administracao: {
+      title: 'Administração',
+      paths: ['/dashboard/administracao'],
+      expandiveis: [],
+    },
+    qualidade: {
+      title: 'Qualidade',
+      paths: ['/dashboard/qualidade/concreto', '/dashboard/qualidade/concreto/dashboard', '/dashboard/qualidade/concreto/lancamento', '/dashboard/qualidade/concreto/validacao', '/dashboard/qualidade/concreto/consulta', '/dashboard/qualidade/concreto/ensaios', '/dashboard/qualidade/concreto/cadastro', '/dashboard/qualidade/concreto/importar-historico'],
+      expandiveis: ['/dashboard/qualidade/concreto'],
+    },
+  }
+
+  // Recolhe a seção do módulo anterior quando o usuário navega para outro módulo
+  useEffect(() => {
+    const moduloAtual = Object.entries(moduloPaths).find(([, config]) =>
+      config.paths.some((p) => location.pathname === p || location.pathname.startsWith(p + '/'))
+    )?.[0]
+
+    if (!moduloAtual) return
+
+    // Recolhe todas as seções que NÃO são a atual
+    for (const [key, config] of Object.entries(moduloPaths)) {
+      if (key === moduloAtual) continue
+      setExpandedSections((prev) => {
+        if (!prev.has(config.title)) return prev
+        const next = new Set(prev)
+        next.delete(config.title)
+        return next
+      })
+      setExpandedItems((prev) => {
+        let changed = false
+        const next = new Set(prev)
+        for (const p of config.expandiveis) {
+          if (next.has(p)) {
+            next.delete(p)
+            changed = true
+          }
+        }
+        return changed ? next : prev
+      })
+    }
+  }, [location.pathname])
+
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => {
       const next = new Set(prev)
@@ -204,6 +279,11 @@ export default function Sidebar({
   const sidebarActiveTint = `${brandColor}30`
 
   const isActive = (path: string) => location.pathname === path
+
+  // Realça o grupo "Sistema" enquanto qualquer tela dele estiver aberta —
+  // mesmo comportamento de isItemOrChildActive nas seções do nav.
+  const isSistemaAtivo = SISTEMA_ITEMS.some((i) => isActive(i.to))
+  const sistemaAberto = expandedItems.has(SISTEMA_KEY)
 
   const activeStyle = (path: string): React.CSSProperties =>
     isActive(path)
@@ -433,30 +513,52 @@ export default function Sidebar({
 
         {podeGerenciarUsuarios && (
           <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-            {[
-              { to: '/dashboard/admin/users', label: 'Sistema', Icon: Settings },
-              { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
-            ].map(({ to, label, Icon }) => (
-              <Link
-                key={to}
-                to={to}
-                onClick={() => onMobileClose()}
-                className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
-                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-                } ${
-                  isActive(to)
-                    ? 'text-white'
-                    : 'text-white/80 hover:text-white'
-                }`}
-                style={activeStyle(to)}
-                onMouseEnter={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = sidebarHover }}
-                onMouseLeave={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = 'transparent' }}
-                title={label}
-              >
-                <Icon size={18} />
-                {!collapsed && <span>{label}</span>}
-              </Link>
-            ))}
+            {/* "Sistema" é o grupo; Usuários e Validações são as telas dentro
+                dele. Reusa expandedItems/toggleItem do nav — começa fechado,
+                igual aos outros itens com filhos. */}
+            <button
+              type="button"
+              onClick={() => !collapsed && toggleItem(SISTEMA_KEY)}
+              className={`w-full flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+              } ${isSistemaAtivo ? 'text-white' : 'text-white/80 hover:text-white'}`}
+              style={isSistemaAtivo ? { backgroundColor: sidebarActiveTint, borderLeft: `3px solid ${sidebarActive}` } : undefined}
+              onMouseEnter={(e) => { if (!isSistemaAtivo) e.currentTarget.style.backgroundColor = sidebarHover }}
+              onMouseLeave={(e) => { if (!isSistemaAtivo) e.currentTarget.style.backgroundColor = 'transparent' }}
+              title="Sistema"
+            >
+              <Settings size={18} />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 text-left">Sistema</span>
+                  {sistemaAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </>
+              )}
+            </button>
+
+            {/* Recolhida, os filhos ficam sempre à mostra como ícones: o rótulo
+                do grupo não cabe e esconder deixaria as telas sem caminho. */}
+            {(collapsed || sistemaAberto) && (
+              <div className={collapsed ? 'space-y-0.5' : 'mt-0.5 ml-3 pl-3 border-l border-white/15 space-y-0.5'}>
+                {SISTEMA_ITEMS.map(({ to, label, Icon }) => (
+                  <Link
+                    key={to}
+                    to={to}
+                    onClick={() => onMobileClose()}
+                    className={`flex items-center gap-3 rounded-md text-sm transition-colors duration-150 ${
+                      collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
+                    } ${isActive(to) ? 'text-white font-semibold' : 'text-white/80 hover:text-white font-medium'}`}
+                    style={activeStyle(to)}
+                    onMouseEnter={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = sidebarHover }}
+                    onMouseLeave={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = 'transparent' }}
+                    title={label}
+                  >
+                    <Icon size={collapsed ? 18 : 15} />
+                    {!collapsed && <span>{label}</span>}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </aside>
