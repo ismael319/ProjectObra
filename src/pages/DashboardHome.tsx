@@ -12,7 +12,11 @@ import WorkforceSummary from '@/components/WorkforceSummary'
 import WbsTable, { type WbsQuickFilter } from '@/components/WbsTable'
 import DashboardAttention from '@/components/DashboardAttention'
 import WidgetFilterMenu from '@/components/WidgetFilterMenu'
-import { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
+import EVMIndicators from '@/components/EVMIndicators'
+import OccurrencesSummary from '@/components/OccurrencesSummary'
+import ExecutiveSummary from '@/components/ExecutiveSummary'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import ColumnValueFilter, { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { CronogramaInfo } from '@/lib/project-store'
 import { useMediaQuery } from '@/lib/use-media-query'
@@ -28,9 +32,11 @@ import {
 
 const WIDGET_LABELS: Record<WidgetId, string> = {
   kpis: 'Cards de KPI',
+  evm: 'Indicadores de Performance (EVM)',
   charts: 'Gráficos (status e mensal)',
   progress: 'Curva de progresso',
   engineering: 'Pontos de Engenharia',
+  occurrences: 'Ocorrências',
   'people-safety': 'Mão de Obra',
   'wbs-table': 'Estrutura WBS',
 }
@@ -39,9 +45,11 @@ const WIDGET_LABELS: Record<WidgetId, string> = {
 // o mouse, pra quem não conhece a origem dos dados não precisar adivinhar.
 const WIDGET_DESCRICOES: Record<WidgetId, string> = {
   kpis: 'Indicadores gerais do cronograma: total de atividades, percentual concluído, atividades no prazo e atrasadas — calculados a partir das atividades do(s) cronograma(s) ativo(s).',
-  charts: 'Gráficos de exemplo (Status dos Projetos e Projetos por Mês) — ainda ilustrativos, não conectados aos dados reais do cronograma.',
+  evm: 'Índices de valor agregado (EVM): SPI (prazo), CPI (custo), PPC (Last Planner), variações SV/CV, previsão de término (EAC) e variação ao final (VAC) — calculados das atividades em tempo real.',
+  charts: 'Distribuição das atividades por status (concluída, em andamento, atrasada e não iniciada) e o ritmo de início por mês — calculados das atividades do(s) cronograma(s) ativo(s).',
   progress: 'Curva S simplificada: compara o avanço físico previsto (linha tracejada) com o realizado (linha cheia), em % acumulado, a partir dos dados de HH do(s) cronograma(s) ativo(s).',
   engineering: 'Avanço por disciplina, próximos marcos (milestones) pendentes e as atividades mais atrasadas do cronograma.',
+  occurrences: 'Resumo das ocorrências abertas por severidade e impacto em dias, com as mais recentes e atalho para a página de Ocorrências.',
   'people-safety': 'Resumo do efetivo (HH apontadas e recursos ativos por grupo, a partir dos apontamentos de mão de obra).',
   'wbs-table': 'Lista completa das atividades do cronograma, organizada pela Estrutura Analítica do Projeto (EAP/WBS), com datas, progresso e status de cada item.',
 }
@@ -101,6 +109,11 @@ export default function DashboardHome() {
   const [wbsQuickFilter, setWbsQuickFilter] = useState<WbsQuickFilter>('todas')
   const [wbsSearchResetKey, setWbsSearchResetKey] = useState(0)
   const wbsSectionRef = useRef<HTMLDivElement>(null)
+
+  // Filtro global: uma única seleção de cronograma/colunas aplicada a TODOS os
+  // cards filtráveis de uma vez. É materializado nos `filtros` de cada card
+  // (que é o que a config salva), então não precisa de registro próprio.
+  const [filtroGlobal, setFiltroGlobal] = useState<WidgetFiltros>(SEM_FILTRO)
 
   useEffect(() => {
     const organizacaoId = userProfile?.organizacao_id
@@ -194,6 +207,24 @@ export default function DashboardHome() {
     setDraftWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, filtros } : w)))
   }
 
+  // Espelha um filtro em todos os cards filtráveis, no rascunho e no salvo, e
+  // persiste na hora quando fora do modo de edição (o "Salvar" cobre o resto).
+  const aplicarFiltroGlobal = (filtros: WidgetFiltros) => {
+    setFiltroGlobal(filtros)
+    const espelhar = (list: WidgetConfig[]): WidgetConfig[] =>
+      list.map((w) => (FILTERABLE_WIDGETS.includes(w.id) ? { ...w, filtros } : w))
+    const novoSaved = espelhar(savedWidgets)
+    const novoDraft = espelhar(draftWidgets)
+    setSavedWidgets(novoSaved)
+    setDraftWidgets(novoDraft)
+    if (isEditing) return
+    const organizacaoId = userProfile?.organizacao_id
+    if (!organizacaoId) return
+    saveDashboardConfig(organizacaoId, novoSaved, user?.id ?? null).catch((err) =>
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar filtro global')
+    )
+  }
+
   const abrirMenuFiltro = (e: React.MouseEvent, widgetId: WidgetId) => {
     e.preventDefault()
     setMenuAberto({ widgetId, x: e.clientX, y: e.clientY })
@@ -209,6 +240,8 @@ export default function DashboardHome() {
     switch (w.id) {
       case 'kpis':
         return <KPICards activities={activitiesParaFiltro(w.filtros)} />
+      case 'evm':
+        return <EVMIndicators />
       case 'charts':
         if (isMobile) {
           return (
@@ -219,14 +252,16 @@ export default function DashboardHome() {
         }
         return (
           <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
-            <StatusPieChart />
-            <MonthlyBarChart />
+            <StatusPieChart activities={activitiesParaFiltro(w.filtros)} />
+            <MonthlyBarChart activities={activitiesParaFiltro(w.filtros)} />
           </div>
         )
       case 'progress':
         return <ProgressAreaChart />
       case 'engineering':
         return <EngineeringHighlights activities={activitiesParaFiltro(w.filtros)} />
+      case 'occurrences':
+        return <OccurrencesSummary />
       case 'people-safety':
         return <WorkforceSummary />
       case 'wbs-table':
@@ -322,35 +357,102 @@ export default function DashboardHome() {
 
   return (
     <div className="space-y-4 sm:space-y-6">
-      {podeEditarDashboard && (
-        <div className="flex justify-end">
-          {!isEditing ? (
-            <button
-              onClick={iniciarEdicao}
-              className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:min-h-0 sm:w-auto sm:rounded-lg sm:shadow-none"
-            >
-              <Settings2 size={16} /> Editar página
-            </button>
-          ) : (
-            <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
-              <button
-                onClick={cancelarEdicao}
-                disabled={salvando}
-                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:min-h-0 sm:rounded-lg"
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {cronogramasAtivos.length > 0 && activities.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200">
+              <Filter size={15} className="text-gray-400" /> Filtro global
+            </span>
+            {cronogramasAtivos.length > 1 && (
+              <select
+                value={filtroGlobal.cronograma}
+                onChange={(e) =>
+                  aplicarFiltroGlobal({ ...filtroGlobal, cronograma: e.target.value === 'todos' ? 'todos' : Number(e.target.value) })
+                }
+                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 text-sm text-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-blue-500"
               >
-                <X size={16} /> Cancelar
-              </button>
+                <option value="todos">Todos os cronogramas</option>
+                {cronogramasAtivos.map((c, idx) => (
+                  <option key={c.id} value={idx}>{c.nome}</option>
+                ))}
+              </select>
+            )}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                  Colunas
+                  {filtroGlobal.colunas.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white bg-blue-600">
+                      {filtroGlobal.colunas.length}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+                <ColumnValueFilter
+                  sources={cronogramasAtivos.map((c) => ({
+                    activities: c.dados?.activities || [],
+                    customFieldDefs: c.dados?.customFieldDefs || [],
+                  }))}
+                  filters={filtroGlobal.colunas}
+                  onChange={(colunas) => aplicarFiltroGlobal({ ...filtroGlobal, colunas })}
+                />
+              </PopoverContent>
+            </Popover>
+            {filtroGlobal.cronograma !== 'todos' || filtroGlobal.colunas.length > 0 ? (
+              <>
+                <span
+                  className="text-xs text-gray-500 dark:text-gray-400 max-w-[14rem] truncate"
+                  title={descreverFiltro(filtroGlobal, cronogramasAtivos)}
+                >
+                  {descreverFiltro(filtroGlobal, cronogramasAtivos)}
+                </span>
+                <button
+                  onClick={() => aplicarFiltroGlobal(SEM_FILTRO)}
+                  title="Limpar filtro global"
+                  className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                >
+                  <X size={14} />
+                </button>
+              </>
+            ) : (
+              <span className="text-xs text-gray-400 dark:text-gray-500">todos os cronogramas</span>
+            )}
+          </div>
+        )}
+
+        {podeEditarDashboard && (
+          <div className="flex items-center gap-2 lg:justify-end">
+            {!isEditing ? (
               <button
-                onClick={salvarEdicao}
-                disabled={salvando}
-                className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:min-h-0 sm:rounded-lg"
+                onClick={iniciarEdicao}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:min-h-0 sm:w-auto sm:rounded-lg sm:shadow-none"
               >
-                <Check size={16} /> {salvando ? 'Salvando...' : 'Salvar'}
+                <Settings2 size={16} /> Editar página
               </button>
-            </div>
-          )}
-        </div>
-      )}
+            ) : (
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+                <button
+                  onClick={cancelarEdicao}
+                  disabled={salvando}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:min-h-0 sm:rounded-lg"
+                >
+                  <X size={16} /> Cancelar
+                </button>
+                <button
+                  onClick={salvarEdicao}
+                  disabled={salvando}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:min-h-0 sm:rounded-lg"
+                >
+                  <Check size={16} /> {salvando ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ExecutiveSummary activities={activitiesParaFiltro(filtroGlobal)} />
 
       {isMobile && !isEditing && (
         <DashboardAttention

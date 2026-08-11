@@ -85,8 +85,8 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
                   : 'text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-500/10'
               }`}
             >
-              {kpi.trend === 'up' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-              {kpi.change}
+              {kpi.trend === 'up' ? <TrendingUp size={13} className="shrink-0" /> : <TrendingDown size={13} className="shrink-0" />}
+              <span className="truncate">{kpi.change}</span>
             </span>
           </div>
           <div className="mt-2.5 sm:mt-4">

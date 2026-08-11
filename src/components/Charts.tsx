@@ -15,25 +15,12 @@ import {
   LabelList,
 } from 'recharts'
 import { useProjects } from '@/lib/project-store'
+import { useProject } from '@/lib/project-context'
+import { toDate } from '@/lib/utils'
 import { buildCurveFromRawPoints, consolidateCurves } from '@/lib/curve-utils'
 import { useTheme } from '@/lib/theme-context'
 import { useMediaQuery } from '@/lib/use-media-query'
-
-const projectStatusData = [
-  { name: 'Em andamento', value: 18, color: '#3b82f6' },
-  { name: 'Concluído', value: 6, color: '#22c55e' },
-  { name: 'Atrasado', value: 3, color: '#ef4444' },
-  { name: 'Pendente', value: 4, color: '#f59e0b' },
-]
-
-const monthlyData = [
-  { month: 'Jan', projetos: 12, concluidos: 2 },
-  { month: 'Fev', projetos: 15, concluidos: 3 },
-  { month: 'Mar', projetos: 18, concluidos: 4 },
-  { month: 'Abr', projetos: 20, concluidos: 5 },
-  { month: 'Mai', projetos: 22, concluidos: 5 },
-  { month: 'Jun', projetos: 24, concluidos: 6 },
-]
+import type { WBSActivity } from '@/lib/xml-parser'
 
 function useTooltipStyle(isMobile: boolean) {
   const { isDark } = useTheme()
@@ -48,93 +35,158 @@ function useTooltipStyle(isMobile: boolean) {
   }), [isDark, isMobile])
 }
 
-export function StatusPieChart() {
+// Distribuição das atividades do cronograma por situação (Concluída, Em
+// andamento, Atrasada ou Não iniciada) — dados reais, calculados das
+// atividades; um card em atraso aparece como "Atrasada" mesmo estando em
+// andamento, pra situação mais grave não sumir do gráfico.
+export function StatusPieChart({ activities: activitiesProp }: { activities?: WBSActivity[] } = {}) {
+  const { activities: activitiesContexto } = useProject()
+  const activities = activitiesProp ?? activitiesContexto
   const isMobile = useMediaQuery('(max-width: 639px)')
   const tooltipStyle = useTooltipStyle(isMobile)
+
+  const data = useMemo(() => {
+    const now = new Date()
+    const counts = {
+      'Em andamento': 0,
+      Concluída: 0,
+      Atrasada: 0,
+      'Não iniciada': 0,
+    }
+    for (const a of activities) {
+      if (a.isSummary) continue
+      if (a.percentComplete === 100) counts.Concluída++
+      else if (toDate(a.finish) < now) counts.Atrasada++
+      else if (a.percentComplete > 0) counts['Em andamento']++
+      else counts['Não iniciada']++
+    }
+    return [
+      { name: 'Em andamento', value: counts['Em andamento'], color: '#3b82f6' },
+      { name: 'Concluída', value: counts.Concluída, color: '#22c55e' },
+      { name: 'Atrasada', value: counts.Atrasada, color: '#ef4444' },
+      { name: 'Não iniciada', value: counts['Não iniciada'], color: '#f59e0b' },
+    ].filter((d) => d.value > 0)
+  }, [activities])
+
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700/80 dark:bg-gray-800 sm:rounded-xl sm:p-6">
-      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:mb-4 sm:text-sm">Status dos Projetos</h3>
+      <h3 className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:mb-4 sm:text-sm">Status das Atividades</h3>
       <div
         className="relative h-[200px] sm:h-64"
         role="img"
-        aria-label={projectStatusData.map((item) => `${item.name}: ${item.value}`).join(', ')}
+        aria-label={data.map((item) => `${item.name}: ${item.value}`).join(', ')}
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={projectStatusData}
-              cx="50%"
-              cy="50%"
-              innerRadius={isMobile ? 46 : 60}
-              outerRadius={isMobile ? 70 : 90}
-              paddingAngle={4}
-              dataKey="value"
-              stroke="none"
-              isAnimationActive={false}
-            >
-              {projectStatusData.map((entry, index) => (
-                <Cell key={`cell-${index}`} fill={entry.color} />
-              ))}
-            </Pie>
-            {!isMobile && <Tooltip contentStyle={tooltipStyle} />}
-          </PieChart>
-        </ResponsiveContainer>
-        {isMobile && (
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center" aria-hidden="true">
-            <span className="text-2xl font-extrabold leading-none text-gray-900 dark:text-white">
-              {projectStatusData.reduce((total, item) => total + item.value, 0)}
-            </span>
-            <span className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Total</span>
+        {data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+            Sem atividades
           </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                cx="50%"
+                cy="50%"
+                innerRadius={isMobile ? 46 : 60}
+                outerRadius={isMobile ? 70 : 90}
+                paddingAngle={4}
+                dataKey="value"
+                stroke="none"
+                isAnimationActive={false}
+              >
+                {data.map((entry, index) => (
+                  <Cell key={`cell-${index}`} fill={entry.color} />
+                ))}
+              </Pie>
+              {!isMobile && <Tooltip contentStyle={tooltipStyle} />}
+            </PieChart>
+          </ResponsiveContainer>
         )}
       </div>
       <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 sm:mt-4 sm:flex sm:flex-wrap sm:gap-4">
-        {projectStatusData.map((item) => (
-          <div key={item.name} className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
-            <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">
-              {item.name} <span className="text-gray-400 dark:text-gray-500">({item.value})</span>
-            </span>
-          </div>
-        ))}
+        {data.length === 0 ? (
+          <span className="text-sm text-gray-400 dark:text-gray-500">Nenhuma atividade no cronograma</span>
+        ) : (
+          data.map((item) => (
+            <div key={item.name} className="flex items-center gap-2">
+              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+              <span className="text-xs sm:text-sm text-gray-600 dark:text-gray-300">
+                {item.name} <span className="text-gray-400 dark:text-gray-500">({item.value})</span>
+              </span>
+            </div>
+          ))
+        )}
       </div>
     </div>
   )
 }
 
-export function MonthlyBarChart() {
+// Atividades (e concluídas) por mês de início — mostra o ritmo de arranque do
+// cronograma, limitado aos últimos 18 meses com dados pra legenda não virar
+// uma parede de texto num projeto longo.
+export function MonthlyBarChart({ activities: activitiesProp }: { activities?: WBSActivity[] } = {}) {
+  const { activities: activitiesContexto } = useProject()
+  const activities = activitiesProp ?? activitiesContexto
   const isMobile = useMediaQuery('(max-width: 639px)')
   const { isDark } = useTheme()
   const tooltipStyle = useTooltipStyle(isMobile)
   const labelColor = isDark ? '#cbd5e1' : '#475569'
+
+  const data = useMemo(() => {
+    const porMes = new Map<string, { atividades: number; concluidas: number }>()
+    for (const a of activities) {
+      if (a.isSummary) continue
+      const d = toDate(a.start)
+      const chave = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const entry = porMes.get(chave) || { atividades: 0, concluidas: 0 }
+      entry.atividades++
+      if (a.percentComplete === 100) entry.concluidas++
+      porMes.set(chave, entry)
+    }
+    return Array.from(porMes.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-18)
+      .map(([chave, v]) => ({
+        month: new Date(`${chave}-01T12:00:00`).toLocaleDateString('pt-BR', { month: 'short' }),
+        atividades: v.atividades,
+        concluidas: v.concluidas,
+      }))
+  }, [activities])
+
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700/80 dark:bg-gray-800 sm:rounded-xl sm:p-6">
       <div className="mb-3 flex items-center justify-between sm:mb-4">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:text-sm">Projetos por Mês</h3>
+        <h3 className="text-xs font-bold uppercase tracking-wide text-gray-900 dark:text-white sm:text-sm">Atividades por Mês</h3>
         <div className="flex items-center gap-2.5 text-[10px] text-gray-500 dark:text-gray-400 sm:hidden">
-          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-blue-600" /> Projetos</span>
-          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-600" /> Concluídos</span>
+          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-blue-600" /> Atividades</span>
+          <span className="flex items-center gap-1"><i className="h-1.5 w-1.5 rounded-full bg-green-600" /> Concluídas</span>
         </div>
       </div>
       <div
         className="h-[200px] sm:h-64"
         role="img"
-        aria-label={monthlyData.map((item) => `${item.month}: ${item.projetos} projetos, ${item.concluidos} concluídos`).join('; ')}
+        aria-label={data.map((item) => `${item.month}: ${item.atividades} atividades, ${item.concluidas} concluídas`).join('; ')}
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={monthlyData} margin={isMobile ? { top: 18, right: 0, bottom: 0, left: -20 } : undefined}>
-            <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
-            <XAxis dataKey="month" tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            <YAxis width={isMobile ? 30 : undefined} tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
-            {!isMobile && <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />}
-            <Bar dataKey="projetos" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
-              {isMobile && <LabelList dataKey="projetos" position="top" fill={labelColor} fontSize={9} />}
-            </Bar>
-            <Bar dataKey="concluidos" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
-              {isMobile && <LabelList dataKey="concluidos" position="top" fill={labelColor} fontSize={9} />}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        {data.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-sm text-gray-400 dark:text-gray-500">
+            Sem atividades
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={data} margin={isMobile ? { top: 18, right: 0, bottom: 0, left: -20 } : undefined}>
+              <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-100 dark:text-gray-700" vertical={false} />
+              <XAxis dataKey="month" tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+              <YAxis width={isMobile ? 30 : undefined} tick={{ fontSize: isMobile ? 10 : 12, fill: '#94a3b8' }} axisLine={false} tickLine={false} allowDecimals={false} />
+              {!isMobile && <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'rgba(37, 99, 235, 0.06)' }} />}
+              <Bar dataKey="atividades" name="Atividades" fill="#2563eb" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
+                {isMobile && <LabelList dataKey="atividades" position="top" fill={labelColor} fontSize={9} />}
+              </Bar>
+              <Bar dataKey="concluidas" name="Concluídas" fill="#16a34a" radius={[4, 4, 0, 0]} maxBarSize={isMobile ? 20 : 28} isAnimationActive={false}>
+                {isMobile && <LabelList dataKey="concluidas" position="top" fill={labelColor} fontSize={9} />}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   )

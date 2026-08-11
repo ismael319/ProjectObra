@@ -131,6 +131,23 @@ export default function WbsTable({ activities: activitiesProp, quickFilter: cont
     })
   }, [filteredActivities, expandedWbs, hasActiveFilter])
 
+  // Quantos filhos cada nó tem, pré-calculado uma vez — em vez de escanear a
+  // lista inteira (some) para cada linha, que ficava O(n²) e travava com
+  // cronogramas grandes. Um nó nunca conta a si mesmo: só ancestrais estritos
+  // (prefixos "1.1" → "1.1.2" etc.) incrementam o contador.
+  const childCounts = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const a of activities) {
+      const cronogramaIdx = a.sourceCronogramaIndex ?? 0
+      const parts = a.wbs.split('.')
+      for (let i = 1; i < parts.length; i++) {
+        const chave = `${cronogramaIdx}::${parts.slice(0, i).join('.')}`
+        map.set(chave, (map.get(chave) ?? 0) + 1)
+      }
+    }
+    return map
+  }, [activities])
+
   const getStatusIcon = (activity: typeof activities[0]) => {
     const status = getActivityStatus(activity, today)
     if (status === 'concluida') return <CheckCircle size={14} className="text-green-500" />
