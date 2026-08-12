@@ -3,11 +3,15 @@ import { AlertTriangle, Users, UserCheck, FileWarning } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useAuth } from "@/lib/auth-context";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useFuncionarios, useRhCargos, useRhSetores, useRhGrupos, useAlertasDocumentos } from "@/lib/administracao/catalog";
 import { funcaoBase } from "@/lib/administracao/cargo-nivel";
 import { CHART_COLORS } from "@/lib/chart-colors";
 
 const COLORS = CHART_COLORS;
+const LOCAL_LABEL: Record<string, string> = {
+  obra: "Obra", alojamento: "Alojamento", em_viagem: "Em viagem", turno_noite: "Turno à noite",
+};
 
 function contar<T>(itens: T[], chave: (item: T) => string): { nome: string; total: number }[] {
   const map = new Map<string, number>();
@@ -25,9 +29,14 @@ function diasDesde(dataISO: string): number {
   return Math.round((hoje.getTime() - data.getTime()) / 86_400_000);
 }
 
+function truncarLabel(valor: string, limite: number): string {
+  return valor.length > limite ? `${valor.slice(0, limite - 1)}…` : valor;
+}
+
 export default function DashboardGeral() {
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const isMobile = useMediaQuery("(max-width: 639px)");
 
   const { data: funcionariosTodos = [], isLoading } = useFuncionarios(organizacaoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
@@ -41,10 +50,6 @@ export default function DashboardGeral() {
   const cargoNomePorId = useMemo(() => new Map(cargos.map((c) => [c.id, c.nome])), [cargos]);
   const setorNomePorId = useMemo(() => new Map(setores.map((s) => [s.id, s.nome])), [setores]);
   const grupoNomePorId = useMemo(() => new Map(grupos.map((g) => [g.id, g.nome])), [grupos]);
-
-  const LOCAL_LABEL: Record<string, string> = {
-    obra: "Obra", alojamento: "Alojamento", em_viagem: "Em viagem", turno_noite: "Turno à noite",
-  };
 
   const resumo = useMemo(() => {
     const direta = funcionarios.filter((f) => f.categoria === "D").length;
@@ -75,6 +80,10 @@ export default function DashboardGeral() {
     [funcionarios]
   );
 
+  const funcoesNoGrafico = isMobile ? porFuncao.slice(0, 6) : porFuncao;
+  const setoresNoGrafico = isMobile ? porSetor.slice(0, 6) : porSetor;
+  const gruposNoGrafico = isMobile ? porGrupo.slice(0, 6) : porGrupo;
+
   const documentosVencidos = alertasDocumentos.filter((a) => a.diasParaVencer < 0).length;
   const documentosVencendo = alertasDocumentos.length - documentosVencidos;
 
@@ -84,15 +93,15 @@ export default function DashboardGeral() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Total ativos</div><div className="mt-1 text-3xl font-bold">{resumo.total}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Direta (MOD)</div><div className="mt-1 text-3xl font-bold">{resumo.direta}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground">Indireta (MOI)</div><div className="mt-1 text-3xl font-bold">{resumo.indireta}</div></CardContent></Card>
-        <Card><CardContent className="pt-6"><div className="text-sm text-muted-foreground flex items-center gap-1.5"><UserCheck size={14} /> Admitidos (30d)</div><div className="mt-1 text-3xl font-bold text-green-600">{resumo.admitidos30d}</div></CardContent></Card>
-        <Card className={documentosVencidos > 0 ? "border-red-300 dark:border-red-800" : ""}>
-          <CardContent className="pt-6">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <Card><CardContent className="p-3 sm:p-6"><div className="text-xs text-muted-foreground sm:text-sm">Total ativos</div><div className="mt-1 text-2xl font-bold sm:text-3xl">{resumo.total}</div></CardContent></Card>
+        <Card><CardContent className="p-3 sm:p-6"><div className="text-xs text-muted-foreground sm:text-sm">Direta (MOD)</div><div className="mt-1 text-2xl font-bold sm:text-3xl">{resumo.direta}</div></CardContent></Card>
+        <Card><CardContent className="p-3 sm:p-6"><div className="text-xs text-muted-foreground sm:text-sm">Indireta (MOI)</div><div className="mt-1 text-2xl font-bold sm:text-3xl">{resumo.indireta}</div></CardContent></Card>
+        <Card><CardContent className="p-3 sm:p-6"><div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:text-sm"><UserCheck size={14} /> Admitidos (30d)</div><div className="mt-1 text-2xl font-bold text-green-600 sm:text-3xl">{resumo.admitidos30d}</div></CardContent></Card>
+        <Card className={`col-span-2 sm:col-span-1 ${documentosVencidos > 0 ? "border-red-300 dark:border-red-800" : ""}`}>
+          <CardContent className="p-3 sm:p-6">
             <div className="text-sm text-muted-foreground flex items-center gap-1.5"><FileWarning size={14} /> Documentos pendentes</div>
-            <div className="mt-1 text-3xl font-bold text-red-600">{alertasDocumentos.length}</div>
+            <div className="mt-1 text-2xl font-bold text-red-600 sm:text-3xl">{alertasDocumentos.length}</div>
             {alertasDocumentos.length > 0 && (
               <p className="text-xs text-muted-foreground mt-1">{documentosVencidos} vencido(s) · {documentosVencendo} vencendo em 30d</p>
             )}
@@ -114,16 +123,16 @@ export default function DashboardGeral() {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle className="text-base flex items-center gap-2"><Users size={16} /> Por Função (agrupada por nível)</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="flex items-start gap-2 text-base"><Users size={16} className="mt-0.5 shrink-0" /> Por Função (agrupada por nível){isMobile && porFuncao.length > 6 ? " — Top 6" : ""}</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={Math.max(300, porFuncao.length * 28)}>
-              <BarChart data={porFuncao} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 230 : Math.max(300, porFuncao.length * 28)}>
+              <BarChart data={funcoesNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={180} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 78 : 180} tick={{ fontSize: isMobile ? 10 : 11 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 12) : valor} />
                 <Tooltip />
                 <Bar dataKey="total" name="Funcionários" fill="#2563eb" radius={[0, 4, 4, 0]}>
-                  {porFuncao.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {funcoesNoGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -131,16 +140,16 @@ export default function DashboardGeral() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Por Setor</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Por Setor{isMobile && porSetor.length > 6 ? " — Top 6" : ""}</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={Math.max(300, porSetor.length * 32)}>
-              <BarChart data={porSetor} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 230 : Math.max(300, porSetor.length * 32)}>
+              <BarChart data={setoresNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={140} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 78 : 140} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 12) : valor} />
                 <Tooltip />
                 <Bar dataKey="total" name="Funcionários" fill="#16a34a" radius={[0, 4, 4, 0]}>
-                  {porSetor.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {setoresNoGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -150,10 +159,10 @@ export default function DashboardGeral() {
         <Card>
           <CardHeader><CardTitle className="text-base">Por Local</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={280}>
+            <ResponsiveContainer width="100%" height={isMobile ? 220 : 280}>
               <PieChart>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <Pie data={porLocal} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={90} label={(entry: any) => `${entry.nome}: ${entry.total}`}>
+                <Pie data={porLocal} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={isMobile ? 72 : 90} label={isMobile ? false : (entry: any) => `${entry.nome}: ${entry.total}`} labelLine={!isMobile}>
                   {porLocal.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip />
@@ -163,16 +172,16 @@ export default function DashboardGeral() {
         </Card>
 
         <Card>
-          <CardHeader><CardTitle className="text-base">Por Grupo</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Por Grupo{isMobile && porGrupo.length > 6 ? " — Top 6" : ""}</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={Math.max(280, porGrupo.length * 30)}>
-              <BarChart data={porGrupo} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 230 : Math.max(280, porGrupo.length * 30)}>
+              <BarChart data={gruposNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={160} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 78 : 160} tick={{ fontSize: isMobile ? 10 : 11 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 12) : valor} />
                 <Tooltip />
                 <Bar dataKey="total" name="Funcionários" fill="#8b5cf6" radius={[0, 4, 4, 0]}>
-                  {porGrupo.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {gruposNoGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>

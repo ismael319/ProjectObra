@@ -1,6 +1,8 @@
 import { TrendingUp, TrendingDown, FolderKanban, CheckCircle, Clock, AlertTriangle } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { getActivityStatus, isActivityLate } from '@/lib/dashboard-insights'
+import { useToday } from '@/lib/use-today'
 
 type Props = {
   // Sobrescreve as atividades usadas nos cálculos (ex.: filtro por cronograma/
@@ -10,12 +12,13 @@ type Props = {
 
 export default function KPICards({ activities: activitiesProp }: Props = {}) {
   const { activities: activitiesContexto, indices } = useProject()
+  const today = useToday()
   const activities = activitiesProp ?? activitiesContexto
 
   const totalActivities = activities.filter((a) => !a.isSummary).length
-  const activeActivities = activities.filter((a) => !a.isSummary && a.percentComplete > 0 && a.percentComplete < 100).length
+  const activeActivities = activities.filter((a) => !a.isSummary && getActivityStatus(a, today) === 'em-andamento').length
   const completedActivities = activities.filter((a) => !a.isSummary && a.percentComplete === 100).length
-  const delayedActivities = activities.filter((a) => !a.isSummary && a.finish < new Date() && a.percentComplete < 100).length
+  const delayedActivities = activities.filter((a) => isActivityLate(a, today)).length
 
   const kpis = [
     {
@@ -61,34 +64,44 @@ export default function KPICards({ activities: activitiesProp }: Props = {}) {
   ]
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 sm:gap-4 lg:grid-cols-4">
       {kpis.map((kpi) => (
         <div
           key={kpi.title}
-          className="group relative bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 border border-gray-100 dark:border-gray-700/80 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-200 overflow-hidden"
+          className={`group relative min-h-[124px] overflow-hidden rounded-2xl border bg-white p-3 shadow-card transition-all duration-200 dark:bg-gray-800 sm:min-h-0 sm:rounded-xl sm:border-gray-100 sm:bg-none sm:bg-white sm:p-6 sm:hover:-translate-y-0.5 sm:hover:shadow-card-hover sm:dark:border-gray-700/80 sm:dark:bg-gray-800 ${kpi.title === 'Atrasadas' && delayedActivities > 0 ? 'border-red-200 bg-gradient-to-br from-white to-red-50/70 dark:border-red-500/30 dark:from-gray-800 dark:to-red-500/5' : 'border-gray-100 dark:border-gray-700/80'}`}
         >
           <div
             className="absolute top-0 left-0 right-0 h-[3px] opacity-80"
             style={{ backgroundColor: kpi.accent }}
           />
-          <div className="flex items-center justify-between">
-            <div className={`w-10 h-10 sm:w-12 sm:h-12 ${kpi.iconBg} rounded-xl flex items-center justify-center`}>
-              <kpi.icon className={kpi.iconText} size={22} strokeWidth={2.25} />
+          <div className="flex items-start justify-between sm:items-center">
+            <div className={`flex h-9 w-9 items-center justify-center rounded-xl sm:h-12 sm:w-12 ${kpi.iconBg}`}>
+              <kpi.icon className={`h-5 w-5 sm:h-[22px] sm:w-[22px] ${kpi.iconText}`} strokeWidth={2.25} />
             </div>
             <span
-              className={`flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-full ${
+              className={`hidden items-center gap-1 rounded-full px-2 py-1 text-xs font-semibold sm:flex ${
                 kpi.trend === 'up'
                   ? 'text-green-700 bg-green-50 dark:text-green-400 dark:bg-green-500/10'
                   : 'text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-500/10'
               }`}
             >
-              {kpi.trend === 'up' ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
-              {kpi.change}
+              {kpi.trend === 'up' ? <TrendingUp size={13} className="shrink-0" /> : <TrendingDown size={13} className="shrink-0" />}
+              <span className="truncate">{kpi.change}</span>
             </span>
           </div>
-          <div className="mt-4">
-            <h3 className="text-3xl font-extrabold text-gray-900 dark:text-white tracking-tight">{kpi.value}</h3>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1 font-medium">{kpi.title}</p>
+          <div className="mt-2.5 sm:mt-4">
+            <h3 className="text-[1.625rem] font-extrabold leading-none tracking-tight text-gray-900 dark:text-white sm:text-3xl sm:leading-9">{kpi.value}</h3>
+            <p className="mt-1.5 text-xs font-semibold leading-tight text-gray-600 dark:text-gray-300 sm:mt-1 sm:text-sm sm:font-medium sm:leading-5 sm:text-gray-500 sm:dark:text-gray-400">{kpi.title}</p>
+            <div
+              className={`mt-2.5 flex items-center gap-1 text-[10px] font-medium leading-none sm:hidden ${
+                kpi.trend === 'up'
+                  ? 'text-green-700 dark:text-green-400'
+                  : 'text-red-700 dark:text-red-400'
+              }`}
+            >
+              {kpi.trend === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
+              <span className="truncate">{kpi.change}</span>
+            </div>
           </div>
         </div>
       ))}

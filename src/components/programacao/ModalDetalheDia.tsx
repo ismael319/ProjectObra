@@ -281,9 +281,9 @@ export default function ModalDetalheDia({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="fixed inset-0 bg-black/50 backdrop-blur-[1px]" onClick={() => onOpenChange(false)} />
-      <div className="relative bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col mx-4">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <div>
+      <div className="relative mx-2 flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-2xl dark:bg-gray-800 sm:mx-4 sm:max-h-[85vh]">
+        <div className="flex flex-col gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-4">
+          <div className="min-w-0">
             <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
               Atividades do dia {date ? formatShortDate(parseISODateStr(date)) : ''}
             </h2>
@@ -304,7 +304,7 @@ export default function ModalDetalheDia({
               </p>
             )}
           </div>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className="flex w-full items-center justify-end gap-1 sm:w-auto sm:shrink-0">
             {activities.length > 0 && (
               <button
                 onClick={onExportarImagem}
@@ -333,7 +333,7 @@ export default function ModalDetalheDia({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+        <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3 sm:px-6">
           {activities.length === 0 && (
             <p className="py-6 text-center text-sm text-gray-500 dark:text-gray-400">
               Nenhuma atividade programada para este dia.
@@ -347,7 +347,7 @@ export default function ModalDetalheDia({
               <div key={groupKey} className="border border-gray-100 dark:border-gray-700 rounded-lg overflow-hidden">
                 <button
                   onClick={() => toggleGroup(groupKey)}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-left transition ${
+                  className={`flex w-full flex-wrap items-center gap-2 px-3 py-2 text-left transition ${
                     isExtrasGroup
                       ? 'bg-sky-50/60 dark:bg-sky-900/10 hover:bg-sky-50 dark:hover:bg-sky-900/20'
                       : 'bg-purple-50/60 dark:bg-purple-900/10 hover:bg-purple-50 dark:hover:bg-purple-900/20'
@@ -355,13 +355,13 @@ export default function ModalDetalheDia({
                 >
                   {isCollapsed ? <ChevronRight size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
                   <Layers size={13} className={isExtrasGroup ? 'text-sky-500' : 'text-purple-500'} />
-                  <span className="font-medium text-sm text-gray-900 dark:text-white truncate">
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-gray-900 dark:text-white">
                     {isExtrasGroup ? 'Atividades Extras' : groupKey}
                   </span>
                   <span className="text-xs text-gray-500 dark:text-gray-400 shrink-0">
                     {groupActivities.length}
                   </span>
-                  <div className="ml-auto flex items-center gap-2 text-[11px] shrink-0">
+                  <div className="flex basis-full items-center justify-end gap-2 text-xs sm:ml-auto sm:basis-auto sm:shrink-0 sm:text-[11px]">
                     {counts.concluida > 0 && <span className="text-emerald-600 dark:text-emerald-400">{counts.concluida} concl.</span>}
                     {counts.parcial > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.parcial} parc.</span>}
                     {counts.nao_concluida > 0 && <span className="text-red-600 dark:text-red-400">{counts.nao_concluida} não concl.</span>}

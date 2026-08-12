@@ -12,6 +12,7 @@ import {
   YAxis,
 } from 'recharts'
 import { useTheme } from '@/lib/theme-context'
+import { useMediaQuery } from '@/lib/use-media-query'
 import type { ItemComClassificacao, TipoRelatorio } from '@/lib/sienge/types'
 import { distribuicaoPorCampo, itensPorMes, valorPorCategoria, type CategoriaValor } from '@/lib/sienge/stats'
 
@@ -36,7 +37,7 @@ function CardGrafico({ titulo, children }: { titulo: string; children: ReactNode
   return (
     <div className="rounded-xl border border-gray-100 dark:border-gray-700/80 bg-white dark:bg-gray-800 p-4">
       <h4 className="text-xs font-bold text-gray-900 dark:text-white uppercase tracking-wide mb-3">{titulo}</h4>
-      <div className="h-64">{children}</div>
+      <div className="h-[216px] sm:h-64">{children}</div>
     </div>
   )
 }
@@ -49,7 +50,7 @@ function truncar(texto: string, max = 22): string {
   return texto.length > max ? `${texto.slice(0, max - 1)}…` : texto
 }
 
-function DistribuicaoPie({ dados }: { dados: Array<{ nome: string; total: number }> }) {
+function DistribuicaoPie({ dados, isMobile }: { dados: Array<{ nome: string; total: number }>; isMobile: boolean }) {
   const tooltipStyle = useChartTooltipStyle()
   return (
     <ResponsiveContainer width="100%" height="100%">
@@ -60,8 +61,8 @@ function DistribuicaoPie({ dados }: { dados: Array<{ nome: string; total: number
           nameKey="nome"
           cx="50%"
           cy="50%"
-          innerRadius={45}
-          outerRadius={75}
+          innerRadius={isMobile ? 38 : 45}
+          outerRadius={isMobile ? 62 : 75}
           paddingAngle={3}
           isAnimationActive={false}
         >
@@ -75,27 +76,31 @@ function DistribuicaoPie({ dados }: { dados: Array<{ nome: string; total: number
   )
 }
 
-function TopBarras({ dados, moeda }: { dados: CategoriaValor[]; moeda: boolean }) {
+function TopBarras({ dados, moeda, isMobile }: { dados: CategoriaValor[]; moeda: boolean; isMobile: boolean }) {
   const tooltipStyle = useChartTooltipStyle()
   const { isDark } = useTheme()
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={dados} layout="vertical" margin={{ left: 8, right: 8 }}>
+      <BarChart data={dados} layout="vertical" margin={isMobile ? { top: 0, right: 4, bottom: 0, left: 0 } : { left: 8, right: 8 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" horizontal={false} />
         <XAxis
           type="number"
-          tick={{ fontSize: 11, fill: isDark ? '#94a3b8' : '#6b7280' }}
-          tickFormatter={(v) => (moeda ? formatarValor(Number(v)) : String(v))}
+          tick={{ fontSize: isMobile ? 9 : 11, fill: isDark ? '#94a3b8' : '#6b7280' }}
+          tickFormatter={(v) => (moeda
+            ? isMobile
+              ? Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', notation: 'compact', maximumFractionDigits: 1 })
+              : formatarValor(Number(v))
+            : String(v))}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
           type="category"
           dataKey="nome"
-          width={150}
+          width={isMobile ? 82 : 150}
           interval={0}
-          tick={{ fontSize: 11, fill: isDark ? '#cbd5e1' : '#374151' }}
-          tickFormatter={(v) => truncar(String(v))}
+          tick={{ fontSize: isMobile ? 9 : 11, fill: isDark ? '#cbd5e1' : '#374151' }}
+          tickFormatter={(v) => truncar(String(v), isMobile ? 11 : 22)}
           axisLine={false}
           tickLine={false}
         />
@@ -110,15 +115,15 @@ function TopBarras({ dados, moeda }: { dados: CategoriaValor[]; moeda: boolean }
   )
 }
 
-function EvolucaoMensal({ dados }: { dados: Array<{ nome: string; total: number }> }) {
+function EvolucaoMensal({ dados, isMobile }: { dados: Array<{ nome: string; total: number }>; isMobile: boolean }) {
   const tooltipStyle = useChartTooltipStyle()
   const { isDark } = useTheme()
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <BarChart data={dados}>
+      <BarChart data={dados} margin={isMobile ? { top: 4, right: 0, bottom: 0, left: -20 } : undefined}>
         <CartesianGrid strokeDasharray="3 3" stroke="currentColor" className="text-gray-200 dark:text-gray-700" vertical={false} />
-        <XAxis dataKey="nome" tick={{ fontSize: 11, fill: isDark ? '#94a3b8' : '#6b7280' }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 11, fill: isDark ? '#94a3b8' : '#6b7280' }} axisLine={false} tickLine={false} />
+        <XAxis dataKey="nome" tick={{ fontSize: isMobile ? 9 : 11, fill: isDark ? '#94a3b8' : '#6b7280' }} minTickGap={isMobile ? 12 : 5} axisLine={false} tickLine={false} />
+        <YAxis width={isMobile ? 30 : undefined} tick={{ fontSize: isMobile ? 9 : 11, fill: isDark ? '#94a3b8' : '#6b7280' }} axisLine={false} tickLine={false} />
         <Tooltip contentStyle={tooltipStyle} />
         <Bar dataKey="total" name="Itens" fill="#2563eb" radius={[4, 4, 0, 0]} isAnimationActive={false} />
       </BarChart>
@@ -133,6 +138,7 @@ interface Props {
 
 /** Painel executivo por aba: distribuição por situação, top fornecedores e evolução mensal. */
 export default function SiengeCharts({ tipo, itens }: Props) {
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const comValor = tipo === 'pedidos' || tipo === 'contratos'
   const campoSituacao = tipo === 'contratos' ? 'situacao' : 'sd'
   const campoMoeda = tipo === 'contratos' ? 'saldo' : 'total'
@@ -151,7 +157,7 @@ export default function SiengeCharts({ tipo, itens }: Props) {
     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
       <CardGrafico titulo={`Situação (${tipo === 'solicitacoes' ? 'status' : 'situação'})`}>
         {temDados ? (
-          <DistribuicaoPie dados={distribuicao} />
+          <DistribuicaoPie dados={distribuicao} isMobile={isMobile} />
         ) : (
           <p className="text-sm text-gray-400 dark:text-gray-500 h-full flex items-center justify-center">Sem dados</p>
         )}
@@ -160,7 +166,7 @@ export default function SiengeCharts({ tipo, itens }: Props) {
       {comValor ? (
         <CardGrafico titulo="Top fornecedores por valor">
           {topFornecedores.length > 0 ? (
-            <TopBarras dados={topFornecedores} moeda />
+            <TopBarras dados={topFornecedores} moeda isMobile={isMobile} />
           ) : (
             <p className="text-sm text-gray-400 dark:text-gray-500 h-full flex items-center justify-center">Sem dados</p>
           )}
@@ -168,7 +174,7 @@ export default function SiengeCharts({ tipo, itens }: Props) {
       ) : (
         <CardGrafico titulo="Abertura por mês">
           {mensal.length > 0 ? (
-            <EvolucaoMensal dados={mensal} />
+            <EvolucaoMensal dados={mensal} isMobile={isMobile} />
           ) : (
             <p className="text-sm text-gray-400 dark:text-gray-500 h-full flex items-center justify-center">Sem dados</p>
           )}
@@ -177,7 +183,7 @@ export default function SiengeCharts({ tipo, itens }: Props) {
 
       <CardGrafico titulo="Itens por mês">
         {mensal.length > 0 ? (
-          <EvolucaoMensal dados={mensal} />
+          <EvolucaoMensal dados={mensal} isMobile={isMobile} />
         ) : (
           <p className="text-sm text-gray-400 dark:text-gray-500 h-full flex items-center justify-center">Sem dados</p>
         )}

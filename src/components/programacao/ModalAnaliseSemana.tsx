@@ -126,23 +126,27 @@ export default function ModalAnaliseSemana({
               </div>
             )}
 
-            {/* Aderência */}
+            {/* Aderência. Layout responsivo veio da main; os rótulos, a regra do
+                Badge e o texto explicativo vieram do plano comprometido — as duas
+                coisas são independentes e ambas ficam. */}
             {resumo && (
               <div className="rounded-lg border p-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="text-sm">
                     <span className="text-muted-foreground">Plano comprometido:</span>{' '}
                     <span className="font-semibold">{Math.round(resumo.aderenciaBaseline * 100)}%</span>
                   </div>
-                  <ArrowRight size={14} className="text-muted-foreground" />
+                  <ArrowRight size={14} className="hidden text-muted-foreground sm:block" />
                   <div className="text-sm">
                     <span className="text-muted-foreground">Aderência atual:</span>{' '}
                     <span className="font-semibold">{Math.round(resumo.aderenciaAtual * 100)}%</span>
                   </div>
                   {/* Delta positivo é o sinal ruim aqui: significa que a conta
                       "atual" ficou ACIMA do compromisso, ou seja, o conjunto foi
-                      alterado a favor do número. */}
-                  <Badge variant={resumo.delta > 0.05 ? 'destructive' : 'default'} className="ml-2">
+                      alterado a favor do número. A main ainda tinha a regra
+                      invertida (delta >= 0 => 'default'), de quando o baseline era
+                      tirado no fechamento e o delta era sempre ~zero. */}
+                  <Badge variant={resumo.delta > 0.05 ? 'destructive' : 'default'} className="sm:ml-2">
                     {resumo.delta >= 0 ? '+' : ''}{Math.round(resumo.delta * 100)}pp
                   </Badge>
                 </div>

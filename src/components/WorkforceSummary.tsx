@@ -42,16 +42,26 @@ export default function WorkforceSummary() {
     }
   }, [resources, laborEntries])
 
-  if (resources.length === 0 && laborEntries.length === 0) return null
+  if (resources.length === 0 && laborEntries.length === 0) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Users size={18} className="text-amber-600 dark:text-amber-400" />
+          <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Resumo do Efetivo</h2>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum recurso ou apontamento registrado.</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
       <div className="flex items-center gap-2 mb-4">
         <Users size={18} className="text-amber-600 dark:text-amber-400" />
-        <h2 className="text-lg font-bold text-gray-900 dark:text-white">Resumo do Efetivo</h2>
+        <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Resumo do Efetivo</h2>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 gap-5 sm:gap-6 lg:grid-cols-3">
         {/* Números principais */}
         <div className="grid grid-cols-2 gap-4 content-start">
           <div>
@@ -85,7 +95,7 @@ export default function WorkforceSummary() {
         </div>
 
         {/* HH por grupo */}
-        <div className="lg:col-span-2">
+        <div className="border-t border-gray-100 pt-5 dark:border-gray-700 sm:border-t-0 sm:pt-0 lg:col-span-2">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
             HH por Grupo de Recurso
           </h3>

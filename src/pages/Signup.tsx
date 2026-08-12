@@ -10,6 +10,7 @@ import TurnstileWidget from '@/components/TurnstileWidget'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const signupSchema = z.object({
+  nome: z.string().min(2, 'Informe seu nome'),
   email: z.string().email('Email inválido'),
   password: z.string().min(8, 'Mínimo 8 caracteres'),
   confirmPassword: z.string(),
@@ -58,7 +59,7 @@ export default function Signup() {
       p_email: data.email,
     })
 
-    const { error } = await signUp(data.email, data.password)
+    const { error } = await signUp(data.email, data.password, data.nome)
     setIsLoading(false)
     if (error) {
       setError('Erro ao criar conta. Tente novamente.')
@@ -115,6 +116,25 @@ export default function Signup() {
                 {success}
               </div>
             )}
+
+            <div>
+              <label htmlFor="nome" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Nome
+              </label>
+              <input
+                {...register('nome')}
+                type="text"
+                id="nome"
+                autoComplete="name"
+                placeholder="Seu nome completo"
+                className={`w-full px-4 py-3 border rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition ${
+                  errors.nome ? 'border-red-300' : 'border-gray-300 dark:border-gray-600'
+                }`}
+              />
+              {errors.nome && (
+                <p className="mt-1 text-sm text-red-600">{errors.nome.message}</p>
+              )}
+            </div>
 
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">

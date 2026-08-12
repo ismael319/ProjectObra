@@ -7,8 +7,9 @@ import RecentProjects from '@/components/RecentProjects'
 import { useAuth } from '@/lib/auth-context'
 
 export default function Dashboard() {
-  const { user } = useAuth()
+  const { user, userProfile } = useAuth()
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const nomeExibido = userProfile?.nome ?? user?.user_metadata?.nome ?? user?.email?.split('@')[0]
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -27,7 +28,7 @@ export default function Dashboard() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
               <p className="text-sm text-gray-500 mt-1">
-                Bem-vindo de volta, {user?.email?.split('@')[0]}
+                Bem-vindo de volta, {nomeExibido}
               </p>
             </div>
             <div className="flex items-center gap-4">

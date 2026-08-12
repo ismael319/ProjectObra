@@ -281,7 +281,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-      <div className="bg-white dark:bg-slate-900 rounded-xl shadow-xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+      <div className="flex max-h-[92dvh] w-full max-w-3xl flex-col rounded-xl bg-white shadow-xl dark:bg-slate-900 sm:max-h-[85vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200 dark:border-slate-700">
           <h2 className="text-base font-semibold text-gray-900 dark:text-white flex items-center gap-2">
             <Download size={18} /> Importar do cronograma
@@ -291,9 +291,9 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
           </button>
         </div>
 
-        <div className="px-5 pt-3 space-y-3">
-          <div className="flex items-center gap-2">
-            <div className="relative flex-1">
+        <div className="space-y-3 px-4 pt-3 sm:px-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <div className="relative min-w-0 flex-1">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
@@ -303,8 +303,9 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
                 className="w-full pl-9 pr-3 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
             </div>
-            <span className="text-xs text-gray-500 dark:text-slate-400 shrink-0">% concluído</span>
-            <input
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500 dark:text-slate-400 shrink-0">% concluído</span>
+              <input
               type="number"
               min={0}
               max={100}
@@ -312,9 +313,9 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
               value={percentMin}
               onChange={(e) => setPercentMin(e.target.value === '' ? '' : Number(e.target.value))}
               className="w-20 px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <span className="text-gray-400 dark:text-slate-500 text-sm">–</span>
-            <input
+              />
+              <span className="text-gray-400 dark:text-slate-500 text-sm">–</span>
+              <input
               type="number"
               min={0}
               max={100}
@@ -322,15 +323,16 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
               value={percentMax}
               onChange={(e) => setPercentMax(e.target.value === '' ? '' : Number(e.target.value))}
               className="w-20 px-2.5 py-2 text-sm border border-gray-200 dark:border-slate-700 rounded-lg bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            {(percentMin !== '' || percentMax !== '') && (
-              <button
-                onClick={() => { setPercentMin(''); setPercentMax('') }}
-                className="text-xs text-blue-600 dark:text-blue-400 hover:underline shrink-0"
-              >
-                Limpar
-              </button>
-            )}
+              />
+              {(percentMin !== '' || percentMax !== '') && (
+                <button
+                  onClick={() => { setPercentMin(''); setPercentMax('') }}
+                  className="min-h-10 shrink-0 px-2 text-xs text-blue-600 hover:underline dark:text-blue-400 sm:min-h-0 sm:px-0"
+                >
+                  Limpar
+                </button>
+              )}
+            </div>
           </div>
           <div className="border border-gray-200 dark:border-slate-700 rounded-lg p-3">
             <ColumnValueFilter
@@ -341,7 +343,7 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto min-h-0 px-5 py-3 space-y-3">
+        <div className="flex-1 overflow-y-auto min-h-0 px-4 py-3 space-y-3 sm:px-5">
           {filteredGroups.length === 0 ? (
             <p className="text-center text-sm text-gray-400 dark:text-slate-500 py-12">
               {groups.length === 0 ? 'Nenhum cronograma ativo carregado no projeto.' : 'Nenhum item encontrado.'}
@@ -375,19 +377,19 @@ export default function ModalImportarCronograma({ open, onClose }: Props) {
           )}
         </div>
 
-        <div className="flex items-center justify-between gap-3 px-5 py-4 border-t border-gray-200 dark:border-slate-700">
+        <div className="flex flex-col gap-2 border-t border-gray-200 px-4 py-3 dark:border-slate-700 sm:flex-row sm:items-center sm:justify-between sm:px-5 sm:py-4">
           <span className="text-xs text-gray-500 dark:text-slate-400">{selected.size} item(ns) selecionado(s)</span>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-sm text-gray-700 dark:text-slate-200 bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 rounded-lg transition"
+              className="min-h-11 flex-1 rounded-lg bg-gray-100 px-4 py-2 text-sm text-gray-700 transition hover:bg-gray-200 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700 sm:min-h-0 sm:flex-none"
             >
               Cancelar
             </button>
             <button
               onClick={handleImport}
               disabled={selected.size === 0 || importing}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0 sm:flex-none"
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               Importar {selected.size > 0 ? selected.size : ''}

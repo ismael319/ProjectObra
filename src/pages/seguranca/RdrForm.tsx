@@ -107,7 +107,7 @@ export default function RdrForm() {
   const { data: record, isLoading: carregandoRecord } = useRdrRecord(isEdit ? id : undefined);
   const salvarMut = useSalvarRecord(organizacaoId);
 
-  const nomePadrao = user?.user_metadata?.nome ?? user?.email ?? "";
+  const nomePadrao = userProfile?.nome ?? user?.user_metadata?.nome ?? user?.email ?? "";
 
   const [data, setData] = useState(todayISO());
   const [hora, setHora] = useState(horaAtual());

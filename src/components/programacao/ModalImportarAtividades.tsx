@@ -210,7 +210,7 @@ export default function ModalImportarAtividades({
   return (
     <TooltipProvider delayDuration={300}>
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[85vh] flex flex-col">
+      <DialogContent className="max-h-[92dvh] w-[calc(100vw-1rem)] max-w-6xl flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Download size={18} />
@@ -258,7 +258,7 @@ export default function ModalImportarAtividades({
                 const currentBL = getSelectedBL(cronogramaId)
                 return (
                   <div key={cronogramaId} className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-                    <div className="w-full flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-800/50">
+                    <div className="flex w-full flex-wrap items-center gap-2 bg-gray-50 px-3 py-2.5 dark:bg-gray-800/50">
                       <button
                         onClick={() => toggleExpand(cronogramaId)}
                         className="flex items-center gap-2 flex-1 min-w-0 text-left hover:opacity-75 transition"
@@ -344,7 +344,7 @@ export default function ModalImportarAtividades({
         </div>
 
         {!loading && filteredActivities.length > 0 && (
-          <div className="pt-2 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between gap-3">
+          <div className="flex flex-col items-stretch gap-2 border-t border-gray-200 pt-2 dark:border-gray-700 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div className="text-xs text-gray-500 dark:text-gray-400">
               {filteredActivities.length} {filteredActivities.length === 1 ? 'atividade' : 'atividades'} ·{' '}
               {formatWork(filteredActivities.reduce((sum, a) => sum + a.work, 0))} · {selected.size} selecionada(s)
@@ -352,7 +352,7 @@ export default function ModalImportarAtividades({
             <button
               onClick={handleImport}
               disabled={selected.size === 0 || importing}
-              className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex min-h-11 items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40 sm:min-h-0"
             >
               {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
               Importar Selecionadas

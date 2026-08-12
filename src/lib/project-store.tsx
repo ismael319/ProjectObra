@@ -1,8 +1,9 @@
-import { createContext, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
 import type { ParsedProject } from '@/lib/xml-parser'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { fetchWithOfflineCacheDetailed, type OfflineCacheResult } from '@/lib/offline-query'
 
 // "dados" (o ParsedProject inteiro — atividades, recursos, timephased) é o
 // campo pesado de um cronograma; um cronograma real facilmente passa de
@@ -87,11 +88,13 @@ interface ProjectContextType {
   // — currentProject só é atualizado depois que isso termina, então nenhuma
   // tela chega a ver cronogramas com dados pela metade.
   isHydratingCurrentProject: boolean
-  setCurrentProject: (project: Project | null) => Promise<void>
-  createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>) => Project
+  usingOfflineCache: boolean
+  offlineDataUpdatedAt: number | null
+  setCurrentProject: (project: Project | null) => Promise<boolean>
+  createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>) => Project | null
   updateProject: (id: string, data: Partial<Project>) => void
   deleteProject: (id: string) => void
-  duplicateProject: (id: string) => Promise<Project>
+  duplicateProject: (id: string) => Promise<Project | null>
   archiveProject: (id: string) => void
   addCronograma: (projectId: string, cronograma: CronogramaInfo) => Promise<void>
   removeCronograma: (projectId: string, cronogramaId: string) => void
@@ -109,18 +112,26 @@ const CURRENT_PROJECT_ID_KEY = 'obracontrol_current_project_id'
 
 const CRON_COLORS = ['#9933FF', '#0066CC', '#00AA00', '#FF9900', '#CC0000', '#FF00FF', '#00CCCC', '#FFCC00', '#333333', '#FF6600']
 
-function loadCurrentProjectId(): string | null {
+function loadCurrentProjectId(scope: string): string | null {
   try {
-    return localStorage.getItem(CURRENT_PROJECT_ID_KEY)
+    return localStorage.getItem(`${CURRENT_PROJECT_ID_KEY}:${scope}`)
   } catch {
     return null
   }
 }
 
-function saveCurrentProjectId(id: string | null) {
+function ensureProjectWriteOnline(readOnlyData = false) {
+  if (navigator.onLine && !readOnlyData) return true
+  toast.warning('Modo offline somente leitura.', { description: 'Reconecte-se antes de alterar projetos ou cronogramas.' })
+  return false
+}
+
+function saveCurrentProjectId(scope: string | null, id: string | null) {
+  if (!scope) return
   try {
-    if (id) localStorage.setItem(CURRENT_PROJECT_ID_KEY, id)
-    else localStorage.removeItem(CURRENT_PROJECT_ID_KEY)
+    const key = `${CURRENT_PROJECT_ID_KEY}:${scope}`
+    if (id) localStorage.setItem(key, id)
+    else localStorage.removeItem(key)
   } catch { /* navegador sem localStorage disponível — só perde a conveniência */ }
 }
 
@@ -364,36 +375,35 @@ function mensagemDeErro(error: unknown): string {
 // (dados incluídos) pra todos os projetos era o maior peso no carregamento
 // inicial — agora os dados completos só são buscados quando um projeto
 // específico é aberto (ver loadCronogramasDadosRemote/hydrateProjectDados).
-async function loadProjectsRemote(): Promise<Project[]> {
-  const { data, error } = await supabase
+async function loadProjectsRemote(organizacaoId: string | null, cacheScope: string): Promise<OfflineCacheResult<Project[]>> {
+  return fetchWithOfflineCacheDetailed(`projects:v1:${cacheScope}`, async () => {
+    let query = supabase
     .from('projetos')
     .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload)')
     .order('criado_em', { ascending: true })
 
-  if (error) {
-    console.error('Falha ao carregar projetos do Supabase.', error)
-    toast.error('Não foi possível carregar seus projetos.', { description: mensagemDeErro(error), duration: 20000 })
-    return []
-  }
-  return Promise.all((data as ProjetoRow<CronogramaMetaRow>[]).map((row) => mapProjetoRow(row, mapCronogramaMetaRow)))
+    if (organizacaoId) query = query.eq('organizacao_id', organizacaoId)
+    const { data, error, status } = await query
+
+    if (error) return { data: null, error, status }
+    const projects = await Promise.all((data as ProjetoRow<CronogramaMetaRow>[]).map((row) => mapProjetoRow(row, mapCronogramaMetaRow)))
+    return { data: projects, error: null, status }
+  })
 }
 
 // Busca os "dados" completos (descomprimidos) de cada cronograma de UM
 // projeto — chamada só quando o projeto é de fato aberto (setCurrentProject).
-async function loadCronogramasDadosRemote(projetoId: string): Promise<Map<string, ParsedProject>> {
-  const { data, error } = await supabase
-    .from('projeto_cronogramas')
-    .select('id, dados')
-    .eq('projeto_id', projetoId)
+async function loadCronogramasDadosRemote(projetoId: string, cacheScope: string): Promise<OfflineCacheResult<Map<string, ParsedProject>>> {
+  const result = await fetchWithOfflineCacheDetailed(`project-data:v1:${cacheScope}:${projetoId}`, async () => {
+    const { data, error, status } = await supabase
+      .from('projeto_cronogramas')
+      .select('id, dados')
+      .eq('projeto_id', projetoId)
 
-  if (error) {
-    console.error('Falha ao carregar os dados dos cronogramas do Supabase.', error)
-    toast.error('Não foi possível carregar os dados do cronograma.', { description: mensagemDeErro(error), duration: 20000 })
-    return new Map()
-  }
-  const rows = data as { id: string; dados: unknown }[]
-  const entries = await Promise.all(rows.map(async (row) => [row.id, await decompressDados(row.dados)] as const))
-  return new Map(entries)
+    return { data: error ? null : data as { id: string; dados: unknown }[], error, status }
+  })
+  const entries = await Promise.all(result.data.map(async (row) => [row.id, await decompressDados(row.dados)] as const))
+  return { ...result, data: new Map(entries) }
 }
 
 async function insertProjectRemote(project: Project, organizacaoId: string, userId?: string) {
@@ -507,87 +517,152 @@ function calcDatesFromCronogramas(cronogramas: CronogramaInfo[]): { dataInicio: 
 }
 
 export function ProjectStoreProvider({ children }: { children: ReactNode }) {
-  const { user, userProfile } = useAuth()
+  const { user, userProfile, isLoadingProfile } = useAuth()
+  const userId = user?.id ?? null
   const organizacaoId = userProfile?.organizacao_id ?? null
+  const cacheScope = userId ? `${organizacaoId ?? 'all'}:${userId}` : null
 
   const [projects, setProjects] = useState<Project[]>([])
   const [currentProject, setCurrentProjectState] = useState<Project | null>(null)
   const [isLoadingProjects, setIsLoadingProjects] = useState(true)
   const [isHydratingCurrentProject, setIsHydratingCurrentProject] = useState(false)
+  const [usingOfflineCache, setUsingOfflineCache] = useState(false)
+  const [offlineDataUpdatedAt, setOfflineDataUpdatedAt] = useState<number | null>(null)
+  const [reloadVersion, setReloadVersion] = useState(0)
   // IDs de projeto cujos cronogramas já têm os "dados" completos carregados
   // (não é state — não precisa re-render, só evita rebuscar o mesmo projeto
   // duas vezes na mesma sessão).
   const hydratedProjectIds = useRef<Set<string>>(new Set())
+  const loadGeneration = useRef(0)
+
+  const recordOfflineResult = useCallback((result: Pick<OfflineCacheResult<unknown>, 'source' | 'cachedAt'>) => {
+    if (result.source !== 'cache') return
+    setUsingOfflineCache(true)
+    setOfflineDataUpdatedAt((current) => current ? Math.min(current, result.cachedAt) : result.cachedAt)
+  }, [])
 
   // Busca os dados completos dos cronogramas de um projeto (se ainda não
   // buscados nesta sessão) e devolve o projeto já "hidratado" — usado tanto
   // ao abrir um projeto quanto antes de duplicá-lo (pra não copiar
   // cronogramas com dados vazios).
-  const hydrateProject = async (project: Project): Promise<Project> => {
+  const hydrateProject = useCallback(async (project: Project, generation = loadGeneration.current): Promise<Project> => {
     if (hydratedProjectIds.current.has(project.id) || project.cronogramas.length === 0) {
-      hydratedProjectIds.current.add(project.id)
+      if (generation === loadGeneration.current) hydratedProjectIds.current.add(project.id)
       return project
     }
-    const dadosPorCronograma = await loadCronogramasDadosRemote(project.id)
+    if (!cacheScope) throw new Error('Sessão indisponível para carregar o projeto')
+    const result = await loadCronogramasDadosRemote(project.id, cacheScope)
+    const dadosPorCronograma = result.data
+    const missingCronogramas = project.cronogramas.filter((cronograma) => !dadosPorCronograma.has(cronograma.id))
+    if (missingCronogramas.length > 0) {
+      throw new Error('Os dados salvos deste projeto estão incompletos. Conecte-se para atualizá-los.')
+    }
     const hydrated: Project = {
       ...project,
       cronogramas: project.cronogramas.map((c) =>
         dadosPorCronograma.has(c.id) ? { ...c, dados: dadosPorCronograma.get(c.id)! } : c
       ),
     }
-    hydratedProjectIds.current.add(project.id)
-    setProjects((prev) => prev.map((p) => (p.id === hydrated.id ? hydrated : p)))
+    if (generation === loadGeneration.current) {
+      recordOfflineResult(result)
+      hydratedProjectIds.current.add(project.id)
+      setProjects((prev) => prev.map((p) => (p.id === hydrated.id ? hydrated : p)))
+    }
     return hydrated
-  }
+  }, [cacheScope, recordOfflineResult])
 
   useEffect(() => {
-    if (!user) {
+    const reloadWhenOnline = () => setReloadVersion((current) => current + 1)
+    window.addEventListener('online', reloadWhenOnline)
+    return () => window.removeEventListener('online', reloadWhenOnline)
+  }, [])
+
+  useEffect(() => {
+    if (!userId) {
+      loadGeneration.current += 1
       setProjects([])
       setCurrentProjectState(null)
+      setIsLoadingProjects(false)
+      setIsHydratingCurrentProject(false)
+      setUsingOfflineCache(false)
+      setOfflineDataUpdatedAt(null)
+      hydratedProjectIds.current.clear()
+      return
+    }
+    if (isLoadingProfile || !cacheScope) {
+      setIsLoadingProjects(true)
       return
     }
 
     let cancelled = false
+    const generation = ++loadGeneration.current
     setIsLoadingProjects(true)
-    loadProjectsRemote().then(async (loaded) => {
-      if (cancelled) return
-      setProjects(loaded)
-      setIsLoadingProjects(false)
-      const savedId = loadCurrentProjectId()
-      const saved = savedId ? loaded.find((p) => p.id === savedId) ?? null : null
-      if (!saved) {
-        setCurrentProjectState(null)
-        return
+    setUsingOfflineCache(false)
+    setOfflineDataUpdatedAt(null)
+    hydratedProjectIds.current.clear()
+
+    const loadProjects = async () => {
+      try {
+        const result = await loadProjectsRemote(organizacaoId, cacheScope)
+        if (cancelled || generation !== loadGeneration.current) return
+        recordOfflineResult(result)
+        const loaded = result.data
+        setProjects(loaded)
+        const savedId = loadCurrentProjectId(cacheScope)
+        const saved = savedId ? loaded.find((project) => project.id === savedId) ?? null : null
+        if (!saved) {
+          if (generation === loadGeneration.current) setCurrentProjectState(null)
+          return
+        }
+        setIsHydratingCurrentProject(true)
+        const hydrated = await hydrateProject(saved, generation)
+        if (!cancelled && generation === loadGeneration.current) setCurrentProjectState(hydrated)
+      } catch (error) {
+        if (cancelled || generation !== loadGeneration.current) return
+        console.error('Falha ao carregar projetos.', error)
+        toast.error('Não foi possível carregar seus projetos.', { description: mensagemDeErro(error), duration: 20000 })
+      } finally {
+        if (!cancelled && generation === loadGeneration.current) {
+          setIsLoadingProjects(false)
+          setIsHydratingCurrentProject(false)
+        }
       }
-      setIsHydratingCurrentProject(true)
-      const hydrated = await hydrateProject(saved)
-      if (cancelled) return
-      setCurrentProjectState(hydrated)
-      setIsHydratingCurrentProject(false)
-    })
-    return () => { cancelled = true }
-  }, [user?.id])
+    }
+
+    void loadProjects()
+    return () => {
+      cancelled = true
+      if (loadGeneration.current === generation) loadGeneration.current += 1
+    }
+  }, [userId, organizacaoId, isLoadingProfile, reloadVersion, cacheScope, hydrateProject, recordOfflineResult])
 
   const setCurrentProject = async (project: Project | null) => {
-    saveCurrentProjectId(project?.id ?? null)
+    const generation = ++loadGeneration.current
+    setIsLoadingProjects(false)
+    saveCurrentProjectId(cacheScope, project?.id ?? null)
     if (!project) {
       setCurrentProjectState(null)
-      return
+      setIsHydratingCurrentProject(false)
+      return true
     }
     if (hydratedProjectIds.current.has(project.id)) {
       setCurrentProjectState(project)
-      return
+      setIsHydratingCurrentProject(false)
+      return true
     }
     setIsHydratingCurrentProject(true)
     try {
-      const hydrated = await hydrateProject(project)
+      const hydrated = await hydrateProject(project, generation)
+      if (generation !== loadGeneration.current) return false
       setCurrentProjectState(hydrated)
+      return true
     } finally {
-      setIsHydratingCurrentProject(false)
+      if (generation === loadGeneration.current) setIsHydratingCurrentProject(false)
     }
   }
 
-  const createProject = (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>): Project => {
+  const createProject = (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>): Project | null => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return null
     const newProject: Project = {
       ...data,
       id: crypto.randomUUID(),
@@ -598,7 +673,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     }
     setProjects((prev) => [...prev, newProject])
     if (organizacaoId) {
-      insertProjectRemote(newProject, organizacaoId, user?.id)
+      insertProjectRemote(newProject, organizacaoId, userId ?? undefined)
     } else {
       toast.error('Não foi possível identificar sua empresa — o projeto não foi salvo na nuvem.')
     }
@@ -606,6 +681,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const updateProject = (id: string, data: Partial<Project>) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -621,6 +697,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const deleteProject = (id: string) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     setProjects((prev) => prev.filter((p) => p.id !== id))
     if (currentProject?.id === id) {
       setCurrentProject(null)
@@ -628,13 +705,16 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     deleteProjectRemote(id)
   }
 
-  const duplicateProject = async (id: string): Promise<Project> => {
+  const duplicateProject = async (id: string): Promise<Project | null> => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return null
     const original = projects.find((p) => p.id === id)
     if (!original) throw new Error('Projeto não encontrado')
     // A entrada em `projects` pode só ter os metadados dos cronogramas (lista
     // carrega tudo "leve" — ver loadProjectsRemote) — hidrata antes de copiar,
     // senão a duplicata sai com os cronogramas sem atividades/recursos.
-    const hydratedOriginal = await hydrateProject(original)
+    const generation = loadGeneration.current
+    const hydratedOriginal = await hydrateProject(original, generation)
+    if (generation !== loadGeneration.current) return null
     const duplicate: Project = {
       ...hydratedOriginal,
       id: crypto.randomUUID(),
@@ -652,7 +732,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     hydratedProjectIds.current.add(duplicate.id)
     setProjects((prev) => [...prev, duplicate])
     if (organizacaoId) {
-      insertProjectRemote(duplicate, organizacaoId, user?.id).then(() => syncCronogramasRemote(duplicate.id, duplicate.cronogramas))
+      insertProjectRemote(duplicate, organizacaoId, userId ?? undefined).then(() => syncCronogramasRemote(duplicate.id, duplicate.cronogramas))
     }
     return duplicate
   }
@@ -662,6 +742,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const addCronograma = async (projectId: string, cronograma: CronogramaInfo) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -694,6 +775,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const removeCronograma = (projectId: string, cronogramaId: string) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -717,6 +799,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const updateCronograma = (projectId: string, cronogramaId: string, data: Partial<CronogramaInfo>) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -740,6 +823,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const recalculateAllDates = (projectId: string) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -756,6 +840,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   }
 
   const toggleCronograma = (projectId: string, cronogramaId: string) => {
+    if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return
     let updated: Project | null = null
     setProjects((prev) =>
       prev.map((p) => {
@@ -785,6 +870,8 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         currentProject,
         isLoadingProjects,
         isHydratingCurrentProject,
+        usingOfflineCache,
+        offlineDataUpdatedAt,
         setCurrentProject,
         createProject,
         updateProject,

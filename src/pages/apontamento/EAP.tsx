@@ -1216,7 +1216,7 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <div className={`flex items-center gap-1 rounded-md py-1 px-2 hover:bg-muted/50 group ${!node.ativo ? "opacity-50" : ""} ${desabilitadoNoMerge ? "opacity-40" : ""} ${deleteMode && node.bloqueado ? "opacity-40" : ""}`} style={{ marginLeft: `${depth * 20}px` }}>
+      <div className={`group flex min-w-0 flex-wrap items-center gap-1 rounded-md px-2 py-1 hover:bg-muted/50 ${!node.ativo ? "opacity-50" : ""} ${desabilitadoNoMerge ? "opacity-40" : ""} ${deleteMode && node.bloqueado ? "opacity-40" : ""}`} style={{ marginLeft: `${Math.min(depth * 20, 80)}px` }}>
         {mergeMode && (
           <input
             type="checkbox"
@@ -1250,20 +1250,20 @@ function EapNode({ node, depth, onEdit, onAdd, onDelete, onToggle, onIndent, onO
           </button>
         </CollapsibleTrigger>
         <Icon className={`h-3.5 w-3.5 shrink-0 ${cfg.color}`} />
-        {node.codigo && <span className="text-[11px] font-mono text-muted-foreground bg-muted px-1 rounded">{node.codigo}</span>}
+        {node.codigo && <span className="shrink-0 rounded bg-muted px-1 font-mono text-xs text-muted-foreground sm:text-[11px]">{node.codigo}</span>}
         <span
-          className={`text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode || deleteMode || bulkMoveMode ? "cursor-pointer" : ""}`}
+          className={`min-w-0 flex-1 truncate text-sm ${node.nivel === "setor" ? "font-semibold" : ""} ${mergeMode || deleteMode || bulkMoveMode ? "cursor-pointer" : ""}`}
           onClick={() => { if (mergeMode) onMergeToggle(node); else if (deleteMode) onDeleteToggle(node); else if (bulkMoveMode) onBulkMoveToggle(node); }}
         >
           {node.nome}
         </span>
         {horas > 0 && (
-          <span className="flex items-center gap-1 text-[11px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full" title="Horas apontadas (validadas)">
+          <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-xs text-muted-foreground sm:text-[11px]" title="Horas apontadas (validadas)">
             <Clock className="h-3 w-3" /> {horas.toLocaleString("pt-BR")}h
           </span>
         )}
         {!mergeMode && !deleteMode && !bulkMoveMode && (
-          <div className="ml-auto flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+          <div className="flex w-full items-center justify-end gap-0.5 opacity-100 transition-opacity sm:ml-auto sm:w-auto sm:opacity-0 sm:group-hover:opacity-100">
             <Switch checked={node.ativo} onCheckedChange={() => onToggle({ id: node.id, nivel: node.nivel, ativo: !node.ativo })} className="scale-75" />
             {nextNivel && (
               <button onClick={() => onAdd(nextNivel, node.id)} className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title={`Adicionar ${NIVEL_CONFIG[nextNivel].label}`}>

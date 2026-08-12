@@ -1,27 +1,12 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  LayoutDashboard, BarChart3, GanttChart,
-  Calendar, AlertTriangle, PieChart,
-  Award, Menu, X, ChevronDown, ChevronRight,
-  PanelLeftClose, PanelLeftOpen, TrendingUp,
-  ClipboardList, CheckSquare, Search, BarChart,
-  FolderCog,
-  FolderTree, FileSpreadsheet, CloudRain,
-  Settings, PackageSearch, UserCog,
-  Truck, LineChart, Database, FlaskConical,
-  ShieldCheck, Map,
+  ChevronDown, ChevronRight, LayoutDashboard,
+  PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
-
-interface NavItem {
-  icon: React.ElementType
-  label: string
-  path: string
-  children?: NavItem[]
-  disabled?: boolean
-}
+import { buildNavSections, getNavItemDestination, navSectionsInsercaoPontual, type NavItem } from '@/lib/nav-config'
 
 // Telas de administração do sistema — agrupadas sob "Sistema" no rodapé da
 // sidebar, visíveis só pra quem tem papel Edição no módulo 'sistema'.
@@ -30,99 +15,6 @@ const SISTEMA_KEY = 'grupo:sistema'
 const SISTEMA_ITEMS = [
   { to: '/dashboard/admin/users', label: 'Usuários', Icon: UserCog },
   { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
-]
-
-// Telas do Gantt Livre, Apontamento/EAP, Programação semanal e Mapa de Chuvas
-// (módulo "engenharia") e RDR (módulo "seguranca") só aparecem pra empresas
-// que têm esse módulo contratado (ver RequireModulo + Empresas Clientes, onde
-// o Dono da Plataforma libera). Isso é só cosmético: a proteção de verdade é
-// o RLS (modulos-plataforma-migration.sql).
-function buildNavSections(modulos: string[]): { title: string; items: NavItem[] }[] {
-  const temEngenharia = modulos.includes('engenharia')
-  const temSeguranca = modulos.includes('seguranca')
-  const temSuprimentos = modulos.includes('suprimentos')
-  const temAdministracao = modulos.includes('administracao')
-  const temQualidade = modulos.includes('qualidade')
-
-  // Todo o bloco de Engenharia (inclusive Curva S/Histograma MO/Ocorrências/
-  // Mão de Obra, que antes ficavam sempre visíveis) só existe quando a
-  // empresa/usuário tem o módulo 'engenharia' — sem isso, um usuário
-  // restrito a outro módulo (ex.: Administração) via user_modulos_visiveis
-  // continuava vendo essas telas de Engenharia, tanto na sidebar quanto (a
-  // rota em si não checava o módulo) direto pela URL.
-  const engenhariaItems: NavItem[] = temEngenharia ? [
-    {
-      icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
-      children: [
-        { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-        { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
-        { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-        { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
-      ],
-    },
-    {
-      icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
-      children: [
-        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
-        { icon: CheckSquare, label: 'Validação', path: '/dashboard/people/validacao' },
-        { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
-        { icon: BarChart, label: 'Resumo', path: '/dashboard/people/resumo' },
-        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
-        { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
-        { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
-      ],
-    },
-    { icon: Map, label: 'Gestão à Vista', path: '/dashboard/gestao-vista' },
-    { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
-    { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
-  ] : []
-
-  const qualidadeItems: NavItem[] = temQualidade ? [
-    {
-      icon: Truck, label: 'Concreto', path: '/dashboard/qualidade/concreto',
-      children: [
-        { icon: BarChart, label: 'Dashboard', path: '/dashboard/qualidade/concreto/dashboard' },
-        { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/qualidade/concreto/lancamento' },
-        { icon: CheckSquare, label: 'Validação', path: '/dashboard/qualidade/concreto/validacao' },
-        { icon: Search, label: 'Consulta', path: '/dashboard/qualidade/concreto/consulta' },
-        { icon: FlaskConical, label: 'Ensaios', path: '/dashboard/qualidade/concreto/ensaios' },
-        { icon: FolderCog, label: 'Cadastro', path: '/dashboard/qualidade/concreto/cadastro' },
-        { icon: Database, label: 'Dados', path: '/dashboard/qualidade/concreto/importar-historico' },
-      ],
-    },
-  ] : []
-
-  const segurancaItems: NavItem[] = temSeguranca ? [
-    { icon: BarChart, label: 'Dashboard RDR', path: '/dashboard/seguranca/dashboard' },
-    { icon: ClipboardList, label: 'Novo Registro', path: '/dashboard/seguranca/novo' },
-    { icon: Search, label: 'Registros', path: '/dashboard/seguranca/registros' },
-  ] : []
-
-  return [
-    ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
-    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
-    ...(temSuprimentos
-      ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
-      : []),
-    ...(temAdministracao
-      ? [{
-          title: 'Administração', items: [
-            { icon: UserCog, label: 'Controle de Funcionários', path: '/dashboard/administracao' },
-          ],
-        }]
-      : []),
-    ...(temQualidade ? [{ title: 'Qualidade', items: qualidadeItems }] : []),
-  ]
-}
-
-// Apontadores (papel "insercao_pontual") só enxergam o lançamento de efetivo.
-const navSectionsInsercaoPontual: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Distribuição Efetivo',
-    items: [
-      { icon: ClipboardList, label: 'Lançamento', path: '/dashboard/people/lancamento' },
-    ],
-  },
 ]
 
 function hexToHSL(hex: string): string {
@@ -184,72 +76,6 @@ export default function Sidebar({
   const location = useLocation()
   const { brandColor } = useTheme()
 
-  // Mapeia cada módulo para seus paths e título da seção na sidebar
-  const moduloPaths: Record<string, { title: string; paths: string[]; expandiveis: string[] }> = {
-    engenharia: {
-      title: 'Engenharia',
-      paths: [
-        '/dashboard/planning', '/dashboard/daily', '/dashboard/gantt', '/dashboard/histograma-mo',
-        '/dashboard/people', '/dashboard/people/lancamento', '/dashboard/people/validacao',
-        '/dashboard/people/consulta', '/dashboard/people/resumo', '/dashboard/people/cadastro',
-        '/dashboard/people/eap', '/dashboard/people/importar-eap',
-        '/dashboard/occurrences', '/dashboard/mapa-chuvas',
-      ],
-      expandiveis: ['/dashboard/planning', '/dashboard/people'],
-    },
-    seguranca: {
-      title: 'Segurança',
-      paths: ['/dashboard/seguranca/dashboard', '/dashboard/seguranca/novo', '/dashboard/seguranca/registros'],
-      expandiveis: [],
-    },
-    suprimentos: {
-      title: 'Suprimentos',
-      paths: ['/dashboard/suprimentos'],
-      expandiveis: [],
-    },
-    administracao: {
-      title: 'Administração',
-      paths: ['/dashboard/administracao'],
-      expandiveis: [],
-    },
-    qualidade: {
-      title: 'Qualidade',
-      paths: ['/dashboard/qualidade/concreto', '/dashboard/qualidade/concreto/dashboard', '/dashboard/qualidade/concreto/lancamento', '/dashboard/qualidade/concreto/validacao', '/dashboard/qualidade/concreto/consulta', '/dashboard/qualidade/concreto/ensaios', '/dashboard/qualidade/concreto/cadastro', '/dashboard/qualidade/concreto/importar-historico'],
-      expandiveis: ['/dashboard/qualidade/concreto'],
-    },
-  }
-
-  // Recolhe a seção do módulo anterior quando o usuário navega para outro módulo
-  useEffect(() => {
-    const moduloAtual = Object.entries(moduloPaths).find(([, config]) =>
-      config.paths.some((p) => location.pathname === p || location.pathname.startsWith(p + '/'))
-    )?.[0]
-
-    if (!moduloAtual) return
-
-    // Recolhe todas as seções que NÃO são a atual
-    for (const [key, config] of Object.entries(moduloPaths)) {
-      if (key === moduloAtual) continue
-      setExpandedSections((prev) => {
-        if (!prev.has(config.title)) return prev
-        const next = new Set(prev)
-        next.delete(config.title)
-        return next
-      })
-      setExpandedItems((prev) => {
-        let changed = false
-        const next = new Set(prev)
-        for (const p of config.expandiveis) {
-          if (next.has(p)) {
-            next.delete(p)
-            changed = true
-          }
-        }
-        return changed ? next : prev
-      })
-    }
-  }, [location.pathname])
-
   const toggleSection = (title: string) => {
     setExpandedSections((prev) => {
       const next = new Set(prev)
@@ -281,8 +107,26 @@ export default function Sidebar({
 
   const isActive = (path: string) => location.pathname === path
 
-  // Realça o grupo "Sistema" enquanto qualquer tela dele estiver aberta —
-  // mesmo comportamento de isItemOrChildActive nas seções do nav.
+  // Seção do módulo em que o usuário está agora. Derivada dos próprios itens do
+  // nav (não de um mapa paralelo módulo→paths, como era antes do
+  // buildNavSections existir) — assim uma rota nova não precisa ser registrada
+  // em dois lugares.
+  const cobreRota = (item: NavItem): boolean =>
+    location.pathname === item.path ||
+    location.pathname.startsWith(item.path + '/') ||
+    (item.children?.some(cobreRota) ?? false)
+  const secaoAtual = navSections.find((s) => s.items.some(cobreRota))?.title ?? null
+
+  // Ao navegar pra outro módulo, recolhe as seções dos demais. Depende só do
+  // título (string estável): navSections é recalculado a cada render, e usá-lo
+  // como dependência entraria em laço.
+  useEffect(() => {
+    if (!secaoAtual) return
+    setExpandedSections((prev) =>
+      prev.size === 1 && prev.has(secaoAtual) ? prev : new Set([secaoAtual]),
+    )
+  }, [secaoAtual])
+
   const isSistemaAtivo = SISTEMA_ITEMS.some((i) => isActive(i.to))
   const sistemaAberto = expandedItems.has(SISTEMA_KEY)
 
@@ -298,7 +142,7 @@ export default function Sidebar({
       )}
 
       <aside
-        className={`fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 flex flex-col border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64 max-w-[85vw]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
+        className={`dashboard-sidebar fixed top-16 left-0 bottom-0 text-white z-50 transform transition-all duration-300 lg:translate-x-0 flex flex-col border-r border-black/10 shadow-[4px_0_16px_-8px_rgba(0,0,0,0.3)] ${collapsed ? 'w-16' : 'w-64 max-w-[85vw]'} ${mobileOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}
         style={{ backgroundColor: sidebarBg }}
       >
         <nav className={`flex-1 overflow-y-auto ${collapsed ? 'p-2 pt-4' : 'p-3 pt-4 space-y-5'}`}>
@@ -450,7 +294,7 @@ export default function Sidebar({
                       return (
                         <div key={item.path} className="relative group">
                           <Link
-                            to={item.path}
+                            to={getNavItemDestination(item)}
                             onClick={() => onMobileClose()}
                             title={item.label}
                             className={`flex items-center justify-center px-2 py-2.5 rounded-md text-sm transition-colors duration-150 ${
@@ -516,7 +360,8 @@ export default function Sidebar({
           <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
             {/* "Sistema" é o grupo; Usuários e Validações são as telas dentro
                 dele. Reusa expandedItems/toggleItem do nav — começa fechado,
-                igual aos outros itens com filhos. */}
+                igual aos outros itens com filhos. "Sistema" deixou de ser link:
+                só abre e fecha, e as telas são alcançadas pelos itens de dentro. */}
             <button
               type="button"
               onClick={() => !collapsed && toggleItem(SISTEMA_KEY)}
@@ -566,7 +411,7 @@ export default function Sidebar({
 
       <button
         onClick={onToggle}
-        className={`hidden lg:flex fixed z-50 items-center justify-center w-7 h-7 text-white rounded-full transition-all duration-300 shadow-md border border-white/10 hover:brightness-125 top-[74px] ${collapsed ? 'left-[46px]' : 'left-[242px]'}`}
+        className={`dashboard-sidebar-toggle hidden lg:flex fixed z-50 items-center justify-center w-7 h-7 text-white rounded-full transition-all duration-300 shadow-md border border-white/10 hover:brightness-125 top-[74px] ${collapsed ? 'left-[calc(46px+env(safe-area-inset-left,0px))]' : 'left-[calc(242px+env(safe-area-inset-left,0px))]'}`}
         style={{ backgroundColor: sidebarActive }}
         title={collapsed ? 'Expandir sidebar' : 'Recolher sidebar'}
       >

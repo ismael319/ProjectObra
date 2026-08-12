@@ -1,5 +1,5 @@
 import { useRef, useState, useEffect, useCallback, type WheelEvent } from 'react';
-import { Plus, Trash2, Ban, ChevronDown, ChevronRight, ListPlus, Rows3, ChevronsDown, ChevronsUp } from 'lucide-react';
+import { Plus, Ban, ChevronDown, ChevronRight, MoreVertical, Rows3, ChevronsDown, ChevronsUp } from 'lucide-react';
 import { useGanttStore } from '@/lib/gantt/store';
 import type { Atividade } from '@/lib/gantt/supabase';
 import {
@@ -47,7 +47,7 @@ const MAX_LABEL_WIDTH = 520;
 // tabela de verdade: só a coluna do nome (1fr) varia de largura, as outras
 // (%, início, término, ações) ficam sempre no mesmo lugar independente da
 // indentação da hierarquia (que agora fica só dentro da célula do nome).
-const LABEL_GRID_COLS = '1fr 34px 42px 42px 38px';
+const LABEL_GRID_COLS = '1fr 34px 42px 42px 44px';
 
 const COLORS = GANTT_COLORS;
 // Índice bate com Date.getDay(): 0=domingo, 1=segunda, ..., 6=sábado.
@@ -73,6 +73,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const [estruturaMenuOpen, setEstruturaMenuOpen] = useState(false);
   const [paradaMenuOpen, setParadaMenuOpen] = useState(false);
   const [paradaWeekdays, setParadaWeekdays] = useState<Set<number>>(new Set());
+  const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 639px)').matches);
   const labelResizeState = useRef<{ startX: number; startWidth: number } | null>(null);
   const labelScrollRef = useRef<HTMLDivElement>(null);
   // Só centraliza uma vez — sem essa trava, toda vez que a coluna de hoje
@@ -86,7 +87,19 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     startX: number;
     origStart: Date;
     origEnd: Date;
+    pointerType: string;
+    started: boolean;
   } | null>(null);
+  const rowHeight = isMobile ? 48 : ROW_HEIGHT;
+  const labelGridCols = isMobile ? 'minmax(0, 1fr) 44px' : LABEL_GRID_COLS;
+
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 639px)');
+    const handleChange = (event: MediaQueryListEvent) => setIsMobile(event.matches);
+    setIsMobile(media.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   const scenarioAtividades = atividades
     .filter((a) => a.scenario_id === activeScenarioId)
@@ -142,10 +155,15 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       return atividades.filter((a) => (a.predecessoras ?? []).some((p) => p.id === atvId));
     };
 
-    const handleMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       const d = dragState.current;
       if (!d) return;
       const deltaPx = e.clientX - d.startX;
+      if (!d.started) {
+        const threshold = d.pointerType === 'touch' ? 10 : 2;
+        if (Math.abs(deltaPx) < threshold) return;
+        d.started = true;
+      }
       // 1 coluna só vale 1 dia em 'dia' — em 'semana'/'mes' cada coluna cobre
       // vários dias, então o arraste precisa avançar mais dias por pixel pra
       // continuar acompanhando o mouse (senão a barra "atrasa" dele).
@@ -195,18 +213,20 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       dragState.current = null;
     };
 
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
     };
   }, [updateAtividade, dataInicio, dataFim, onDateRangeChange, granularidade]);
 
   // Arraste da coluna de nomes (frentes/atividades) — largura fixa cortava
   // nomes longos ("ARMAZÉM GRANELEIRO...", etc.) sem dar jeito de ver inteiro.
   useEffect(() => {
-    const handleMove = (e: MouseEvent) => {
+    const handleMove = (e: PointerEvent) => {
       const r = labelResizeState.current;
       if (!r) return;
       const next = Math.min(MAX_LABEL_WIDTH, Math.max(MIN_LABEL_WIDTH, r.startWidth + (e.clientX - r.startX)));
@@ -215,20 +235,22 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     const handleUp = () => {
       labelResizeState.current = null;
     };
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('mouseup', handleUp);
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+    window.addEventListener('pointercancel', handleUp);
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('mouseup', handleUp);
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+      window.removeEventListener('pointercancel', handleUp);
     };
   }, [onLabelWidthChange]);
 
-  const onLabelResizeMouseDown = (e: React.MouseEvent) => {
+  const onLabelResizePointerDown = (e: React.PointerEvent) => {
     e.preventDefault();
     labelResizeState.current = { startX: e.clientX, startWidth: labelWidth };
   };
 
-  const onBarMouseDown = (e: React.MouseEvent, atvId: string, type: 'move' | 'resize-l' | 'resize-r') => {
+  const onBarPointerDown = (e: React.PointerEvent, atvId: string, type: 'move' | 'resize-l' | 'resize-r') => {
     e.preventDefault();
     e.stopPropagation();
     const atv = scenarioAtividades.find((a) => a.id === atvId);
@@ -239,6 +261,8 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       startX: e.clientX,
       origStart: parseDate(atv.data_inicio),
       origEnd: parseDate(atv.data_fim),
+      pointerType: e.pointerType,
+      started: false,
     };
   };
 
@@ -494,14 +518,14 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">
       {(adding || editing) && (
-        <div className="flex items-center gap-2 px-4 py-3 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 flex-wrap">
+        <div className="flex max-h-[45dvh] flex-wrap items-end gap-3 overflow-y-auto border-b border-gray-200 bg-gray-50 px-3 py-3 dark:border-slate-700 dark:bg-slate-800 sm:max-h-none sm:items-center sm:px-4">
           {form.parentId && (
-            <span className="text-[11px] text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 px-2 py-1 rounded-md shrink-0">
+            <span className="shrink-0 rounded-md bg-blue-50 px-2 py-1 text-xs text-blue-600 dark:bg-blue-900/30 dark:text-blue-400">
               Sub-item de: {scenarioAtividades.find((a) => a.id === form.parentId)?.nome ?? '—'}
             </span>
           )}
           {insertAboveId && (
-            <span className="text-[11px] text-teal-600 dark:text-teal-400 bg-teal-50 dark:bg-teal-900/30 px-2 py-1 rounded-md shrink-0">
+            <span className="shrink-0 rounded-md bg-teal-50 px-2 py-1 text-xs text-teal-600 dark:bg-teal-900/30 dark:text-teal-400">
               Inserindo acima de: {scenarioAtividades.find((a) => a.id === insertAboveId)?.nome ?? '—'}
             </span>
           )}
@@ -511,10 +535,10 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             value={form.nome}
             onChange={(e) => setForm({ ...form, nome: e.target.value })}
             onKeyDown={(e) => e.key === 'Enter' && (editing ? handleSaveEdit() : handleAddAtividade())}
-            className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-52"
+            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:w-52 sm:text-xs"
           />
           <div className="flex flex-col">
-            <label className="text-[11px] text-gray-500 dark:text-slate-500 mb-0.5">Início</label>
+            <label className="mb-0.5 text-xs text-gray-500 dark:text-slate-400">Início</label>
             <input
               type="date"
               value={form.dataInicio || toISODate(dataInicio)}
@@ -524,11 +548,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 const end = addDays(start, (form.duracao || 1) - 1);
                 setForm({ ...form, dataInicio: novoInicio, dataFim: toISODate(end) });
               }}
-              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
+              className="min-h-11 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:min-h-0 sm:text-xs"
             />
           </div>
           <div className="flex flex-col">
-            <label className="text-[11px] text-gray-500 dark:text-slate-500 mb-0.5">Duração (dias)</label>
+            <label className="mb-0.5 text-xs text-gray-500 dark:text-slate-400">Duração (dias)</label>
             <input
               type="number"
               min="1"
@@ -539,11 +563,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 const end = addDays(start, duracao - 1);
                 setForm({ ...form, duracao, dataFim: toISODate(end) });
               }}
-              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-24"
+              className="min-h-11 w-24 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:min-h-0 sm:text-xs"
             />
           </div>
           <div className="flex flex-col">
-            <label className="text-[11px] text-gray-500 dark:text-slate-500 mb-0.5">Término</label>
+            <label className="mb-0.5 text-xs text-gray-500 dark:text-slate-400">Término</label>
             <input
               type="date"
               value={form.dataFim || toISODate(addDays(form.dataInicio ? parseDate(form.dataInicio) : dataInicio, (form.duracao || 1) - 1))}
@@ -554,15 +578,15 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 const duracao = Math.max(1, daysBetween(start, end) + 1);
                 setForm({ ...form, dataFim: novoFim, duracao });
               }}
-              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
+              className="min-h-11 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:min-h-0 sm:text-xs"
             />
           </div>
           <div className="flex flex-col">
-            <label className="text-[11px] text-gray-500 dark:text-slate-500 mb-0.5">Equipe</label>
+            <label className="mb-0.5 text-xs text-gray-500 dark:text-slate-400">Equipe</label>
             <select
               value={form.equipes[0] || ''}
               onChange={(e) => setForm({ ...form, equipes: e.target.value ? [e.target.value] : [] })}
-              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500"
+              className="min-h-11 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:min-h-0 sm:text-xs"
             >
               <option value="">Selecione...</option>
               {scenarioEquipes.map((eq) => (
@@ -573,38 +597,38 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             </select>
           </div>
           <div className="flex flex-col">
-            <label className="text-[11px] text-gray-500 dark:text-slate-500 mb-0.5">% concluído</label>
+            <label className="mb-0.5 text-xs text-gray-500 dark:text-slate-400">% concluído</label>
             <input
               type="number"
               min="0"
               max="100"
               value={form.percentualConcluido}
               onChange={(e) => setForm({ ...form, percentualConcluido: Math.max(0, Math.min(100, parseInt(e.target.value) || 0)) })}
-              className="bg-white dark:bg-slate-900 text-gray-900 dark:text-white text-xs px-2.5 py-2 rounded-lg border border-gray-300 dark:border-slate-600 outline-none focus:border-blue-500 w-20"
+              className="min-h-11 w-20 rounded-lg border border-gray-300 bg-white px-2.5 py-2 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-slate-600 dark:bg-slate-900 dark:text-white sm:min-h-0 sm:text-xs"
             />
           </div>
           <div className="flex items-end gap-2">
             <button
               onClick={editing ? handleSaveEdit : handleAddAtividade}
               disabled={!form.nome.trim()}
-              className="bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
+              className="min-h-11 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-green-500 disabled:opacity-40 sm:min-h-0 sm:text-xs"
             >
               {editing ? 'Salvar' : 'Adicionar'}
             </button>
-            <button onClick={() => { setAdding(false); setEditing(null); setInsertAboveId(null); }} className="bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white text-xs px-4 py-2 rounded-lg transition-colors">
+            <button onClick={() => { setAdding(false); setEditing(null); setInsertAboveId(null); }} className="min-h-11 rounded-lg bg-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600 sm:min-h-0 sm:text-xs">
               Cancelar
             </button>
           </div>
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 bg-gray-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-800 sm:px-4">
         <div className="flex items-center gap-2">
           <h3 className="text-xs font-semibold text-gray-900 dark:text-white uppercase tracking-wide">Gantt Livre</h3>
           <div className="relative">
             <button
               onClick={() => setEstruturaMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors"
+              className="flex min-h-10 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white sm:min-h-0"
             >
               <Rows3 size={14} /> Estrutura
             </button>
@@ -641,7 +665,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
           <div className="relative">
             <button
               onClick={() => setParadaMenuOpen((v) => !v)}
-              className="flex items-center gap-1.5 text-[11px] text-gray-600 dark:text-slate-200 hover:text-gray-900 dark:hover:text-white hover:bg-gray-200 dark:hover:bg-slate-700 px-2.5 py-1.5 rounded-md transition-colors"
+              className="flex min-h-10 items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs text-gray-600 transition-colors hover:bg-gray-200 hover:text-gray-900 dark:text-slate-200 dark:hover:bg-slate-700 dark:hover:text-white sm:min-h-0"
             >
               <Ban size={14} /> Paradas
             </button>
@@ -649,7 +673,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setParadaMenuOpen(false)} />
                 <div className="absolute left-0 top-full mt-1 z-20 w-56 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg shadow-lg p-3">
-                  <p className="text-[11px] font-semibold text-gray-500 dark:text-slate-400 mb-2 uppercase tracking-wide">
+                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400">
                     Marcar dia(s) da semana como parada
                   </p>
                   <div className="space-y-1 mb-3">
@@ -672,19 +696,19 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                       </label>
                     ))}
                   </div>
-                  <p className="text-[10px] text-gray-400 dark:text-slate-500 mb-2">Aplica no período visível no momento.</p>
+                  <p className="mb-2 text-xs text-gray-400 dark:text-slate-500">Aplica no período visível no momento.</p>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleBulkParada(paradaWeekdays, true)}
                       disabled={paradaWeekdays.size === 0}
-                      className="flex-1 text-[11px] font-medium bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-md transition-colors"
+                      className="min-h-10 flex-1 rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Marcar parada
                     </button>
                     <button
                       onClick={() => handleBulkParada(paradaWeekdays, false)}
                       disabled={paradaWeekdays.size === 0}
-                      className="flex-1 text-[11px] font-medium bg-gray-100 hover:bg-gray-200 dark:bg-slate-700 dark:hover:bg-slate-600 disabled:opacity-40 disabled:cursor-not-allowed text-gray-700 dark:text-white px-3 py-1.5 rounded-md transition-colors"
+                      className="min-h-10 flex-1 rounded-md bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600"
                     >
                       Desmarcar
                     </button>
@@ -696,7 +720,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         </div>
         <button
           onClick={() => setAdding(true)}
-          className="flex items-center gap-1 text-[11px] bg-blue-600 hover:bg-blue-500 text-white px-2.5 py-1.5 rounded-md"
+          className="flex min-h-10 items-center gap-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs text-white hover:bg-blue-500 sm:min-h-0"
         >
           <Plus size={14} /> Nova Atividade
         </button>
@@ -705,27 +729,27 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       {selectingFor && (
         <div className="flex items-center gap-2 px-4 py-2 bg-blue-50 dark:bg-blue-900/60 border-b border-blue-200 dark:border-blue-700">
           {!selectingFor.targetId ? (
-            <span className="text-[11px] text-blue-700 dark:text-blue-200">
+            <span className="text-xs text-blue-700 dark:text-blue-200">
               {selectingFor.mode === 'predecessora'
                 ? `Clique na barra que será PRECESSORA de "${scenarioAtividades.find((a) => a.id === selectingFor.sourceId)?.nome}"`
                 : `Clique na barra que será SUCESSORA de "${scenarioAtividades.find((a) => a.id === selectingFor.sourceId)?.nome}"`}
             </span>
           ) : (
             <div className="flex items-center gap-2">
-              <span className="text-[11px] text-blue-700 dark:text-blue-200">Latência (dias):</span>
+              <span className="text-xs text-blue-700 dark:text-blue-200">Latência (dias):</span>
               <input
                 type="number"
                 value={selectingFor.lag}
                 onChange={(e) => setSelectingFor({ ...selectingFor, lag: parseInt(e.target.value) || 0 })}
                 onKeyDown={(e) => e.key === 'Enter' && handleConfirmLag()}
-                className="w-16 bg-white dark:bg-slate-800 text-gray-900 dark:text-white text-[11px] px-2 py-1 rounded border border-blue-400 dark:border-blue-500 outline-none focus:border-blue-500 dark:focus:border-blue-400"
+                className="min-h-10 w-20 rounded border border-blue-400 bg-white px-2 py-1 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-blue-500 dark:bg-slate-800 dark:text-white dark:focus:border-blue-400 sm:min-h-0 sm:w-16 sm:text-xs"
                 autoFocus
               />
-              <button onClick={handleConfirmLag} className="text-[11px] bg-blue-600 hover:bg-blue-500 text-white px-3 py-1 rounded">OK</button>
-              <button onClick={() => setSelectingFor(null)} className="text-[11px] bg-gray-200 hover:bg-gray-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-gray-700 dark:text-white px-3 py-1 rounded">Cancelar</button>
+              <button onClick={handleConfirmLag} className="min-h-10 rounded bg-blue-600 px-3 py-1 text-xs text-white hover:bg-blue-500 sm:min-h-0">OK</button>
+              <button onClick={() => setSelectingFor(null)} className="min-h-10 rounded bg-gray-200 px-3 py-1 text-xs text-gray-700 hover:bg-gray-300 dark:bg-slate-700 dark:text-white dark:hover:bg-slate-600 sm:min-h-0">Cancelar</button>
             </div>
           )}
-          <span className="text-[11px] text-blue-600 dark:text-blue-400 ml-auto">ESC para cancelar</span>
+          <span className="ml-auto hidden text-xs text-blue-600 dark:text-blue-400 sm:inline">ESC para cancelar</span>
         </div>
       )}
 
@@ -738,15 +762,21 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         >
           <div
             className="sticky top-0 z-10 bg-white dark:bg-slate-900 border-b border-gray-200 dark:border-slate-700 px-1"
-            style={{ height: HEADER_HEIGHT, display: 'grid', gridTemplateColumns: LABEL_GRID_COLS, alignItems: 'center', columnGap: 4 }}
+            style={{ height: HEADER_HEIGHT, display: 'grid', gridTemplateColumns: labelGridCols, alignItems: 'center', columnGap: 4 }}
           >
-            <span className="min-w-0 pl-4 text-[10px] font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wide truncate">
+            <span className="min-w-0 truncate pl-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 sm:pl-4">
               Atividade
             </span>
-            <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 text-right">%</span>
-            <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 text-right">Início</span>
-            <span className="text-[10px] font-semibold text-gray-500 dark:text-slate-400 text-right">Térm.</span>
-            <span />
+            {isMobile ? (
+              <span className="text-center text-xs font-semibold uppercase text-gray-500 dark:text-slate-400">Ações</span>
+            ) : (
+              <>
+                <span className="text-right text-xs font-semibold text-gray-500 dark:text-slate-400">%</span>
+                <span className="text-right text-xs font-semibold text-gray-500 dark:text-slate-400">Início</span>
+                <span className="text-right text-xs font-semibold text-gray-500 dark:text-slate-400">Térm.</span>
+                <span />
+              </>
+            )}
           </div>
           {visibleAtividades.map(({ atv, depth, hasChildren }) => {
             const equipesNomes = atv.equipes_alocadas
@@ -758,16 +788,16 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 key={atv.id}
                 onContextMenu={(e) => onBarContextMenu(e, atv.id)}
                 onDoubleClick={() => handleStartEdit(atv.id)}
-                className="group border-b border-gray-100 dark:border-slate-800 hover:bg-gray-50 dark:hover:bg-slate-800/30 px-1"
-                style={{ height: ROW_HEIGHT, display: 'grid', gridTemplateColumns: LABEL_GRID_COLS, alignItems: 'center', columnGap: 4 }}
+                className="group border-b border-gray-100 px-1 hover:bg-gray-50 dark:border-slate-800 dark:hover:bg-slate-800/30"
+                style={{ height: rowHeight, display: 'grid', gridTemplateColumns: labelGridCols, alignItems: 'center', columnGap: 4 }}
               >
                 <div className="flex items-center min-w-0" style={{ paddingLeft: 4 + depth * 14 }}>
                   <button
                     onClick={() => hasChildren && handleToggleCollapse(atv.id)}
-                    className="w-4 shrink-0 flex items-center justify-center text-gray-400 dark:text-slate-500 p-0.5"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded text-gray-400 hover:bg-gray-100 dark:text-slate-500 dark:hover:bg-slate-700 sm:h-5 sm:w-4"
                   >
                     {hasChildren ? (
-                      collapsed.has(atv.id) ? <ChevronRight size={12} /> : <ChevronDown size={12} />
+                      collapsed.has(atv.id) ? <ChevronRight size={16} /> : <ChevronDown size={16} />
                     ) : (
                       <span className="inline-block w-3" />
                     )}
@@ -776,47 +806,42 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                     <p className={`text-xs truncate ${hasChildren ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-700 dark:text-slate-200'}`}>
                       {atv.nome}
                     </p>
-                    {equipesNomes && <p className="text-[11px] text-gray-400 dark:text-slate-500 truncate">{equipesNomes}</p>}
+                    {equipesNomes && <p className="truncate text-xs text-gray-400 dark:text-slate-500">{equipesNomes}</p>}
                   </div>
                 </div>
-                <span
-                  className={`text-[9px] font-semibold tabular-nums text-right ${
-                    atv.percentual_concluido >= 100
-                      ? 'text-emerald-600 dark:text-emerald-400'
-                      : atv.percentual_concluido > 0
-                      ? 'text-blue-600 dark:text-blue-400'
-                      : 'text-gray-300 dark:text-slate-600'
-                  }`}
-                  title="% de trabalho concluído"
-                >
-                  {atv.percentual_concluido}%
-                </span>
-                <span
-                  className="text-[9px] text-gray-400 dark:text-slate-500 tabular-nums text-right whitespace-nowrap"
-                  title="Data de início"
-                >
-                  {formatDayMonth(parseDate(atv.data_inicio))}
-                </span>
-                <span
-                  className="text-[9px] text-gray-400 dark:text-slate-500 tabular-nums text-right whitespace-nowrap"
-                  title="Data de término"
-                >
-                  {formatDayMonth(parseDate(atv.data_fim))}
-                </span>
-                <div className="opacity-0 group-hover:opacity-100 flex items-center justify-end gap-1">
+                {!isMobile && (
+                  <>
+                    <span
+                      className={`text-right text-xs font-semibold tabular-nums ${
+                        atv.percentual_concluido >= 100
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : atv.percentual_concluido > 0
+                          ? 'text-blue-600 dark:text-blue-400'
+                          : 'text-gray-300 dark:text-slate-600'
+                      }`}
+                      title="% de trabalho concluído"
+                    >
+                      {atv.percentual_concluido}%
+                    </span>
+                    <span className="whitespace-nowrap text-right text-xs tabular-nums text-gray-400 dark:text-slate-500" title="Data de início">
+                      {formatDayMonth(parseDate(atv.data_inicio))}
+                    </span>
+                    <span className="whitespace-nowrap text-right text-xs tabular-nums text-gray-400 dark:text-slate-500" title="Data de término">
+                      {formatDayMonth(parseDate(atv.data_fim))}
+                    </span>
+                  </>
+                )}
+                <div className="flex items-center justify-center">
                   <button
-                    onClick={() => handleStartAddSubitem(atv.id)}
-                    className="text-gray-400 dark:text-slate-400 hover:text-blue-500 dark:hover:text-blue-400"
-                    title="Adicionar sub-item"
+                    onClick={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setCtxMenu({ x: rect.right, y: rect.top, atvId: atv.id });
+                    }}
+                    className="flex h-11 w-11 items-center justify-center rounded-md text-gray-500 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white sm:h-8 sm:w-8"
+                    title="Ações da atividade"
+                    aria-label={`Ações de ${atv.nome}`}
                   >
-                    <ListPlus size={12} />
-                  </button>
-                  <button
-                    onClick={() => deleteAtividade(atv.id)}
-                    className="text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400"
-                    title="Excluir"
-                  >
-                    <Trash2 size={12} />
+                    <MoreVertical size={18} />
                   </button>
                 </div>
               </div>
@@ -825,12 +850,12 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         </div>
 
         <div
-          onMouseDown={onLabelResizeMouseDown}
-          className="w-1.5 shrink-0 cursor-col-resize bg-gray-200 dark:bg-slate-700 hover:bg-blue-400 dark:hover:bg-blue-500 transition-colors"
+          onPointerDown={onLabelResizePointerDown}
+          className="w-2 shrink-0 cursor-col-resize touch-none bg-gray-200 transition-colors hover:bg-blue-400 dark:bg-slate-700 dark:hover:bg-blue-500 sm:w-1.5"
           title="Arraste para redimensionar"
         />
 
-        <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-auto">
+        <div ref={scrollRef} onScroll={handleScroll} className="min-w-0 flex-1 overscroll-contain overflow-auto">
           <div style={{ width: totalWidth, position: 'relative' }}>
             <div className="sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-600" style={{ height: HEADER_HEIGHT }}>
               <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} />
@@ -851,8 +876,8 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 const equipeCor = scenarioEquipes.find((e) => e.id === atv.equipes_alocadas[0])?.cor || atv.cor;
 
                 return (
-                  <div key={atv.id} className="relative flex" style={{ height: ROW_HEIGHT }}>
-                    <GridRow columns={columns} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} />
+                  <div key={atv.id} className="relative flex" style={{ height: rowHeight }}>
+                    <GridRow columns={columns} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} rowHeight={rowHeight} />
                     <div
                       className={`absolute rounded-md shadow-lg flex items-center px-2 select-none z-10 ${
                         selectingFor
@@ -862,27 +887,28 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                       style={{
                         left: left + 1,
                         width: Math.max(width - 2, 20),
-                        top: 6,
-                        height: ROW_HEIGHT - 12,
+                        top: isMobile ? 7 : 6,
+                        height: rowHeight - (isMobile ? 14 : 12),
                         backgroundColor: equipeCor,
                         opacity: selectingFor && selectingFor.sourceId === atv.id ? 0.5 : 1,
+                        touchAction: 'pan-y',
                       }}
-                      onMouseDown={(e) => {
+                      onPointerDown={(e) => {
                         if (selectingFor) {
                           e.preventDefault();
                           handleSelectTarget(atv.id);
                         } else {
-                          onBarMouseDown(e, atv.id, 'move');
+                          onBarPointerDown(e, atv.id, 'move');
                         }
                       }}
                       onContextMenu={(e) => onBarContextMenu(e, atv.id)}
                       onDoubleClick={() => handleStartEdit(atv.id)}
                     >
                       <div
-                        className="absolute left-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/20 hover:bg-white/40 rounded-l-md"
-                        onMouseDown={(e) => onBarMouseDown(e, atv.id, 'resize-l')}
+                        className="absolute bottom-0 left-0 top-0 w-3 cursor-ew-resize rounded-l-md bg-white/20 hover:bg-white/40 sm:w-1.5"
+                        onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-l')}
                       />
-                      <span className="text-[11px] text-white font-medium truncate px-1">
+                      <span className="truncate px-2 text-xs font-medium text-white">
                         {atv.nome} ({duration}d) {atv.percentual_concluido > 0 ? `· ${atv.percentual_concluido}%` : ''}
                       </span>
                       <div className="absolute left-1.5 right-1.5 bottom-1 h-1 bg-black/20 dark:bg-white/20 rounded-full pointer-events-none overflow-hidden">
@@ -892,8 +918,8 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                         />
                       </div>
                       <div
-                        className="absolute right-0 top-0 bottom-0 w-1.5 cursor-ew-resize bg-white/20 hover:bg-white/40 rounded-r-md"
-                        onMouseDown={(e) => onBarMouseDown(e, atv.id, 'resize-r')}
+                        className="absolute bottom-0 right-0 top-0 w-3 cursor-ew-resize rounded-r-md bg-white/20 hover:bg-white/40 sm:w-1.5"
+                        onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-r')}
                       />
                     </div>
                   </div>
@@ -901,7 +927,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               })}
               <svg
                 className="absolute top-0 left-0 pointer-events-none z-20"
-                style={{ width: totalWidth, height: visibleAtividades.length * ROW_HEIGHT }}
+                style={{ width: totalWidth, height: visibleAtividades.length * rowHeight }}
               >
                 <defs>
                   <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
@@ -923,9 +949,9 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                     const curLeft = dateToX(curStart, columns, granularidade, colWidth);
 
                     const x1 = predLeft + predWidth;
-                    const y1 = predIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+                    const y1 = predIdx * rowHeight + rowHeight / 2;
                     const x2 = curLeft;
-                    const y2 = atvIdx * ROW_HEIGHT + ROW_HEIGHT / 2;
+                    const y2 = atvIdx * rowHeight + rowHeight / 2;
 
                     const midX = x1 + (x2 - x1) / 2;
 
@@ -944,7 +970,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                             x={midX}
                             y={Math.min(y1, y2) - 4}
                             textAnchor="middle"
-                            className="fill-gray-500 dark:fill-slate-400 text-[9px]"
+                            className="fill-gray-500 text-xs dark:fill-slate-400"
                           >
                             +{dep.lag}d
                           </text>
@@ -984,6 +1010,8 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             onManageEquipes={() => setEquipeAssocAtvId(ctxMenu.atvId)}
             onChangeColor={() => handleStartChangeColor(ctxMenu.atvId, ctxMenu.x, ctxMenu.y)}
             onAddAcima={() => handleStartAddAcima(ctxMenu.atvId)}
+            onAddSubitem={() => handleStartAddSubitem(ctxMenu.atvId)}
+            onDelete={() => deleteAtividade(ctxMenu.atvId)}
             onMoverCima={() => moverAtividade(ctxMenu.atvId, 'cima')}
             onMoverBaixo={() => moverAtividade(ctxMenu.atvId, 'baixo')}
             onStartSetPredecessora={() => setSelectingFor({ mode: 'predecessora', sourceId: ctxMenu.atvId, lag: 0 })}
@@ -1138,7 +1166,7 @@ function HeaderRow({
           {weeks.map((w, i) => (
             <div
               key={i}
-              className="text-[11px] text-gray-500 dark:text-slate-300 text-center border-r border-gray-200 dark:border-slate-700 py-1.5 font-medium"
+              className="border-r border-gray-200 py-1.5 text-center text-xs font-medium text-gray-500 dark:border-slate-700 dark:text-slate-300"
               style={{ width: w.span * colWidth }}
             >
               {w.label}
@@ -1154,7 +1182,7 @@ function HeaderRow({
               <div
                 key={i}
                 onClick={() => onToggleParada(iso)}
-                className={`text-[11px] text-center border-r border-gray-100 dark:border-slate-800 py-1 flex items-center justify-center cursor-pointer transition-colors ${
+                className={`flex cursor-pointer items-center justify-center border-r border-gray-100 py-1 text-center text-xs transition-colors dark:border-slate-800 ${
                   isParada
                     ? 'bg-red-100 hover:bg-red-200 dark:bg-red-950/80 dark:hover:bg-red-900/70 text-red-600 dark:text-red-400 font-bold'
                     : isToday
@@ -1179,7 +1207,7 @@ function HeaderRow({
         return (
           <div
             key={i}
-            className={`text-[11px] text-center border-r border-gray-200 dark:border-slate-700 font-medium flex flex-col items-center justify-center gap-0.5 px-1 ${
+            className={`flex flex-col items-center justify-center gap-0.5 border-r border-gray-200 px-1 text-center text-xs font-medium dark:border-slate-700 ${
               isToday
                 ? 'bg-blue-100 dark:bg-blue-900/60 text-blue-700 dark:text-blue-300 ring-1 ring-inset ring-blue-400 dark:ring-blue-500'
                 : 'text-gray-500 dark:text-slate-300'
@@ -1188,7 +1216,7 @@ function HeaderRow({
             title={isToday ? 'Período atual' : undefined}
           >
             <span className="truncate w-full">{c.label}</span>
-            {c.sublabel && <span className={`text-[9px] font-normal whitespace-nowrap ${isToday ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}`}>{c.sublabel}</span>}
+            {c.sublabel && <span className={`whitespace-nowrap text-[11px] font-normal ${isToday ? 'text-blue-500 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}`}>{c.sublabel}</span>}
           </div>
         );
       })}
@@ -1202,12 +1230,14 @@ function GridRow({
   onToggleParada,
   colWidth,
   todayIdx,
+  rowHeight,
 }: {
   columns: Column[];
   paradaSet: Set<string>;
   onToggleParada: (iso: string) => void;
   colWidth: number;
   todayIdx: number;
+  rowHeight: number;
 }) {
   return (
     <div className="flex">
@@ -1229,7 +1259,7 @@ function GridRow({
                 ? 'bg-gray-50 hover:bg-gray-100 dark:bg-slate-800/40 dark:hover:bg-slate-700/40'
                 : 'hover:bg-gray-50 dark:hover:bg-slate-700/30'
             }`}
-            style={{ width: colWidth, height: ROW_HEIGHT }}
+            style={{ width: colWidth, height: rowHeight }}
             title={isParada ? 'Dia inativo (parada) — clique para reativar' : 'Clique para marcar como parada'}
           />
         );

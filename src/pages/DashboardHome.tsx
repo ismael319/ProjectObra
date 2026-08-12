@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
@@ -9,11 +9,17 @@ import KPICards from '@/components/KPICards'
 import { StatusPieChart, MonthlyBarChart, ProgressAreaChart } from '@/components/Charts'
 import EngineeringHighlights from '@/components/EngineeringHighlights'
 import WorkforceSummary from '@/components/WorkforceSummary'
-import WbsTable from '@/components/WbsTable'
+import WbsTable, { type WbsQuickFilter } from '@/components/WbsTable'
+import DashboardAttention from '@/components/DashboardAttention'
 import WidgetFilterMenu from '@/components/WidgetFilterMenu'
-import { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
+import EVMIndicators from '@/components/EVMIndicators'
+import OccurrencesSummary from '@/components/OccurrencesSummary'
+import ExecutiveSummary from '@/components/ExecutiveSummary'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import ColumnValueFilter, { computeColumnFilterExcludedUids, EMPTY_VALUE } from '@/components/ColumnValueFilter'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { CronogramaInfo } from '@/lib/project-store'
+import { useMediaQuery } from '@/lib/use-media-query'
 import {
   DEFAULT_WIDGETS,
   FILTERABLE_WIDGETS,
@@ -26,9 +32,11 @@ import {
 
 const WIDGET_LABELS: Record<WidgetId, string> = {
   kpis: 'Cards de KPI',
+  evm: 'Indicadores de Performance (EVM)',
   charts: 'Gráficos (status e mensal)',
   progress: 'Curva de progresso',
   engineering: 'Pontos de Engenharia',
+  occurrences: 'Ocorrências',
   'people-safety': 'Mão de Obra',
   'wbs-table': 'Estrutura WBS',
 }
@@ -37,14 +45,34 @@ const WIDGET_LABELS: Record<WidgetId, string> = {
 // o mouse, pra quem não conhece a origem dos dados não precisar adivinhar.
 const WIDGET_DESCRICOES: Record<WidgetId, string> = {
   kpis: 'Indicadores gerais do cronograma: total de atividades, percentual concluído, atividades no prazo e atrasadas — calculados a partir das atividades do(s) cronograma(s) ativo(s).',
-  charts: 'Gráficos de exemplo (Status dos Projetos e Projetos por Mês) — ainda ilustrativos, não conectados aos dados reais do cronograma.',
+  evm: 'Índices de valor agregado (EVM): SPI (prazo), CPI (custo), PPC (Last Planner), variações SV/CV, previsão de término (EAC) e variação ao final (VAC) — calculados das atividades em tempo real.',
+  charts: 'Distribuição das atividades por status (concluída, em andamento, atrasada e não iniciada) e o ritmo de início por mês — calculados das atividades do(s) cronograma(s) ativo(s).',
   progress: 'Curva S simplificada: compara o avanço físico previsto (linha tracejada) com o realizado (linha cheia), em % acumulado, a partir dos dados de HH do(s) cronograma(s) ativo(s).',
   engineering: 'Avanço por disciplina, próximos marcos (milestones) pendentes e as atividades mais atrasadas do cronograma.',
+  occurrences: 'Resumo das ocorrências abertas por severidade e impacto em dias, com as mais recentes e atalho para a página de Ocorrências.',
   'people-safety': 'Resumo do efetivo (HH apontadas e recursos ativos por grupo, a partir dos apontamentos de mão de obra).',
   'wbs-table': 'Lista completa das atividades do cronograma, organizada pela Estrutura Analítica do Projeto (EAP/WBS), com datas, progresso e status de cada item.',
 }
 
 const SEM_FILTRO: WidgetFiltros = { cronograma: 'todos', colunas: [] }
+
+function temFiltroAtivo(filtros: WidgetFiltros | undefined): boolean {
+  return !!filtros && (filtros.cronograma !== 'todos' || filtros.colunas.length > 0)
+}
+
+function DashboardHomeSkeleton() {
+  return (
+    <div className="space-y-4 sm:space-y-6" role="status" aria-live="polite" aria-busy="true">
+      <span className="sr-only">Carregando Visão Geral</span>
+      <div aria-hidden="true" className="h-36 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:hidden" />
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        {Array.from({ length: 4 }, (_, index) => <div aria-hidden="true" key={index} className="h-28 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:h-36 sm:rounded-xl" />)}
+      </div>
+      <div aria-hidden="true" className="h-80 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:rounded-xl" />
+      <div aria-hidden="true" className="h-72 animate-pulse rounded-2xl bg-gray-200/70 dark:bg-gray-800 sm:rounded-xl" />
+    </div>
+  )
+}
 
 function descreverFiltro(filtros: WidgetFiltros, cronogramasAtivos: CronogramaInfo[]): string {
   const partes: string[] = []
@@ -61,6 +89,7 @@ function descreverFiltro(filtros: WidgetFiltros, cronogramasAtivos: CronogramaIn
 export default function DashboardHome() {
   const { activities } = useProject()
   const { user, userProfile } = useAuth()
+  const isMobile = useMediaQuery('(max-width: 639px)')
   // Nomes reais dos cronogramas ativos (sourceCronogramaIndex é só a posição
   // nessa mesma lista — project-context.tsx > setMultipleProjects) — pra
   // mostrar "728 001 FS..." no filtro em vez de "Cronograma 1".
@@ -75,13 +104,36 @@ export default function DashboardHome() {
   const [isEditing, setIsEditing] = useState(false)
   const [draftWidgets, setDraftWidgets] = useState<WidgetConfig[]>(DEFAULT_WIDGETS)
   const [salvando, setSalvando] = useState(false)
+  const [configLoading, setConfigLoading] = useState(true)
   const [menuAberto, setMenuAberto] = useState<{ widgetId: WidgetId; x: number; y: number } | null>(null)
+  const [wbsQuickFilter, setWbsQuickFilter] = useState<WbsQuickFilter>('todas')
+  const [wbsSearchResetKey, setWbsSearchResetKey] = useState(0)
+  const wbsSectionRef = useRef<HTMLDivElement>(null)
+
+  // Filtro global: uma única seleção de cronograma/colunas aplicada a TODOS os
+  // cards filtráveis de uma vez. É materializado nos `filtros` de cada card
+  // (que é o que a config salva), então não precisa de registro próprio.
+  const [filtroGlobal, setFiltroGlobal] = useState<WidgetFiltros>(SEM_FILTRO)
 
   useEffect(() => {
     const organizacaoId = userProfile?.organizacao_id
-    if (!organizacaoId) return
-    loadDashboardConfig(organizacaoId).then(setSavedWidgets)
+    if (!organizacaoId) {
+      setConfigLoading(false)
+      return
+    }
+    let cancelled = false
+    setConfigLoading(true)
+    loadDashboardConfig(organizacaoId).then((widgets) => {
+      if (cancelled) return
+      setSavedWidgets(widgets)
+      setConfigLoading(false)
+    })
+    return () => { cancelled = true }
   }, [userProfile?.organizacao_id])
+
+  useEffect(() => {
+    if (!isMobile) setWbsQuickFilter('todas')
+  }, [isMobile])
 
   const activitiesParaFiltro = (filtros: WidgetFiltros | undefined): WBSActivity[] => {
     if (!filtros) return activities
@@ -155,144 +207,289 @@ export default function DashboardHome() {
     setDraftWidgets((prev) => prev.map((w) => (w.id === id ? { ...w, filtros } : w)))
   }
 
+  // Espelha um filtro em todos os cards filtráveis, no rascunho e no salvo, e
+  // persiste na hora quando fora do modo de edição (o "Salvar" cobre o resto).
+  const aplicarFiltroGlobal = (filtros: WidgetFiltros) => {
+    setFiltroGlobal(filtros)
+    const espelhar = (list: WidgetConfig[]): WidgetConfig[] =>
+      list.map((w) => (FILTERABLE_WIDGETS.includes(w.id) ? { ...w, filtros } : w))
+    const novoSaved = espelhar(savedWidgets)
+    const novoDraft = espelhar(draftWidgets)
+    setSavedWidgets(novoSaved)
+    setDraftWidgets(novoDraft)
+    if (isEditing) return
+    const organizacaoId = userProfile?.organizacao_id
+    if (!organizacaoId) return
+    saveDashboardConfig(organizacaoId, novoSaved, user?.id ?? null).catch((err) =>
+      toast.error(err instanceof Error ? err.message : 'Erro ao salvar filtro global')
+    )
+  }
+
   const abrirMenuFiltro = (e: React.MouseEvent, widgetId: WidgetId) => {
     e.preventDefault()
     setMenuAberto({ widgetId, x: e.clientX, y: e.clientY })
+  }
+
+  const abrirWbsComFiltro = (filter: WbsQuickFilter) => {
+    setWbsQuickFilter(filter)
+    setWbsSearchResetKey((key) => key + 1)
+    requestAnimationFrame(() => wbsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
 
   const renderWidget = (w: WidgetConfig) => {
     switch (w.id) {
       case 'kpis':
         return <KPICards activities={activitiesParaFiltro(w.filtros)} />
+      case 'evm':
+        return <EVMIndicators />
       case 'charts':
+        if (isMobile) {
+          return (
+            <div className="rounded-b-xl border border-t-0 border-dashed border-gray-300 bg-gray-50 px-4 py-5 text-center text-xs text-gray-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400">
+              Gráficos demonstrativos ocultos no mobile.
+            </div>
+          )
+        }
         return (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <StatusPieChart />
-            <MonthlyBarChart />
+          <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-2">
+            <StatusPieChart activities={activitiesParaFiltro(w.filtros)} />
+            <MonthlyBarChart activities={activitiesParaFiltro(w.filtros)} />
           </div>
         )
       case 'progress':
         return <ProgressAreaChart />
       case 'engineering':
         return <EngineeringHighlights activities={activitiesParaFiltro(w.filtros)} />
+      case 'occurrences':
+        return <OccurrencesSummary />
       case 'people-safety':
         return <WorkforceSummary />
       case 'wbs-table':
-        return <WbsTable activities={activitiesParaFiltro(w.filtros)} />
+        return (
+          <WbsTable
+            activities={activitiesParaFiltro(w.filtros)}
+            quickFilter={wbsQuickFilter}
+            onQuickFilterChange={setWbsQuickFilter}
+            searchResetKey={wbsSearchResetKey}
+          />
+        )
     }
   }
 
-  const widgetsExibidos = isEditing ? draftWidgets : savedWidgets.filter((w) => w.visible)
+  const widgetsBase = isEditing ? draftWidgets : savedWidgets.filter((w) => w.visible)
+  const widgetsExibidos = isMobile && !isEditing ? widgetsBase.filter((w) => w.id !== 'charts') : widgetsBase
   const widgetDoMenu = menuAberto ? draftWidgets.find((w) => w.id === menuAberto.widgetId) : undefined
 
-  return (
-    <div className="space-y-6">
-      {podeEditarDashboard && (
-        <div className="flex justify-end">
-          {!isEditing ? (
-            <button
-              onClick={iniciarEdicao}
-              className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700"
-            >
-              <Settings2 size={16} /> Editar página
-            </button>
-          ) : (
-            <div className="flex items-center gap-2">
+  const renderWidgetFrame = (w: WidgetConfig, idx: number) => {
+    const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && temFiltroAtivo(w.filtros)
+    return (
+      <div
+        key={w.id}
+        ref={w.id === 'wbs-table' ? wbsSectionRef : undefined}
+        className={isEditing && !w.visible ? 'opacity-40' : undefined}
+        onContextMenu={isEditing && !isMobile ? (e) => abrirMenuFiltro(e, w.id) : undefined}
+      >
+        {isEditing && (
+          <div className="flex flex-col gap-2 rounded-t-xl border border-dashed border-gray-300 bg-gray-50 px-3 py-2.5 text-xs dark:border-gray-600 dark:bg-gray-900 sm:flex-row sm:items-center sm:justify-between sm:gap-0 sm:py-1.5">
+            <span className="flex min-w-0 items-center gap-1.5 font-medium text-gray-600 dark:text-gray-300">
+              <span className="truncate">{WIDGET_LABELS[w.id]}</span>
+              {!w.visible && <span className="shrink-0 text-gray-400 dark:text-gray-500">(oculto)</span>}
+              {temFiltro && (
+                <span className="flex shrink-0 items-center gap-0.5 text-blue-600 dark:text-blue-400" title={isMobile ? undefined : 'Filtro aplicado neste card'}>
+                  <Filter size={11} /> filtrado
+                </span>
+              )}
+            </span>
+            <div className="grid w-full grid-cols-4 gap-1 sm:flex sm:w-auto sm:items-center">
               <button
-                onClick={cancelarEdicao}
-                disabled={salvando}
-                className="flex items-center gap-1.5 text-sm font-medium text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50"
+                onClick={(e) => abrirMenuFiltro(e, w.id)}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Filtros do card (ou clique com o botão direito no card)'}
+                aria-label={`Filtros de ${WIDGET_LABELS[w.id]}`}
               >
-                <X size={16} /> Cancelar
+                <Filter size={16} className="sm:h-3.5 sm:w-3.5" />
               </button>
               <button
-                onClick={salvarEdicao}
-                disabled={salvando}
-                className="flex items-center gap-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg px-3 py-2 hover:bg-blue-700 disabled:opacity-50"
+                onClick={() => moverWidget(w.id, -1)}
+                disabled={idx === 0}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Mover para cima'}
+                aria-label={`Mover ${WIDGET_LABELS[w.id]} para cima`}
               >
-                <Check size={16} /> {salvando ? 'Salvando...' : 'Salvar'}
+                <ArrowUp size={16} className="sm:h-3.5 sm:w-3.5" />
+              </button>
+              <button
+                onClick={() => moverWidget(w.id, 1)}
+                disabled={idx === widgetsExibidos.length - 1}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 disabled:opacity-30 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : 'Mover para baixo'}
+                aria-label={`Mover ${WIDGET_LABELS[w.id]} para baixo`}
+              >
+                <ArrowDown size={16} className="sm:h-3.5 sm:w-3.5" />
+              </button>
+              <button
+                onClick={() => alternarVisibilidade(w.id)}
+                className="flex h-11 items-center justify-center rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-100 sm:h-auto sm:p-1"
+                title={isMobile ? undefined : w.visible ? 'Ocultar' : 'Mostrar'}
+                aria-label={`${w.visible ? 'Ocultar' : 'Mostrar'} ${WIDGET_LABELS[w.id]}`}
+              >
+                {w.visible ? <Eye size={16} className="sm:h-3.5 sm:w-3.5" /> : <EyeOff size={16} className="sm:h-3.5 sm:w-3.5" />}
               </button>
             </div>
-          )}
-        </div>
+          </div>
+        )}
+        {!isEditing && isMobile && temFiltro && w.filtros && (
+          <div className="mb-2 flex items-start gap-1.5 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-[11px] font-medium leading-relaxed text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
+            <Filter size={13} className="mt-0.5 shrink-0" />
+            <span>Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}</span>
+          </div>
+        )}
+        {renderWidget(w)}
+      </div>
+    )
+  }
+
+  if (configLoading) return <DashboardHomeSkeleton />
+
+  const wbsWidget = widgetsExibidos.find((widget) => widget.id === 'wbs-table' && widget.visible)
+  const wbsVisivel = !!wbsWidget
+  const attentionActivities = wbsWidget ? activitiesParaFiltro(wbsWidget.filtros) : activities
+
+  return (
+    <div className="space-y-4 sm:space-y-6">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        {cronogramasAtivos.length > 0 && activities.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg px-3 py-2">
+            <span className="flex items-center gap-1.5 text-sm font-medium text-gray-700 dark:text-gray-200">
+              <Filter size={15} className="text-gray-400" /> Filtro global
+            </span>
+            {cronogramasAtivos.length > 1 && (
+              <select
+                value={filtroGlobal.cronograma}
+                onChange={(e) =>
+                  aplicarFiltroGlobal({ ...filtroGlobal, cronograma: e.target.value === 'todos' ? 'todos' : Number(e.target.value) })
+                }
+                className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 text-sm text-gray-700 dark:text-gray-200 outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="todos">Todos os cronogramas</option>
+                {cronogramasAtivos.map((c, idx) => (
+                  <option key={c.id} value={idx}>{c.nome}</option>
+                ))}
+              </select>
+            )}
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="flex items-center gap-1 text-sm font-medium text-blue-600 dark:text-blue-400 hover:underline">
+                  Colunas
+                  {filtroGlobal.colunas.length > 0 && (
+                    <span className="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white bg-blue-600">
+                      {filtroGlobal.colunas.length}
+                    </span>
+                  )}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+                <ColumnValueFilter
+                  sources={cronogramasAtivos.map((c) => ({
+                    activities: c.dados?.activities || [],
+                    customFieldDefs: c.dados?.customFieldDefs || [],
+                  }))}
+                  filters={filtroGlobal.colunas}
+                  onChange={(colunas) => aplicarFiltroGlobal({ ...filtroGlobal, colunas })}
+                />
+              </PopoverContent>
+            </Popover>
+            {filtroGlobal.cronograma !== 'todos' || filtroGlobal.colunas.length > 0 ? (
+              <>
+                <span
+                  className="text-xs text-gray-500 dark:text-gray-400 max-w-[14rem] truncate"
+                  title={descreverFiltro(filtroGlobal, cronogramasAtivos)}
+                >
+                  {descreverFiltro(filtroGlobal, cronogramasAtivos)}
+                </span>
+                <button
+                  onClick={() => aplicarFiltroGlobal(SEM_FILTRO)}
+                  title="Limpar filtro global"
+                  className="p-1 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                >
+                  <X size={14} />
+                </button>
+              </>
+            ) : (
+              <span className="text-xs text-gray-400 dark:text-gray-500">todos os cronogramas</span>
+            )}
+          </div>
+        )}
+
+        {podeEditarDashboard && (
+          <div className="flex items-center gap-2 lg:justify-end">
+            {!isEditing ? (
+              <button
+                onClick={iniciarEdicao}
+                className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700 sm:min-h-0 sm:w-auto sm:rounded-lg sm:shadow-none"
+              >
+                <Settings2 size={16} /> Editar página
+              </button>
+            ) : (
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+                <button
+                  onClick={cancelarEdicao}
+                  disabled={salvando}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 sm:min-h-0 sm:rounded-lg"
+                >
+                  <X size={16} /> Cancelar
+                </button>
+                <button
+                  onClick={salvarEdicao}
+                  disabled={salvando}
+                  className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50 sm:min-h-0 sm:rounded-lg"
+                >
+                  <Check size={16} /> {salvando ? 'Salvando...' : 'Salvar'}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <ExecutiveSummary activities={activitiesParaFiltro(filtroGlobal)} />
+
+      {isMobile && !isEditing && (
+        <DashboardAttention
+          activities={attentionActivities}
+          onOpenLate={wbsVisivel ? () => abrirWbsComFiltro('atrasadas') : undefined}
+          onOpenActive={wbsVisivel ? () => abrirWbsComFiltro('em-andamento') : undefined}
+        />
       )}
 
-      <TooltipProvider delayDuration={300}>
-        {widgetsExibidos.map((w, idx) => {
-          const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && !!w.filtros
-          return (
-            <Tooltip key={w.id}>
-              <TooltipTrigger asChild>
-                <div
-                  className={isEditing && !w.visible ? 'opacity-40' : undefined}
-                  onContextMenu={isEditing ? (e) => abrirMenuFiltro(e, w.id) : undefined}
-                >
-                  {isEditing && (
-                    <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-900 border border-dashed border-gray-300 dark:border-gray-600 rounded-t-xl px-3 py-1.5 text-xs">
-                      <span className="font-medium text-gray-600 dark:text-gray-300 flex items-center gap-1.5">
-                        {WIDGET_LABELS[w.id]}
-                        {!w.visible && <span className="text-gray-400 dark:text-gray-500">(oculto)</span>}
-                        {temFiltro && (
-                          <span className="flex items-center gap-0.5 text-blue-600 dark:text-blue-400" title="Filtro aplicado neste card">
-                            <Filter size={11} /> filtrado
-                          </span>
-                        )}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={(e) => abrirMenuFiltro(e, w.id)}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-                          title="Filtros do card (ou clique com o botão direito no card)"
-                        >
-                          <Filter size={14} />
-                        </button>
-                        <button
-                          onClick={() => moverWidget(w.id, -1)}
-                          disabled={idx === 0}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30"
-                          title="Mover para cima"
-                        >
-                          <ArrowUp size={14} />
-                        </button>
-                        <button
-                          onClick={() => moverWidget(w.id, 1)}
-                          disabled={idx === widgetsExibidos.length - 1}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100 disabled:opacity-30"
-                          title="Mover para baixo"
-                        >
-                          <ArrowDown size={14} />
-                        </button>
-                        <button
-                          onClick={() => alternarVisibilidade(w.id)}
-                          className="p-1 text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-100"
-                          title={w.visible ? 'Ocultar' : 'Mostrar'}
-                        >
-                          {w.visible ? <Eye size={14} /> : <EyeOff size={14} />}
-                        </button>
-                      </div>
-                    </div>
+      {isMobile ? (
+        widgetsExibidos.map(renderWidgetFrame)
+      ) : (
+        <TooltipProvider delayDuration={300}>
+          {widgetsExibidos.map((w, idx) => {
+            const temFiltro = FILTERABLE_WIDGETS.includes(w.id) && temFiltroAtivo(w.filtros)
+            return (
+              <Tooltip key={w.id}>
+                <TooltipTrigger asChild>{renderWidgetFrame(w, idx)}</TooltipTrigger>
+                <TooltipContent side="top" align="start" className="max-w-xs space-y-1.5">
+                  <p className="font-semibold">{WIDGET_LABELS[w.id]}</p>
+                  <p className="text-muted-foreground leading-relaxed">{WIDGET_DESCRICOES[w.id]}</p>
+                  {temFiltro && w.filtros && (
+                    <p className="pt-1 border-t border-border/60 text-blue-600 dark:text-blue-400">
+                      Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}
+                    </p>
                   )}
-                  {renderWidget(w)}
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="top" align="start" className="max-w-xs space-y-1.5">
-                <p className="font-semibold">{WIDGET_LABELS[w.id]}</p>
-                <p className="text-muted-foreground leading-relaxed">{WIDGET_DESCRICOES[w.id]}</p>
-                {temFiltro && w.filtros && (
-                  <p className="pt-1 border-t border-border/60 text-blue-600 dark:text-blue-400">
-                    Filtro ativo: {descreverFiltro(w.filtros, cronogramasAtivos)}
-                  </p>
-                )}
-                {FILTERABLE_WIDGETS.includes(w.id) && !temFiltro && (
-                  <p className="text-muted-foreground/70 italic">
-                    No modo de edição, clique com o botão direito no card pra filtrar por cronograma ou coluna.
-                  </p>
-                )}
-              </TooltipContent>
-            </Tooltip>
-          )
-        })}
-      </TooltipProvider>
+                  {FILTERABLE_WIDGETS.includes(w.id) && !temFiltro && (
+                    <p className="text-muted-foreground/70 italic">
+                      No modo de edição, clique com o botão direito no card pra filtrar por cronograma ou coluna.
+                    </p>
+                  )}
+                </TooltipContent>
+              </Tooltip>
+            )
+          })}
+        </TooltipProvider>
+      )}
 
       {menuAberto && widgetDoMenu && (
         <WidgetFilterMenu

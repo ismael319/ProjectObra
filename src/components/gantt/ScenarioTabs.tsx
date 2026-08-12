@@ -71,14 +71,14 @@ export function ScenarioTabs() {
   };
 
   return (
-    <div className="flex items-center gap-1 px-3 pt-2 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 overflow-x-auto">
+    <div className="flex min-h-14 items-center gap-1 overflow-x-auto border-b border-gray-200 bg-gray-50 px-2 pt-1 pr-14 dark:border-slate-700 dark:bg-slate-800 sm:min-h-0 sm:px-3 sm:pt-2 sm:pr-32">
       {scenarios.map((sc) => {
         const active = sc.id === activeScenarioId;
         return (
           <div
             key={sc.id}
             onClick={() => setActiveScenario(sc.id)}
-            className={`group flex items-center gap-2 px-4 py-2 rounded-t-lg cursor-pointer whitespace-nowrap transition-colors ${
+            className={`group flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap rounded-t-lg px-4 py-2 transition-colors sm:min-h-0 ${
               active
                 ? 'bg-white dark:bg-slate-900 text-gray-900 dark:text-white border-t-2 border-blue-500'
                 : 'bg-gray-200/60 dark:bg-slate-700/50 text-gray-500 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
@@ -111,14 +111,15 @@ export function ScenarioTabs() {
             ) : (
               <>
                 <span className="text-xs font-medium">{sc.name}</span>
-                <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
                       setEditingId(sc.id);
                       setEditName(sc.name);
                     }}
-                    className="text-gray-400 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white"
+                    className="flex h-10 w-10 items-center justify-center rounded text-gray-400 hover:bg-gray-100 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700 dark:hover:text-white sm:h-7 sm:w-7"
+                    aria-label={`Renomear cenário ${sc.name}`}
                   >
                     <Pencil size={12} />
                   </button>
@@ -128,7 +129,8 @@ export function ScenarioTabs() {
                         e.stopPropagation();
                         deleteScenario(sc.id);
                       }}
-                      className="text-gray-400 dark:text-slate-400 hover:text-red-500 dark:hover:text-red-400"
+                      className="flex h-10 w-10 items-center justify-center rounded text-gray-400 hover:bg-red-50 hover:text-red-500 dark:text-slate-400 dark:hover:bg-red-950/30 dark:hover:text-red-400 sm:h-7 sm:w-7"
+                      aria-label={`Excluir cenário ${sc.name}`}
                     >
                       <X size={14} />
                     </button>
@@ -182,7 +184,7 @@ export function ScenarioTabs() {
         <>
           <button
             onClick={() => setAdding(true)}
-            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
+            className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-t-lg px-3 py-2 text-xs text-gray-500 hover:bg-gray-200/60 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-white sm:min-h-0"
           >
             <Plus size={14} /> Novo
           </button>
@@ -190,14 +192,14 @@ export function ScenarioTabs() {
             onClick={handleExport}
             disabled={!activeScenarioId}
             title="Exportar cenário atual (equipes + atividades) como arquivo"
-            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-t-lg px-3 py-2 text-xs text-gray-500 hover:bg-gray-200/60 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-40 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-white sm:min-h-0"
           >
             <Download size={14} /> Exportar cenário
           </button>
           <button
             onClick={() => importFileRef.current?.click()}
             title="Importar cenário de um arquivo exportado"
-            className="flex items-center gap-1 px-3 py-2 text-xs text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white rounded-t-lg hover:bg-gray-200/60 dark:hover:bg-slate-700/50 whitespace-nowrap"
+            className="flex min-h-11 items-center gap-1 whitespace-nowrap rounded-t-lg px-3 py-2 text-xs text-gray-500 hover:bg-gray-200/60 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-700/50 dark:hover:text-white sm:min-h-0"
           >
             <Upload size={14} /> Importar cenário
           </button>

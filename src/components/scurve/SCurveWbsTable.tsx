@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { ChevronRight, ChevronDown, ChevronsDown, ChevronsUp } from 'lucide-react'
+import { ChevronRight, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp } from 'lucide-react'
 import type { WBSActivity, WBSAssignment, TimephasedDataPoint } from '@/lib/xml-parser'
 import { computeWbsNodeMetrics, type WbsNodeMetrics } from '@/lib/scurve-wbs'
 
@@ -58,6 +58,7 @@ export function SCurveWbsTable({ cronogramas, statusDate }: SCurveWbsTableProps)
 function SCurveWbsTableSection({ cronograma, statusDate }: { cronograma: CronogramaWbsData; statusDate: Date }) {
   const { activities, assignments, rawPoints } = cronograma
   const [expandedWbs, setExpandedWbs] = useState<Set<string>>(new Set(activities.filter((a) => a.outlineLevel <= 1).map((a) => a.wbs)))
+  const [open, setOpen] = useState(() => !window.matchMedia('(max-width: 639px)').matches)
 
   const metricsByUid = useMemo(
     () => computeWbsNodeMetrics(activities, assignments, rawPoints, statusDate),
@@ -92,12 +93,13 @@ function SCurveWbsTableSection({ cronograma, statusDate }: { cronograma: Cronogr
 
   return (
     <div className="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700">
-      <div className="flex items-center justify-between gap-3 p-4 border-b border-gray-100 dark:border-gray-700">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className={`flex items-center justify-between gap-3 p-4 ${open ? 'border-b border-gray-100 dark:border-gray-700' : ''}`}>
+        <button onClick={() => setOpen((value) => !value)} className="flex min-h-11 min-w-0 flex-1 items-center gap-2 text-left sm:min-h-0">
           <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: cronograma.cor }} />
           <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">{cronograma.nome}</h3>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
+          {open ? <ChevronUp size={18} className="ml-auto shrink-0 text-gray-400" /> : <ChevronDown size={18} className="ml-auto shrink-0 text-gray-400" />}
+        </button>
+        {open && <div className="hidden shrink-0 items-center gap-2 sm:flex">
           <button
             onClick={expandAll}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
@@ -110,8 +112,9 @@ function SCurveWbsTableSection({ cronograma, statusDate }: { cronograma: Cronogr
           >
             <ChevronsUp size={13} /> Recolher tudo
           </button>
-        </div>
+        </div>}
       </div>
+      {open && <>
       <p className="px-4 pt-3 text-xs text-gray-400 dark:text-gray-500">
         % sobre HH da linha de base; semana = 7 dias até a data de status; forecast = próximos 7 dias.
       </p>
@@ -172,6 +175,7 @@ function SCurveWbsTableSection({ cronograma, statusDate }: { cronograma: Cronogr
           </tbody>
         </table>
       </div>
+      </>}
     </div>
   )
 }

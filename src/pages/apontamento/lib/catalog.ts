@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { fetchWithOfflineCache } from "@/lib/offline-query";
+import { useAuth } from "@/lib/auth-context";
 
 // Cadastros de apoio usados nos combos do Lançamento em campo: cacheados em
 // IndexedDB a cada busca bem-sucedida e servidos desse cache quando a rede
@@ -12,6 +13,7 @@ import { fetchWithOfflineCache } from "@/lib/offline-query";
 const OFFLINE_CATALOG_OPTS = {
   networkMode: "always" as const,
   retry: false,
+  refetchOnReconnect: "always" as const,
   staleTime: 5 * 60_000,
 };
 
@@ -22,41 +24,55 @@ export type Area = { id: string; setor_id: string; nome: string; ativo: boolean 
 export type Subarea = { id: string; area_id: string; nome: string; ativo: boolean };
 export type Atividade = { id: string; nome: string; ativo: boolean; subarea_id?: string | null };
 
+function useCatalogScope() {
+  const { user, userProfile } = useAuth();
+  return {
+    cacheScope: user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending",
+    cacheReady: !!user && !!userProfile,
+  };
+}
+
 export function useEmpresas(onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["empresas", onlyActive],
+    queryKey: ["empresas", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:empresas:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:empresas:${onlyActive}`, async () => {
         let q = supabase.from("empresas").select("id,nome,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Empresa[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useLiderancas(onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["liderancas", onlyActive],
+    queryKey: ["liderancas", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:liderancas:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:liderancas:${onlyActive}`, async () => {
         let q = supabase.from("liderancas").select("id,nome,tipo,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Lideranca[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useSetores(onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["setores", onlyActive],
+    queryKey: ["setores", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:setores:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:setores:${onlyActive}`, async () => {
         let q = supabase.from("setores").select("id,nome,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Setor[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
@@ -70,42 +86,48 @@ export function useSetores(onlyActive = true) {
 // setor funciona offline assim que a tela é aberta uma vez online — e trocar
 // de setor deixa de disparar uma nova busca de rede.
 export function useAreas(setorId?: string | null, onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["areas", onlyActive],
+    queryKey: ["areas", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:areas:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:areas:${onlyActive}`, async () => {
         let q = supabase.from("areas").select("id,setor_id,nome,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Area[]).sort((a, b) => a.nome.localeCompare(b.nome))),
     select: (data) => (setorId ? data.filter((a) => a.setor_id === setorId) : data),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useSubareas(areaId?: string | null, onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["subareas", onlyActive],
+    queryKey: ["subareas", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:subareas:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:subareas:${onlyActive}`, async () => {
         let q = supabase.from("subareas").select("id,area_id,nome,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Subarea[]).sort((a, b) => a.nome.localeCompare(b.nome))),
     select: (data) => (areaId ? data.filter((s) => s.area_id === areaId) : data),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
 export function useAtividades(onlyActive = true) {
+  const { cacheScope, cacheReady } = useCatalogScope();
   return useQuery({
-    queryKey: ["atividades", onlyActive],
+    queryKey: ["atividades", cacheScope, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:atividades:${onlyActive}`, async () => {
+      fetchWithOfflineCache(`catalog:v2:${cacheScope}:atividades:${onlyActive}`, async () => {
         let q = supabase.from("atividades").select("id,nome,ativo").retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Atividade[]).sort((a, b) => a.nome.localeCompare(b.nome))),
+    enabled: cacheReady,
     ...OFFLINE_CATALOG_OPTS,
   });
 }

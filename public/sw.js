@@ -1,9 +1,15 @@
-const CACHE_NAME = 'obracontrol-v5'
+const CACHE_PREFIX = 'obracontrol-'
+const CACHE_NAME = `${CACHE_PREFIX}__BUILD_VERSION__`
 const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
   '/favicon.svg',
+  '/pwa-icons/icon-192.png',
+  '/pwa-icons/icon-512.png',
+  '/pwa-icons/icon-maskable-192.png',
+  '/pwa-icons/icon-maskable-512.png',
+  '/pwa-icons/apple-touch-icon.png',
 ]
 
 // Arquivo com hash no nome (Vite gera "algo-<hash>.js") — o conteúdo nunca
@@ -20,22 +26,28 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(STATIC_ASSETS))
   )
-  self.skipWaiting()
 })
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
+      Promise.all(keys.filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME).map((k) => caches.delete(k)))
     )
   )
   self.clients.claim()
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting()
 })
 
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return
 
   const url = new URL(event.request.url)
+
+  // Dados autenticados e recursos externos não pertencem ao cache do shell.
+  if (url.origin !== self.location.origin) return
 
   if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
     event.respondWith(fetch(event.request))

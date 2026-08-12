@@ -3,6 +3,8 @@ import { Flag, AlertOctagon, Layers } from 'lucide-react'
 import { useProject } from '@/lib/project-context'
 import { toDate } from '@/lib/utils'
 import type { WBSActivity } from '@/lib/xml-parser'
+import { getDaysLate, isActivityLate } from '@/lib/dashboard-insights'
+import { useToday } from '@/lib/use-today'
 
 const DISCIPLINE_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d']
 
@@ -14,6 +16,7 @@ type Props = {
 
 export default function EngineeringHighlights({ activities: activitiesProp }: Props = {}) {
   const { activities: activitiesContexto } = useProject()
+  const today = useToday()
   const activities = activitiesProp ?? activitiesContexto
 
   const leafActivities = useMemo(() => activities.filter((a) => !a.isSummary), [activities])
@@ -34,35 +37,43 @@ export default function EngineeringHighlights({ activities: activitiesProp }: Pr
   }, [leafActivities])
 
   const upcomingMilestones = useMemo(() => {
-    const now = new Date()
     return leafActivities
       .filter((a) => a.isMilestone && a.percentComplete < 100)
       .sort((a, b) => toDate(a.finish).getTime() - toDate(b.finish).getTime())
       .slice(0, 5)
-      .map((a) => ({ ...a, isLate: toDate(a.finish) < now }))
-  }, [leafActivities])
+      .map((a) => ({ ...a, isLate: isActivityLate(a, today) }))
+  }, [leafActivities, today])
 
   const criticalActivities = useMemo(() => {
-    const now = new Date()
     return leafActivities
-      .filter((a) => !a.isMilestone && a.percentComplete < 100 && toDate(a.finish) < now)
-      .map((a) => ({ ...a, daysLate: Math.floor((now.getTime() - toDate(a.finish).getTime()) / 86400000) }))
+      .filter((a) => !a.isMilestone && isActivityLate(a, today))
+      .map((a) => ({ ...a, daysLate: getDaysLate(a, today) }))
       .sort((a, b) => b.daysLate - a.daysLate)
       .slice(0, 5)
-  }, [leafActivities])
+  }, [leafActivities, today])
 
-  if (leafActivities.length === 0) return null
+  if (leafActivities.length === 0) {
+    return (
+      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
+        <div className="mb-3 flex items-center gap-2">
+          <Layers size={18} className="text-blue-600 dark:text-blue-400" />
+          <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Pontos de Engenharia</h2>
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhuma atividade disponível para análise.</p>
+      </div>
+    )
+  }
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-xl p-4 sm:p-6 shadow-sm border border-gray-100 dark:border-gray-700">
+    <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
       <div className="flex items-center gap-2 mb-4">
         <Layers size={18} className="text-blue-600 dark:text-blue-400" />
-        <h2 className="text-lg font-bold text-gray-900 dark:text-white">Pontos de Engenharia</h2>
+        <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Pontos de Engenharia</h2>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 divide-y divide-gray-100 dark:divide-gray-700 sm:gap-6 sm:divide-y-0 lg:grid-cols-3">
         {/* Disciplinas */}
-        <div>
+        <div className="pb-5 sm:pb-0">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
             Avanço por Disciplina
           </h3>
@@ -91,7 +102,7 @@ export default function EngineeringHighlights({ activities: activitiesProp }: Pr
         </div>
 
         {/* Marcos */}
-        <div>
+        <div className="py-5 sm:py-0">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
             <Flag size={12} /> Próximos Marcos
           </h3>
@@ -112,7 +123,7 @@ export default function EngineeringHighlights({ activities: activitiesProp }: Pr
         </div>
 
         {/* Atividades críticas */}
-        <div>
+        <div className="pt-5 sm:pt-0">
           <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5">
             <AlertOctagon size={12} /> Mais Atrasadas
           </h3>

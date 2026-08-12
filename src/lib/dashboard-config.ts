@@ -1,18 +1,26 @@
 import { supabase } from '@/lib/supabase'
 import type { ColumnFilterState } from '@/components/ColumnValueFilter'
 
-// Os 6 blocos que a Visão Geral já renderiza — "charts" e "people-safety"
-// juntam dois componentes cada (mesma grade de 2 colunas de hoje), pra não
-// precisar de um sistema de grid arrastável só pra evitar um card órfão.
-export type WidgetId = 'kpis' | 'charts' | 'progress' | 'engineering' | 'people-safety' | 'wbs-table'
+// Os blocos que a Visão Geral renderiza — "charts" e "people-safety" juntam
+// dois componentes cada (mesma grade de 2 colunas de hoje), pra não precisar
+// de um sistema de grid arrastável só pra evitar um card órfão.
+export type WidgetId =
+  | 'kpis'
+  | 'evm'
+  | 'charts'
+  | 'progress'
+  | 'engineering'
+  | 'occurrences'
+  | 'people-safety'
+  | 'wbs-table'
 
 // Só os widgets cujos dados vêm das atividades do cronograma (WBSActivity,
 // com sourceCronogramaIndex/discipline/responsible/campos personalizados)
-// suportam filtro hoje — "charts" ainda é dado de exemplo fixo e
-// "people-safety" vem de apontamentos/ocorrências, sem esse vínculo. Cada
+// suportam filtro — "evm", "progress", "occurrences" e "people-safety" não
+// têm esse vínculo (usam índices globais/apontamentos/ocorrências). Cada
 // widget guarda seu próprio WidgetFiltros — filtro de um card nunca afeta
 // outro, mesmo que os dois usem o mesmo tipo de widget.
-export const FILTERABLE_WIDGETS: WidgetId[] = ['kpis', 'engineering', 'wbs-table']
+export const FILTERABLE_WIDGETS: WidgetId[] = ['kpis', 'charts', 'engineering', 'wbs-table']
 
 export interface WidgetFiltros {
   cronograma: number | 'todos'
@@ -30,12 +38,16 @@ export interface WidgetConfig {
 }
 
 // Ordem/visibilidade de hoje — nada muda visualmente até um admin salvar
-// uma customização de verdade.
+// uma customização de verdade. "evm" logo após os KPIs e "occurrences" após
+// os pontos de engenharia são as posições padrão; configs antigas sem esses
+// ids os recebem nesses lugares via mergeWithDefaults.
 export const DEFAULT_WIDGETS: WidgetConfig[] = [
   { id: 'kpis', visible: true },
+  { id: 'evm', visible: true },
   { id: 'charts', visible: true },
   { id: 'progress', visible: true },
   { id: 'engineering', visible: true },
+  { id: 'occurrences', visible: true },
   { id: 'people-safety', visible: true },
   { id: 'wbs-table', visible: true },
 ]
@@ -88,7 +100,21 @@ export function mergeWithDefaults(salvo: unknown): WidgetConfig[] {
 
   const ordemFinal = [...idsSalvos, ...DEFAULT_WIDGETS.map((w) => w.id).filter((id) => !porId.has(id))]
 
-  return ordemFinal.map((id) => {
+  // Configs salvas antes de "evm"/"occurrences" existirem não têm esses ids —
+  // em vez de anexá-los no fim (cada widget novo ganha um lugar semântico),
+  // encaixa cada um logo depois do vizinho natural, sem mexer na ordem
+  // personalizada que o admin já tinha salvo.
+  const inserirDepois = (ordem: WidgetId[], novo: WidgetId, depoisDe: WidgetId): WidgetId[] => {
+    if (ordem.includes(novo)) return ordem
+    const idx = ordem.indexOf(depoisDe)
+    const next = [...ordem]
+    if (idx === -1) next.unshift(novo)
+    else next.splice(idx + 1, 0, novo)
+    return next
+  }
+  const ordemComNovos = inserirDepois(inserirDepois(ordemFinal, 'evm', 'kpis'), 'occurrences', 'engineering')
+
+  return ordemComNovos.map((id) => {
     const item = porId.get(id)
     const visible = typeof item?.visible === 'boolean' ? item.visible : true
     const filtros = sanitizeFiltros(item?.filtros)

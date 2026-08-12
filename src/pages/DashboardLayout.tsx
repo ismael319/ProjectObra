@@ -1,58 +1,69 @@
-import { useEffect, useState, useRef } from 'react'
-import { Outlet, useNavigate } from 'react-router-dom'
-import { Bell, Sun, Moon, FolderOpen, User, LogOut, ChevronDown, Menu, Loader2, FileText } from 'lucide-react'
-import Sidebar from '@/components/Sidebar'
-import fgiLogo from '@/assets/fgi-logo.png'
+import { useEffect, useState } from 'react'
+import { Outlet, useLocation, useNavigate } from 'react-router-dom'
+import { Loader2 } from 'lucide-react'
 import ChatWidget from '@/components/ChatWidget'
+import { OfflineBanner } from '@/components/OfflineBanner'
+import { PwaInstallBanner } from '@/components/PwaInstallBanner'
+import { PwaUpdateBanner } from '@/components/PwaUpdateBanner'
+import { DashboardHeader } from '@/components/layout/DashboardHeader'
+import { DashboardNavigation } from '@/components/layout/DashboardNavigation'
 import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
-import { useQuery } from '@tanstack/react-query'
+import { useMediaQuery } from '@/lib/use-media-query'
+import { getDashboardRouteTitle } from '@/lib/nav-config'
 import { usePendenciasValidacao, useMeusRejeitados } from '@/lib/validacao/validacao-db'
-import { ShieldCheck } from 'lucide-react'
 
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
   const { isDark, toggle, brandColor } = useTheme()
+  const isMobile = useMediaQuery('(max-width: 639px)')
   const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
   const { user, signOut, userProfile } = useAuth()
   const navigate = useNavigate()
+  const location = useLocation()
   const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
   // Papel efetivo no módulo "sistema" (override, se existir, senão o global) —
   // controla quem vê o link "Sistema" e o selo de pendências.
   const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
+  const podeAcessarSistema = !!userProfile?.modulos?.includes('sistema') && podeGerenciarUsuarios
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [userMenuOpen, setUserMenuOpen] = useState(false)
-  const userMenuRef = useRef<HTMLDivElement>(null)
+  const [pendingCount, setPendingCount] = useState(0)
+  const [syncedProjectKey, setSyncedProjectKey] = useState<string | null>(null)
+  const projectSyncKey = currentProject
+    ? `${currentProject.id}:${(currentProject.cronogramas || []).map((cronograma) => `${cronograma.id}:${cronograma.versao}:${cronograma.ativo}:${cronograma.dataUpload}`).join('|')}`
+    : null
 
-  // Solicitações de acesso aguardando decisão — só quem administra o sistema vê.
-  // Era um useEffect que rodava uma vez e deixava o contador congelado até um
-  // F5; com useQuery ele reflete a aprovação assim que ela acontece.
-  const { data: solicitacoesPendentes = 0 } = useQuery({
-    queryKey: ['solicitacoes_pendentes'],
-    enabled: podeGerenciarUsuarios,
-    queryFn: async () => {
-      const { count } = await supabase
-        .from('user_profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('status_solicitacao', 'pendente')
-      return count ?? 0
-    },
-  })
+  useEffect(() => {
+    if (!podeAcessarSistema) return
+
+    supabase
+      .from('user_profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('status_solicitacao', 'pendente')
+      .then(({ count }) => setPendingCount(count ?? 0))
+  }, [podeAcessarSistema])
+
+  useEffect(() => {
+    if (isMobile) setMobileMenuOpen(false)
+  }, [isMobile])
 
   const { data: validacoesPendentes = [] } = usePendenciasValidacao()
   const { data: meusRejeitados = [] } = useMeusRejeitados()
   const totalConferir = validacoesPendentes.reduce((soma, p) => soma + p.total, 0)
   const totalValidacoes = totalConferir + meusRejeitados.length
 
-  const userInitials = user?.email
-    ? user.email.split('@')[0].slice(0, 2).toUpperCase()
-    : 'U'
+  const nomePerfil = userProfile?.nome || user?.user_metadata?.nome
+  const userInitials = nomePerfil
+    ? nomePerfil.slice(0, 2).toUpperCase()
+    : user?.email
+      ? user.email.split('@')[0].slice(0, 2).toUpperCase()
+      : 'U'
 
   useEffect(() => {
     // Apontadores (papel "insercao_pontual") não navegam pela seleção de projetos/cronogramas —
@@ -67,6 +78,7 @@ export default function DashboardLayout() {
     if (isLoadingProjects || isHydratingCurrentProject) return
 
     if (!currentProject) {
+      setSyncedProjectKey(null)
       navigate('/projects')
       return
     }
@@ -80,6 +92,7 @@ export default function DashboardLayout() {
       if (fallback && (!project || project !== fallback)) {
         setProject(fallback)
       }
+      setSyncedProjectKey(projectSyncKey)
       return
     }
 
@@ -90,21 +103,10 @@ export default function DashboardLayout() {
     } else {
       setMultipleProjects(dadosAtivos)
     }
-  }, [currentProject, isInsercaoPontual, isLoadingProjects, isHydratingCurrentProject])
+    setSyncedProjectKey(projectSyncKey)
+  }, [currentProject, isInsercaoPontual, isLoadingProjects, isHydratingCurrentProject, projectSyncKey])
 
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
-        setUserMenuOpen(false)
-      }
-    }
-    if (userMenuOpen) {
-      document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
-    }
-  }, [userMenuOpen])
-
-  if (!isInsercaoPontual && (isLoadingProjects || isHydratingCurrentProject)) {
+  if (!isInsercaoPontual && (isLoadingProjects || isHydratingCurrentProject || (currentProject && syncedProjectKey !== projectSyncKey))) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
         <Loader2 className="animate-spin text-blue-600" size={40} />
@@ -116,173 +118,64 @@ export default function DashboardLayout() {
 
   const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
   const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
+  const pageTitle = getDashboardRouteTitle(location.pathname)
+  const hasMobileBottomNav = isMobile && !presentationMode && !isInsercaoPontual
+
+  const headerProps = {
+    pageTitle,
+    isInsercaoPontual,
+    projectName: currentProject?.nome,
+    activeCount,
+    totalCount,
+    podeGerenciarUsuarios: podeAcessarSistema,
+    pendingCount,
+    totalValidacoes,
+    meusRejeitados: meusRejeitados.length,
+    userName: userProfile?.nome ?? user?.user_metadata?.nome,
+    userEmail: user?.email,
+    userInitials,
+    brandColor,
+    isDark,
+    onOpenMenu: () => setMobileMenuOpen(true),
+    onNavigate: navigate,
+    onToggleTheme: toggle,
+    onSignOut: () => { signOut(); navigate('/login') },
+  }
+
+  const navigationProps = {
+    variant: isMobile ? 'mobile' as const : 'desktop' as const,
+    collapsed: sidebarCollapsed,
+    onToggle: () => setSidebarCollapsed(!sidebarCollapsed),
+    mobileOpen: mobileMenuOpen,
+    onMobileClose: () => setMobileMenuOpen(false),
+    papel: userProfile?.papel ?? undefined,
+    modulos: userProfile?.modulos,
+    podeGerenciarUsuarios: podeAcessarSistema,
+    projectName: currentProject?.nome,
+    brandColor,
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
-      {/* Header fixo - largura total */}
-      <header className="fixed top-0 left-0 right-0 h-16 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] px-4 sm:px-6 z-40">
-        <div className="flex items-center justify-between h-full">
-          <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-            <button
-              onClick={() => setMobileMenuOpen(true)}
-              className="lg:hidden p-2 -ml-2 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
-              aria-label="Abrir menu"
-            >
-              <Menu size={20} />
-            </button>
-            <div className="hidden sm:flex items-center justify-center w-9 h-9 rounded-lg bg-white p-1 shrink-0">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
-            </div>
-            <div className="hidden sm:block h-6 w-px bg-white/10" />
-            {!isInsercaoPontual && (
-              <>
-                <button
-                  onClick={() => navigate('/projects')}
-                  className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors shrink-0"
-                >
-                  <FolderOpen size={18} />
-                  <span className="hidden md:inline">Meus Projetos</span>
-                </button>
-                <div className="h-6 w-px bg-white/10 shrink-0" />
-              </>
-            )}
-            <div className="min-w-0">
-              <h1 className="text-base font-bold text-white truncate">
-                {isInsercaoPontual ? 'Lançamento de Efetivo' : currentProject?.nome}
-              </h1>
-              {!isInsercaoPontual && totalCount > 1 && (
-                <span className="inline-block text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-full">
-                  {activeCount}/{totalCount} cronogramas
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-
-            {/* Ícone próprio, separado do sino: validação pendente é trabalho de
-                qualquer conferente, enquanto o sino é fila de admin. Juntar os
-                dois números num contador só esconderia o que precisa ser feito. */}
-            {totalValidacoes > 0 && (
-              <button
-                onClick={() => navigate('/dashboard/validacoes')}
-                className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                title={
-                  meusRejeitados.length > 0
-                    ? `${meusRejeitados.length} lançamento(s) seu(s) voltaram para correção`
-                    : 'Lançamentos aguardando sua conferência'
-                }
-              >
-                <ShieldCheck size={19} />
-                {/* Vermelho quando há coisa SUA rejeitada: conferir o trabalho
-                    dos outros pode esperar, corrigir o próprio não — ninguém
-                    mais consegue destravar aquele registro. */}
-                <span
-                  className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold text-white rounded-full ring-2 ring-slate-900 ${
-                    meusRejeitados.length > 0 ? 'bg-red-500' : 'bg-amber-500'
-                  }`}
-                >
-                  {totalValidacoes > 9 ? '9+' : totalValidacoes}
-                </span>
-              </button>
-            )}
-
-            {podeGerenciarUsuarios && (
-              <button
-                onClick={() => navigate('/dashboard/admin/users')}
-                className="relative p-2 text-slate-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors"
-                title="Solicitações de acesso pendentes"
-              >
-                <Bell size={19} />
-                {solicitacoesPendentes > 0 && (
-                  <span className="absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold bg-red-500 text-white rounded-full ring-2 ring-slate-900">
-                    {solicitacoesPendentes > 9 ? '9+' : solicitacoesPendentes}
-                  </span>
-                )}
-              </button>
-            )}
-
-            <div className="relative" ref={userMenuRef}>
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 p-1 pr-2 hover:bg-white/5 rounded-full transition-colors"
-              >
-                <div
-                  className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white ring-2 ring-white/15"
-                  style={{ backgroundColor: brandColor }}
-                >
-                  {userInitials}
-                </div>
-                <ChevronDown size={14} className={`text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {userMenuOpen && (
-                <div className="absolute right-0 top-full mt-2 w-60 bg-white dark:bg-gray-800 rounded-xl shadow-2xl ring-1 ring-black/5 border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
-                  <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
-                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{user?.email}</p>
-                  </div>
-                  <div className="py-1">
-                    {!isInsercaoPontual && (
-                      <button
-                        onClick={() => { navigate('/profile'); setUserMenuOpen(false) }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                      >
-                        <User size={16} />
-                        Meu Perfil
-                      </button>
-                    )}
-                    <button
-                      onClick={toggle}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      {isDark ? <Sun size={16} /> : <Moon size={16} />}
-                      {isDark ? 'Modo Claro' : 'Modo Escuro'}
-                    </button>
-                    <button
-                      onClick={() => { window.open('/legal/privacy', '_blank'); setUserMenuOpen(false) }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
-                    >
-                      <FileText size={16} />
-                      Privacidade e Termos
-                    </button>
-                  </div>
-                  <div className="border-t border-gray-100 dark:border-gray-700 py-1">
-                    <button
-                      onClick={() => { signOut(); navigate('/login') }}
-                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                    >
-                      <LogOut size={16} />
-                      Sair da Conta
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </header>
+      <DashboardHeader {...headerProps} variant={isMobile ? 'mobile' : 'desktop'} />
 
       {/* Sidebar abaixo do header — escondida em modo apresentação (ex.: Gantt
           Livre) pra sobrar tela inteira pro conteúdo durante uma reunião. */}
       {!presentationMode && (
-        <Sidebar
-          collapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          mobileOpen={mobileMenuOpen}
-          onMobileClose={() => setMobileMenuOpen(false)}
-          papel={userProfile?.papel ?? undefined}
-          modulos={userProfile?.modulos}
-          podeGerenciarUsuarios={podeGerenciarUsuarios}
-        />
+        <DashboardNavigation {...navigationProps} />
       )}
 
       {/* Conteúdo principal */}
-      <main className={`pt-16 transition-all duration-300 ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-16' : 'lg:ml-64'}`}>
-        <div className="p-4 sm:p-6">
+      <main className={`dashboard-app-content min-w-0 pt-14 transition-all duration-300 sm:pt-16 ${isMobile ? 'mobile-app-content' : ''} ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-[calc(4rem+env(safe-area-inset-left,0px))]' : 'lg:ml-[calc(16rem+env(safe-area-inset-left,0px))]'}`}>
+        <div className={`dashboard-content-inner min-w-0 p-4 sm:p-6 ${hasMobileBottomNav ? 'mobile-content-with-nav' : ''}`}>
+          <OfflineBanner />
+          <PwaUpdateBanner />
+          <PwaInstallBanner />
           <Outlet />
         </div>
       </main>
 
-      <ChatWidget />
+      <ChatWidget isMobile={isMobile} hasMobileNavigation={hasMobileBottomNav} />
     </div>
   )
 }

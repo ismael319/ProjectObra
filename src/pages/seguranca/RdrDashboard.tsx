@@ -10,9 +10,11 @@ import {
   AreaChart, Area, Line,
 } from "recharts";
 import { useAuth } from "@/lib/auth-context";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { useRdrRecords, useRdrConfig, useSalvarRdrConfig } from "@/lib/rdr/rdr-db";
 import { ehDesvio, formatarData, type RdrRecord } from "@/lib/rdr/mappers";
 import { gerarPdfDashboard, exportarExcelRdr, type DashboardDados } from "@/lib/rdr/exports";
+import { nomeAmigavel } from "@/lib/rdr/nomes";
 import { CATEGORIAS, MESES_PT, MESES_PT_SHORT } from "@/lib/rdr/constants";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,6 +60,10 @@ function mesKeyAnterior(): string {
   return new Date(d.getFullYear(), d.getMonth() - 1, 1).toLocaleDateString("en-CA").slice(0, 7);
 }
 
+function truncarLabel(valor: string, limite: number): string {
+  return valor.length > limite ? `${valor.slice(0, limite - 1)}…` : valor;
+}
+
 function aplicarStatus(lista: RdrRecord[], filtro: FiltroStatus): RdrRecord[] {
   switch (filtro) {
     case "concluidos":
@@ -89,6 +95,7 @@ export default function RdrDashboard() {
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const navigate = useNavigate();
+  const isMobile = useMediaQuery("(max-width: 639px)");
 
   const [anoFiltro, setAnoFiltro] = useState<string | null>(null);
   const [mesFiltro, setMesFiltro] = useState<string | null>(null);
@@ -123,7 +130,7 @@ export default function RdrDashboard() {
       const nome = (r.responsavel_registro ?? r.autor_nome ?? "").trim();
       if (nome) set.add(nome);
     }
-    return [...set].sort((a, b) => a.localeCompare(b, "pt-BR"));
+    return [...set].sort((a, b) => nomeAmigavel(a).localeCompare(nomeAmigavel(b), "pt-BR"));
   }, [registros]);
 
   const base = useMemo(() => {
@@ -266,8 +273,66 @@ export default function RdrDashboard() {
       const nome = r.autor_nome || "—";
       map.set(nome, (map.get(nome) ?? 0) + 1);
     }
-    return [...map.entries()].map(([nome, total]) => ({ nome, total })).sort((a, b) => b.total - a.total);
+    return [...map.entries()].map(([nome, total]) => ({ nome: nomeAmigavel(nome) || "—", total })).sort((a, b) => b.total - a.total);
   }, [dadosFiltrados]);
+
+  const porTecnicoDetalhado = useMemo(() => {
+    const map = new Map<string, { concluidos: number; pendentes: number }>();
+    for (const r of dadosFiltrados) {
+      const nome = r.autor_nome || "—";
+      const item = map.get(nome) ?? { concluidos: 0, pendentes: 0 };
+      if (r.concluido === "SIM") item.concluidos += 1;
+      else item.pendentes += 1;
+      map.set(nome, item);
+    }
+    return [...map.entries()]
+      .map(([nome, v]) => ({
+        nome: nomeAmigavel(nome),
+        total: v.concluidos + v.pendentes,
+        concluidos: v.concluidos,
+        pendentes: v.pendentes,
+        txFechamento: v.concluidos + v.pendentes > 0 ? Math.round((v.concluidos / (v.concluidos + v.pendentes)) * 100) : 0,
+      }))
+      .sort((a, b) => b.total - a.total);
+  }, [dadosFiltrados]);
+
+  const reincidenciaIndice = useMemo(() => {
+    const agora = new Date();
+    const janela = new Set<string>();
+    for (let i = 5; i >= 0; i--) {
+      janela.add(new Date(agora.getFullYear(), agora.getMonth() - i, 1).toLocaleDateString("en-CA").slice(0, 7));
+    }
+    let totalDesvios = 0;
+    let totalRecorrentes = 0;
+    const contagem = new Map<string, { total: number; meses: Set<string> }>();
+    for (const r of aplicarStatus(base, filtroStatus)) {
+      const k = r.data_ocorrido?.slice(0, 7);
+      if (!k || !janela.has(k)) continue;
+      if (!ehDesvio(r.categorias ?? [])) continue;
+      totalDesvios += 1;
+      for (const c of r.categorias ?? []) {
+        if (c === "Reconhecimento") continue;
+        const item = contagem.get(c) ?? { total: 0, meses: new Set<string>() };
+        item.total += 1;
+        item.meses.add(k);
+        contagem.set(c, item);
+      }
+    }
+    for (const item of contagem.values()) {
+      if (item.meses.size >= 2) totalRecorrentes += item.total;
+    }
+    const pct = totalDesvios > 0 ? Math.round((totalRecorrentes / totalDesvios) * 100) : 0;
+    return { pct, totalDesvios, totalRecorrentes, categoriasRecorrentes: [...contagem.values()].filter((i) => i.meses.size >= 2).length };
+  }, [base, filtroStatus]);
+
+  const taxaDesvios = useMemo(() => {
+    const total = stats.total;
+    const desvios = stats.desvios;
+    const pct = total > 0 ? Math.round((desvios / total) * 100) : 0;
+    const atualDesvios = contagensMes.atual.desvios;
+    const anteriorDesvios = contagensMes.anterior.desvios;
+    return { pct, desvios, total, atualDesvios, anteriorDesvios };
+  }, [stats, contagensMes]);
 
   const porCategoria = useMemo(() => {
     const map = new Map<string, number>();
@@ -297,8 +362,18 @@ export default function RdrDashboard() {
       if (r.prazo && r.prazo < hojeKey) item.vencidos += 1;
       map.set(nome, item);
     }
-    return [...map.entries()].map(([nome, v]) => ({ nome, ...v })).sort((a, b) => b.pendentes - a.pendentes).slice(0, 8);
+    return [...map.entries()]
+      .map(([nome, v]) => ({ nome: nomeAmigavel(nome) || "—", ...v }))
+      .sort((a, b) => b.pendentes - a.pendentes)
+      .slice(0, 8);
   }, [dadosFiltrados, hojeKey]);
+
+  const categoriasNoGrafico = isMobile ? porCategoria.slice(0, 5) : porCategoria;
+  const tecnicosNoGrafico = isMobile ? porTecnicoDetalhado.slice(0, 5) : porTecnicoDetalhado;
+  const locaisNoGrafico = isMobile ? porLocal.slice(0, 5) : porLocal;
+  const pendenciasNoGrafico = isMobile ? pendPorResp.slice(0, 5) : pendPorResp;
+  const alturaGraficoBarras = isMobile ? 230 : 300;
+  const alturaGraficoTemporal = isMobile ? 220 : 260;
 
   const vencidos = useMemo(() => {
     const hoje = new Date().toLocaleDateString("en-CA");
@@ -312,6 +387,13 @@ export default function RdrDashboard() {
     return { total: lista.length, maisUrgente: lista[0] };
   }, [filtrados]);
 
+  const statusGeral = useMemo(() => {
+    const gravidade = vencidos.total > 0 ? 2 : 0;
+    if (reincidenciaIndice.pct >= 60) return Math.max(gravidade, 2);
+    if (reincidenciaIndice.pct >= 40) return Math.max(gravidade, 1);
+    return gravidade;
+  }, [vencidos.total, reincidenciaIndice.pct]);
+
   const ultimos = useMemo(() => filtrados.slice(0, 6), [filtrados]);
 
   const dadosExport: DashboardDados = useMemo(
@@ -324,12 +406,16 @@ export default function RdrDashboard() {
       txConclusaoNoPrazo: kpiPrazo.tx,
       prazoMedioDias: kpiPrazo.prazoMedio,
       metaMensal,
+      taxaDesvios: taxaDesvios.pct,
+      reincidenciaPct: reincidenciaIndice.pct,
+      reincidenciaRegistros: reincidenciaIndice.totalRecorrentes,
+      reincidenciaTotalDesvios: reincidenciaIndice.totalDesvios,
       porTecnico: Object.fromEntries(porTecnico.map((p) => [p.nome, p.total])),
       porCategoria: Object.fromEntries(porCategoria.map((p) => [p.nome, p.total])),
       porLocal: Object.fromEntries(porLocal.map((p) => [p.nome, p.total])),
       pendentesPorResponsavel: Object.fromEntries(pendPorResp.map((p) => [p.nome, p.pendentes])),
     }),
-    [dadosFiltrados, stats, kpiPrazo, metaMensal, porTecnico, porCategoria, porLocal, pendPorResp],
+    [dadosFiltrados, stats, kpiPrazo, metaMensal, taxaDesvios, reincidenciaIndice, porTecnico, porCategoria, porLocal, pendPorResp],
   );
 
   const irParaRegistros = (state: Record<string, string | boolean>) =>
@@ -374,14 +460,14 @@ export default function RdrDashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Dashboard RDR</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold sm:text-2xl">Dashboard RDR</h1>
           <p className="text-sm text-muted-foreground">
             Visão geral dos RDRs cadastrados — {stats.total} de {registros.length} registro(s).
           </p>
         </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="w-full sm:w-36 space-y-1.5">
+        <div className="grid w-full grid-cols-2 items-end gap-2 sm:flex sm:w-auto sm:flex-wrap sm:gap-3">
+          <div className="min-w-0 space-y-1.5 sm:w-36">
             <Label className="text-xs text-muted-foreground">Ano</Label>
             <Combobox
               options={anos.map((a) => ({ value: a, label: a }))}
@@ -390,7 +476,7 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-full sm:w-32 space-y-1.5">
+          <div className="min-w-0 space-y-1.5 sm:w-32">
             <Label className="text-xs text-muted-foreground">Mês</Label>
             <Combobox
               options={MESES_PT.map((m, i) => ({ value: String(i + 1), label: m }))}
@@ -399,16 +485,16 @@ export default function RdrDashboard() {
               placeholder="Todos"
             />
           </div>
-          <div className="w-full sm:w-44 space-y-1.5">
+          <div className="min-w-0 space-y-1.5 sm:w-44">
             <Label className="text-xs text-muted-foreground">Responsável</Label>
             <Combobox
-              options={responsaveis.map((r) => ({ value: r, label: r }))}
+              options={responsaveis.map((r) => ({ value: r, label: nomeAmigavel(r) }))}
               value={responsavelFiltro}
               onChange={setResponsavelFiltro}
               placeholder="Todos"
             />
           </div>
-          <div className="w-full sm:w-40 space-y-1.5">
+          <div className="min-w-0 space-y-1.5 sm:w-40">
             <Label className="text-xs text-muted-foreground">Categoria</Label>
             <Combobox
               options={CATEGORIAS.map((c) => ({ value: c, label: c }))}
@@ -417,11 +503,11 @@ export default function RdrDashboard() {
               placeholder="Todas"
             />
           </div>
-          <Button variant="outline" size="sm" onClick={handleExportPdf} disabled={exportandoPdf}>
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={handleExportPdf} disabled={exportandoPdf}>
             {exportandoPdf ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <FileText className="mr-1 h-4 w-4" />}
             PDF
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExportExcel}>
+          <Button variant="outline" size="sm" className="w-full sm:w-auto" onClick={handleExportExcel}>
             <FileSpreadsheet className="mr-1 h-4 w-4" />
             Excel
           </Button>
@@ -437,7 +523,7 @@ export default function RdrDashboard() {
       </div>
 
       <Card className={vencidos.total > 0 ? "border-red-500/60 bg-red-500/5" : undefined}>
-        <CardContent className="flex flex-col gap-3 pt-6 sm:flex-row sm:items-center sm:justify-between">
+        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex items-start gap-3">
             {vencidos.total > 0 ? (
               <AlertTriangle className="h-8 w-8 shrink-0 text-red-600" />
@@ -467,110 +553,176 @@ export default function RdrDashboard() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-1.5 text-base">
+            {statusGeral === 0 ? (
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            ) : statusGeral === 1 ? (
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 text-red-600" />
+            )}
+            Resumo Executivo
+          </CardTitle>
+          <p className="text-xs text-muted-foreground">
+            {statusGeral === 0
+              ? "Situação da segurança sob controle — sem prazos vencidos e sem reincidência alta."
+              : statusGeral === 1
+                ? "Atenção: reincidência de desvios merece acompanhamento."
+                : "Crítico: prazos vencidos e/ou alta reincidência de desvios."}
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <div className="text-sm text-muted-foreground">Desvios no mês vs meta</div>
+            <div className="mt-1 text-3xl font-bold text-red-600">
+              {metaMensal > 0 ? `${contagensMes.atual.desvios}/${metaMensal}` : contagensMes.atual.desvios}
+            </div>
+            {metaMensal > 0 && (
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded bg-muted">
+                <div
+                  className="h-full rounded bg-red-500"
+                  style={{ width: `${Math.min(100, Math.round((contagensMes.atual.desvios / metaMensal) * 100))}%` }}
+                />
+              </div>
+            )}
+            <p className="mt-1 text-xs text-muted-foreground">{metaMensal > 0 ? "meta de desvios mensal" : "desvios registrados"}</p>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">Taxa de conclusão geral</div>
+            <div className="mt-1 text-3xl font-bold text-green-600">{stats.tx}%</div>
+            <p className="mt-1 text-xs text-muted-foreground">{stats.concluidos} de {stats.total} concluídos</p>
+          </div>
+          <div>
+            <div className="text-sm text-muted-foreground">Índice de reincidência</div>
+            <div className={`mt-1 text-3xl font-bold ${reincidenciaIndice.pct >= 60 ? "text-red-600" : reincidenciaIndice.pct >= 40 ? "text-amber-500" : "text-green-600"}`}>
+              {reincidenciaIndice.totalDesvios > 0 ? `${reincidenciaIndice.pct}%` : "—"}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {reincidenciaIndice.totalDesvios > 0
+                ? `${reincidenciaIndice.totalRecorrentes} de ${reincidenciaIndice.totalDesvios} registros de categorias recorrentes`
+                : "sem desvios no período"}
+            </p>
+          </div>
+          <div className="flex flex-col gap-2 justify-end sm:flex-row lg:flex-col lg:items-start">
+            <Button size="sm" variant="outline" onClick={() => irParaRegistros({})}>
+              <ArrowRight className="mr-1 h-4 w-4" /> Ver registros
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => navigate("/dashboard/seguranca/novo")}>
+              <FileText className="mr-1 h-4 w-4" /> Novo RDR
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
         <Card>
-          <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground">Taxa de conclusão</div>
-            <div className="mt-1 text-3xl font-bold text-amber-500">{stats.tx}%</div>
+          <CardContent className="p-3 sm:p-6">
+            <div className="text-xs text-muted-foreground sm:text-sm">Taxa de desvios</div>
+            <div className="mt-1 text-2xl font-bold text-red-600 sm:text-3xl">{taxaDesvios.pct}%</div>
+            <div className="mt-1">
+              <DeltaChip inverso atual={taxaDesvios.atualDesvios} anterior={taxaDesvios.anteriorDesvios} />
+            </div>
           </CardContent>
         </Card>
-        <button className="text-left" onClick={() => irParaRegistros({})}>
+        <button className="min-w-0 text-left" onClick={() => irParaRegistros({})}>
           <Card className="h-full cursor-pointer transition-shadow hover:border-primary/50 hover:shadow-md">
-            <CardHeader>
+            <CardHeader className="p-3 pb-1 sm:p-6">
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">Total RDRs</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold">{stats.total}</div>
+            <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+              <div className="text-2xl font-bold sm:text-3xl">{stats.total}</div>
               <div className="mt-1">
                 <DeltaChip atual={contagensMes.atual.total} anterior={contagensMes.anterior.total} />
               </div>
             </CardContent>
           </Card>
         </button>
-        <button className="text-left" onClick={() => irParaRegistros({ mes: mesKeyAtual() })}>
+        <button className="min-w-0 text-left" onClick={() => irParaRegistros({ mes: mesKeyAtual() })}>
           <Card className="h-full cursor-pointer transition-shadow hover:border-primary/50 hover:shadow-md">
-            <CardHeader>
+            <CardHeader className="p-3 pb-1 sm:p-6">
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
                 Este mês <CalendarClock size={13} />
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-blue-600">{stats.doMes}</div>
+            <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+              <div className="text-2xl font-bold text-blue-600 sm:text-3xl">{stats.doMes}</div>
               <div className="mt-1">
                 <DeltaChip atual={contagensMes.atual.total} anterior={contagensMes.anterior.total} />
               </div>
             </CardContent>
           </Card>
         </button>
-        <button className="text-left" onClick={() => irParaRegistros({ status: "finalizado" })}>
+        <button className="min-w-0 text-left" onClick={() => irParaRegistros({ status: "finalizado" })}>
           <Card className="h-full cursor-pointer transition-shadow hover:border-primary/50 hover:shadow-md">
-            <CardHeader>
+            <CardHeader className="p-3 pb-1 sm:p-6">
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">Concluídos</CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-green-600">{stats.concluidos}</div>
+            <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+              <div className="text-2xl font-bold text-green-600 sm:text-3xl">{stats.concluidos}</div>
               <div className="mt-1">
                 <DeltaChip atual={contagensMes.atual.concluidos} anterior={contagensMes.anterior.concluidos} />
               </div>
             </CardContent>
           </Card>
         </button>
-        <button className="text-left" onClick={() => irParaRegistros({ status: "aberto" })}>
+        <button className="min-w-0 text-left" onClick={() => irParaRegistros({ status: "aberto" })}>
           <Card className="h-full cursor-pointer transition-shadow hover:border-primary/50 hover:shadow-md">
-            <CardHeader>
+            <CardHeader className="p-3 pb-1 sm:p-6">
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
                 Pendentes <ListFilter size={13} />
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="text-3xl font-bold text-red-600">{stats.pendentes}</div>
+            <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+              <div className="text-2xl font-bold text-red-600 sm:text-3xl">{stats.pendentes}</div>
               <div className="mt-1">
                 <DeltaChip inverso atual={contagensMes.atual.pendentes} anterior={contagensMes.anterior.pendentes} />
               </div>
             </CardContent>
           </Card>
         </button>
-        <button className="text-left" onClick={() => irParaRegistros({ categoria: "Reconhecimento" })}>
+        <button className="min-w-0 text-left" onClick={() => irParaRegistros({ categoria: "Reconhecimento" })}>
           <Card className="h-full cursor-pointer transition-shadow hover:border-primary/50 hover:shadow-md">
-            <CardHeader>
+            <CardHeader className="p-3 pb-1 sm:p-6">
               <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">Reconhecimentos</CardTitle>
             </CardHeader>
-            <CardContent className="text-3xl font-bold text-emerald-600">{stats.reconhecimentos}</CardContent>
+            <CardContent className="p-3 pt-1 text-2xl font-bold text-emerald-600 sm:p-6 sm:pt-0 sm:text-3xl">{stats.reconhecimentos}</CardContent>
           </Card>
         </button>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
         <Card>
-          <CardHeader>
+          <CardHeader className="p-3 pb-1 sm:p-6">
             <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
               Conclusão no prazo <CheckCircle2 size={13} />
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-green-600">{kpiPrazo.tx}%</div>
+          <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+            <div className="text-2xl font-bold text-green-600 sm:text-3xl">{kpiPrazo.tx}%</div>
             <p className="text-xs text-muted-foreground">{kpiPrazo.noPrazo} de {kpiPrazo.concluidos} concluídos</p>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
+          <CardHeader className="p-3 pb-1 sm:p-6">
             <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
               Prazo médio de atendimento <Clock size={13} />
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-blue-600">{kpiPrazo.prazoMedio} dia(s)</div>
+          <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+            <div className="text-2xl font-bold text-blue-600 sm:text-3xl">{kpiPrazo.prazoMedio} dia(s)</div>
             <p className="text-xs text-muted-foreground">da ocorrência à conclusão</p>
           </CardContent>
         </Card>
-        <Card>
-          <CardHeader>
+        <Card className="col-span-2 sm:col-span-1">
+          <CardHeader className="p-3 pb-1 sm:p-6">
             <CardTitle className="flex items-center gap-1 text-sm text-muted-foreground">
               Meta mensal <Target size={13} />
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-3xl font-bold text-orange-600">
+          <CardContent className="p-3 pt-1 sm:p-6 sm:pt-0">
+            <div className="text-2xl font-bold text-orange-600 sm:text-3xl">
               {metaMensal > 0 ? `${contagensMes.atual.desvios}/${metaMensal}` : "—"}
             </div>
             {metaMensal > 0 && (
@@ -590,14 +742,14 @@ export default function RdrDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Desvios por Categoria</CardTitle>
-            <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+            <p className="text-xs text-muted-foreground">{isMobile && porCategoria.length > 5 ? "Top 5 no celular · " : ""}toque numa barra para filtrar</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porCategoria} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={categoriasNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
                 <Tooltip />
                 <Bar
                   dataKey="total"
@@ -608,7 +760,7 @@ export default function RdrDashboard() {
                     d.payload?.nome && irParaRegistros({ categoria: d.payload.nome })
                   }
                 >
-                  {porCategoria.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {categoriasNoGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -621,28 +773,55 @@ export default function RdrDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">RDR por Responsável (TST)</CardTitle>
-            <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+            <p className="text-xs text-muted-foreground">{isMobile && porTecnicoDetalhado.length > 5 ? "Top 5 no celular · " : ""}concluídos (verde) e pendentes (vermelho) por responsável</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porTecnico} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={tecnicosNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
-                <Tooltip />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
+                <Tooltip
+                  content={({ active, payload }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = payload[0].payload as { nome: string; total: number; concluidos: number; pendentes: number; txFechamento: number } | undefined;
+                    if (!d) return null;
+                    return (
+                      <div className="rounded-lg border bg-background px-3 py-2 text-xs shadow-sm">
+                        <p className="font-medium">{d.nome}</p>
+                        <p>Total: {d.total}</p>
+                        <p className="text-green-600">Concluídos: {d.concluidos}</p>
+                        <p className="text-red-600">Pendentes: {d.pendentes}</p>
+                        <p className="font-medium">Fechamento: {d.txFechamento}%</p>
+                      </div>
+                    );
+                  }}
+                />
                 <Bar
-                  dataKey="total"
-                  name="Registros"
-                  fill="#2563eb"
+                  dataKey="concluidos"
+                  name="Concluídos"
+                  stackId="tst"
+                  fill="#16a34a"
+                  radius={[0, 0, 0, 0]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { nome?: string } }) =>
+                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome, status: "finalizado" })
+                  }
+                />
+                <Bar
+                  dataKey="pendentes"
+                  name="Pendentes"
+                  stackId="tst"
+                  fill="#ef4444"
                   radius={[0, 4, 4, 0]}
                   cursor="pointer"
                   onClick={(d: { payload?: { nome?: string } }) =>
-                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome })
+                    d.payload?.nome && irParaRegistros({ busca: d.payload.nome, status: "aberto" })
                   }
                 />
               </BarChart>
             </ResponsiveContainer>
-            {porTecnico.length === 0 && (
+            {porTecnicoDetalhado.length === 0 && (
               <p className="text-center text-sm text-muted-foreground py-8">Sem dados</p>
             )}
           </CardContent>
@@ -653,14 +832,14 @@ export default function RdrDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Top locais</CardTitle>
-            <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
+            <p className="text-xs text-muted-foreground">{isMobile && porLocal.length > 5 ? "Top 5 no celular · " : ""}toque numa barra para filtrar</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porLocal} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={locaisNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
                 <Tooltip />
                 <Bar
                   dataKey="total"
@@ -671,7 +850,7 @@ export default function RdrDashboard() {
                     d.payload?.nome && irParaRegistros({ busca: d.payload.nome })
                   }
                 >
-                  {porLocal.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {locaisNoGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -684,14 +863,14 @@ export default function RdrDashboard() {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Pendências por responsável</CardTitle>
-            <p className="text-xs text-muted-foreground">toque numa barra para abrir os registros abertos</p>
+            <p className="text-xs text-muted-foreground">{isMobile && pendPorResp.length > 5 ? "Top 5 no celular · " : ""}toque numa barra para abrir os registros abertos</p>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={pendPorResp} layout="vertical" margin={{ left: 24 }}>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={pendenciasNoGrafico} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={130} tick={{ fontSize: 12 }} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
                 <Tooltip />
                 <Bar
                   dataKey="pendentes"
@@ -725,12 +904,12 @@ export default function RdrDashboard() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 gap-3">
-          <div>
+        <CardHeader className="flex flex-col items-start justify-between gap-3 space-y-0 sm:flex-row sm:items-center">
+          <div className="min-w-0">
             <CardTitle className="text-base">Desvios vs Reconhecimentos (últimos 6 meses)</CardTitle>
             <p className="text-xs text-muted-foreground">toque numa barra para filtrar</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto">
             <Label className="text-xs text-muted-foreground">Meta/mês</Label>
             <Input
               type="number"
@@ -739,16 +918,16 @@ export default function RdrDashboard() {
               onChange={(e) => setMetaInput(e.target.value)}
               onBlur={() => void handleMetaSave()}
               placeholder="0"
-              className="w-20"
+              className="ml-auto w-20 sm:ml-0"
             />
           </div>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={porMesTipo}>
+          <ResponsiveContainer width="100%" height={alturaGraficoTemporal}>
+            <BarChart data={porMesTipo} margin={isMobile ? { left: -12, right: 4 } : undefined}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-              <YAxis allowDecimals={false} />
+              <XAxis dataKey="mes" tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? valor.slice(0, 3) : valor} />
+              <YAxis allowDecimals={false} width={isMobile ? 30 : undefined} />
               <Tooltip />
               <Bar
                 dataKey="desvios"
@@ -796,8 +975,8 @@ export default function RdrDashboard() {
           <p className="text-xs text-muted-foreground">acumulado no ano de desvios e reconhecimentos</p>
         </CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={260}>
-            <AreaChart data={acumulado}>
+          <ResponsiveContainer width="100%" height={alturaGraficoTemporal}>
+            <AreaChart data={acumulado} margin={isMobile ? { left: -12, right: 4 } : undefined}>
               <defs>
                 <linearGradient id="gDesvios" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#ef4444" stopOpacity={0.35} />
@@ -809,8 +988,8 @@ export default function RdrDashboard() {
                 </linearGradient>
               </defs>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-              <YAxis allowDecimals={false} />
+              <XAxis dataKey="mes" tick={{ fontSize: isMobile ? 10 : 12 }} interval={isMobile ? 1 : undefined} />
+              <YAxis allowDecimals={false} width={isMobile ? 30 : undefined} />
               <Tooltip />
               <Area type="monotone" dataKey="desvios" name="Desvios acum." stackId="1" stroke="#ef4444" fill="url(#gDesvios)" />
               <Area type="monotone" dataKey="reconhecimentos" name="Reconhecimentos acum." stackId="1" stroke="#16a34a" fill="url(#gRecon)" />
@@ -898,7 +1077,7 @@ export default function RdrDashboard() {
                   <TableRow key={r.id}>
                     <TableCell className="whitespace-nowrap">{formatarData(r.data_ocorrido)}</TableCell>
                     <TableCell className="whitespace-nowrap">{r.local || "—"}</TableCell>
-                    <TableCell className="whitespace-nowrap">{r.autor_nome || "—"}</TableCell>
+                    <TableCell className="whitespace-nowrap">{nomeAmigavel(r.autor_nome) || "—"}</TableCell>
                     <TableCell>
                       <div className="flex max-w-52 flex-wrap gap-1">
                         {(r.categorias ?? []).map((c) => (

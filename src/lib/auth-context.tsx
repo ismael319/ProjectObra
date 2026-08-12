@@ -44,7 +44,7 @@ interface AuthContextType {
   perfilCompleto: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
-  signUp: (email: string, password: string) => Promise<{ error?: string }>
+  signUp: (email: string, password: string, nome?: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
@@ -208,8 +208,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message }
   }
 
-  const signUp = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({ email, password })
+  const signUp = async (email: string, password: string, nome?: string) => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: nome?.trim() ? { data: { nome: nome.trim() } } : undefined,
+    })
     return { error: error?.message }
   }
 

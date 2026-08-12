@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { Download, FileText, Loader2 } from "lucide-react";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, LabelList,
@@ -69,13 +70,13 @@ function quebrarNomeArea(nome: string): string[] {
 // Tick customizado (em vez de angle+textAnchor do XAxis): texto horizontal,
 // centralizado sob a barra, uma <tspan> por linha — permite quebra de linha,
 // que o XAxis nativo do recharts não suporta.
-function AreaAxisTick({ x, y, payload }: { x: number; y: number; payload: { value: string } }) {
+function AreaAxisTick({ x, y, payload, compact = false }: { x: number; y: number; payload: { value: string }; compact?: boolean }) {
   const linhas = quebrarNomeArea(payload.value);
   return (
     <g transform={`translate(${x},${y})`}>
-      <text textAnchor="middle" fontSize={12} className="fill-muted-foreground">
+      <text textAnchor="middle" fontSize={compact ? 9 : 12} className="fill-muted-foreground">
         {linhas.map((linha, i) => (
-          <tspan key={i} x={0} dy={14}>{linha}</tspan>
+          <tspan key={i} x={0} dy={compact ? 10 : 14}>{linha}</tspan>
         ))}
       </text>
     </g>
@@ -129,6 +130,7 @@ async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId:
 }
 
 export default function ConcretoDashboard() {
+  const isMobile = useMediaQuery("(max-width: 639px)");
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const [anoFiltro, setAnoFiltro] = useState<string | null>(null);
@@ -276,6 +278,18 @@ export default function ConcretoDashboard() {
     return resto > 0.001 ? [...top, { nome: "Outros", total: resto }] : top;
   }, [destinos, idsCargasFiltradas, cargasFiltradas, areaNomePorId]);
 
+  const porUsinaGrafico = useMemo(() => {
+    if (!isMobile || porUsina.length <= 5) return porUsina;
+    const outros = porUsina.slice(5).reduce((total, item) => total + item.total, 0);
+    return [...porUsina.slice(0, 5), { nome: "Outros", total: outros }];
+  }, [isMobile, porUsina]);
+  const porAreaGrafico = useMemo(() => {
+    if (!isMobile || porArea.length <= 5) return porArea;
+    const outros = porArea.slice(5).reduce((total, item) => total + item.total, 0);
+    return [...porArea.slice(0, 5), { nome: "Outros", total: outros }];
+  }, [isMobile, porArea]);
+  const intervaloMeses = isMobile ? Math.max(0, Math.ceil(porMes.length / 5) - 1) : 1;
+
   const volumeTotal = cargasFiltradas.reduce((s, c) => s + m3(c.quantidade_m3), 0);
 
   async function handleExportar(tipo: "imagem" | "pdf") {
@@ -364,15 +378,15 @@ export default function ConcretoDashboard() {
         <Card className="flex-[2] min-w-full sm:min-w-[280px]">
           <CardHeader><CardTitle className="text-base">Volume de concreto/mês (m³)</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porMes} margin={{ top: 24, right: 24, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
+              <BarChart data={porMes} margin={isMobile ? { top: 8, right: 8, left: -24, bottom: 0 } : { top: 24, right: 24, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
                 {/* interval=1: mostra 1, pula 1 — um rótulo a cada 2 meses */}
-                <XAxis dataKey="anoMes" tick={{ fontSize: 13 }} interval={1} />
-                <YAxis tick={{ fontSize: 13 }} />
+                <XAxis dataKey="anoMes" tick={{ fontSize: isMobile ? 9 : 13 }} interval={intervaloMeses} />
+                <YAxis tick={{ fontSize: isMobile ? 9 : 13 }} tickCount={isMobile ? 4 : 5} />
                 <Tooltip />
                 <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                  <LabelList dataKey="total" position="top" fontSize={13} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                  {!isMobile && <LabelList dataKey="total" position="top" fontSize={13} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -380,16 +394,16 @@ export default function ConcretoDashboard() {
         </Card>
 
         <Card className="flex-1 min-w-full sm:min-w-[240px]">
-          <CardHeader><CardTitle className="text-base">Volume de concreto / Usina (m³)</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Volume de concreto / Usina (m³){isMobile && porUsina.length > 5 ? " — Top 5" : ""}</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <PieChart>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <Pie data={porUsina} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={90} label={(entry: any) => `${(entry.percent * 100).toFixed(1)}%`}>
-                  {porUsina.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <Pie data={porUsinaGrafico} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={isMobile ? 64 : 90} label={isMobile ? false : (entry: any) => `${(entry.percent * 100).toFixed(1)}%`}>
+                  {porUsinaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
-                <Legend wrapperStyle={{ fontSize: 14 }} />
+                <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 14 }} iconSize={isMobile ? 8 : 14} />
               </PieChart>
             </ResponsiveContainer>
           </CardContent>
@@ -398,20 +412,20 @@ export default function ConcretoDashboard() {
         <Card className="flex-1 min-w-full sm:min-w-[240px]">
           <CardHeader><CardTitle className="text-base">Volume total (m³)</CardTitle></CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={porAno} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
+              <BarChart data={porAno} margin={isMobile ? { top: 8, right: 4, left: -24, bottom: 0 } : { top: 24, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="nome" tick={{ fontSize: 13 }} />
-                <YAxis tick={{ fontSize: 13 }} />
+                <XAxis dataKey="nome" tick={{ fontSize: isMobile ? 9 : 13 }} />
+                <YAxis tick={{ fontSize: isMobile ? 9 : 13 }} tickCount={isMobile ? 4 : 5} />
                 <Tooltip />
-                <Legend wrapperStyle={{ fontSize: 14 }} />
+                <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 14 }} iconSize={isMobile ? 8 : 14} />
                 {anos.map((ano, i) => (
                   <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]}>
                     {/* center, não top: num segmento empilhado "top" cai bem em
                         cima da linha de divisão com o próximo segmento, ilegível
                         contra qualquer uma das duas cores — centralizado no meio
                         do próprio segmento, com texto branco, sempre lê bem. */}
-                    <LabelList dataKey={ano} position="center" fontSize={14} fill="#fff" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                    <LabelList dataKey={ano} position="center" fontSize={isMobile ? 10 : 14} fill="#fff" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                   </Bar>
                 ))}
               </BarChart>
@@ -421,18 +435,18 @@ export default function ConcretoDashboard() {
       </div>
 
       <Card>
-        <CardHeader><CardTitle className="text-base">Concreto / Área (m³)</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base">Concreto / Área (m³){isMobile && porArea.length > 5 ? " — Top 5" : ""}</CardTitle></CardHeader>
         <CardContent>
-          <ResponsiveContainer width="100%" height={420}>
-            <BarChart data={porArea} margin={{ top: 24, right: 8, left: 8, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={isMobile ? 260 : 420}>
+            <BarChart data={porAreaGrafico} margin={isMobile ? { top: 12, right: 4, left: -24, bottom: 0 } : { top: 24, right: 8, left: 8, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-              <XAxis dataKey="nome" interval={0} height={64} tick={AreaAxisTick as any} />
-              <YAxis tick={{ fontSize: 13 }} />
+              <XAxis dataKey="nome" interval={0} height={isMobile ? 42 : 64} tick={isMobile ? ((props: any) => <AreaAxisTick {...props} compact />) : AreaAxisTick as any} />
+              <YAxis tick={{ fontSize: isMobile ? 9 : 13 }} tickCount={isMobile ? 4 : 5} />
               <Tooltip />
               <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="total" position="top" fontSize={14} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
-                {porArea.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                <LabelList dataKey="total" position="top" fontSize={isMobile ? 9 : 14} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+                {porAreaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>
           </ResponsiveContainer>

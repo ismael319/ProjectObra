@@ -284,13 +284,13 @@ export default function CronogramaManager() {
                             style={{ width: updateProgress[c.id].stage === 'reading' ? `${updateProgress[c.id].pct}%` : '100%' }}
                           />
                         </div>
-                        <span className="text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
+                        <span className="shrink-0 text-xs text-gray-400 dark:text-gray-500">
                           {updateProgress[c.id].stage === 'reading' ? `Lendo... ${updateProgress[c.id].pct}%` : 'Processando...'}
                         </span>
                       </div>
                     )}
                     {!updateProgress[c.id] && isPending && (
-                      <p className="mt-1 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                      <p className="mt-1 text-xs font-medium text-amber-600 dark:text-amber-400">
                         Alterações não salvas — clique em "Salvar alterações" no topo
                       </p>
                     )}
