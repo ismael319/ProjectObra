@@ -60,7 +60,7 @@ export async function downloadRelatorioDiaPdf(params: {
     doc.setFontSize(8);
     const aderencia = relatorio.aderenciaPct != null ? `${relatorio.aderenciaPct}%` : "—";
     doc.text(
-      `${relatorio.concluidas} concluídas   ${relatorio.naoConcluidas} não concluídas   Aderência: ${aderencia} (${relatorio.concluidas}/${relatorio.totalAtividades})`,
+      `${relatorio.concluidas} concluídas   ${relatorio.naoConcluidas} não concluídas   Aderência: ${aderencia} (${relatorio.concluidas}/${relatorio.totalPlanejadas})`,
       MARGIN + 8,
       MARGIN + 38,
     );

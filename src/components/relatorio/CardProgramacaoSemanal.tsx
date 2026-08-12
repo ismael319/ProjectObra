@@ -32,7 +32,10 @@ const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardPr
   { codigo, nomeProjeto, gestor, dataLabel, matriz, getDetalhe },
   ref,
 ) {
-  const { weekDays, engenheiros, concluidas, naoConcluidas, aderenciaPct, totalAtividades } = matriz
+  // A fração ao lado da Aderência usa totalPlanejadas (o denominador REAL do
+  // percentual). totalAtividades inclui extras, então "concluidas/totalAtividades"
+  // nunca explicava o número mostrado do lado.
+  const { weekDays, engenheiros, concluidas, naoConcluidas, aderenciaPct, totalPlanejadas } = matriz
 
   return (
     <div ref={ref} className="w-[1100px] p-6 space-y-4 font-sans" style={{ backgroundColor: COR.bg, color: COR.gray900 }}>
@@ -46,7 +49,7 @@ const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardPr
             label="Aderência"
             value={aderenciaPct != null ? `${aderenciaPct}%` : '—'}
             color={COR.navy}
-            detalhe={`${concluidas}/${totalAtividades}`}
+            detalhe={`${concluidas}/${totalPlanejadas}`}
           />
         </div>
       )}

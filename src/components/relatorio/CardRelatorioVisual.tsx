@@ -23,7 +23,7 @@ const CardRelatorioVisual = forwardRef<HTMLDivElement, Props>(function CardRelat
   { codigo, nomeProjeto, gestor, tipo, dataLabel, emitidoAs, relatorio },
   ref,
 ) {
-  const { areas, concluidas, naoConcluidas, aderenciaPct, totalAtividades } = relatorio
+  const { areas, concluidas, naoConcluidas, aderenciaPct, totalAtividades, totalPlanejadas } = relatorio
 
   return (
     <div ref={ref} className="w-[600px] p-6 space-y-4 font-sans" style={{ backgroundColor: COR.bg, color: COR.gray900 }}>
@@ -48,7 +48,7 @@ const CardRelatorioVisual = forwardRef<HTMLDivElement, Props>(function CardRelat
               label="Aderência"
               value={aderenciaPct != null ? `${aderenciaPct}%` : '—'}
               color={COR.navy}
-              detalhe={`${concluidas}/${totalAtividades}`}
+              detalhe={`${concluidas}/${totalPlanejadas}`}
             />
           </div>
 

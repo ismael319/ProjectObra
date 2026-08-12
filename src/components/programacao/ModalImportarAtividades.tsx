@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useEffect } from 'react'
 import { Loader2, Search, Clock, ChevronDown, ChevronRight, Download } from 'lucide-react'
 import { toast } from 'sonner'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -34,6 +34,9 @@ interface Props {
    * mesmo cadastro "Engenheiros por Área" — grava area_id na atividade importada. */
   areaIdPorArea: Map<string, string>
   onImported: () => void
+  /** Chaves de atividades já programadas (cronogramaId::taskUid) que devem
+   * aparecer pré-selecionadas quando o modal abrir. */
+  preSelectedKeys?: Set<string>
 }
 
 function rowKey(a: WeekActivity): string {
@@ -76,6 +79,7 @@ export default function ModalImportarAtividades({
   engenheirosPorArea,
   areaIdPorArea,
   onImported,
+  preSelectedKeys,
 }: Props) {
   const [expandedCronogramas, setExpandedCronogramas] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
@@ -85,6 +89,15 @@ export default function ModalImportarAtividades({
   const [selectedBLByCronograma, setSelectedBLByCronograma] = useState<Record<string, number>>({})
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
+
+  // Quando o modal abre com preSelectedKeys, inicializa a seleção
+  useEffect(() => {
+    if (open && preSelectedKeys && preSelectedKeys.size > 0) {
+      setSelected(new Set(preSelectedKeys))
+    } else if (open) {
+      setSelected(new Set())
+    }
+  }, [open, preSelectedKeys])
 
   const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources])
 

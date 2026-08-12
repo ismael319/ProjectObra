@@ -3,9 +3,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Save, ArrowRight, ArrowLeft, Plus, Minus, RotateCcw } from 'lucide-react'
-import { getWeekAnalysis, updateWeekAnalise, type WeekAnalysisItem } from '@/lib/programacao-db'
-import { computeWeekAnalysisSummary, type WeekAnalysisSummary } from '@/lib/adherence'
+import { Loader2, Save, ArrowRight, Plus, Minus, RotateCcw } from 'lucide-react'
+import { getWeekAnalysis, getWeekBaseline, updateWeekAnalise, type WeekAnalysisItem } from '@/lib/programacao-db'
+import { computeWeekAnalysisSummary, type ActivityLike, type WeekAnalysisSummary } from '@/lib/adherence'
 import { formatBR } from '@/lib/utils'
 
 interface Props {
@@ -15,6 +15,14 @@ interface Props {
   weekId: string
   weekLabel: string
   analiseAtual: string | null
+  /** Peso da atividade parcial (app_settings) — sem isto o resumo usava 0.5 fixo
+   * e divergia dos indicadores da semana. */
+  partialWeight?: number
+  /** Atividades ATUAIS da semana, como estão na tela. O resumo compara o plano
+   * comprometido (week_baseline) com estas — antes o componente remontava os dois
+   * lados a partir do retorno de get_week_analysis, perdendo inativa/fora do
+   * plano e usando o status congelado do baseline, que hoje é sempre "pendente". */
+  atividades: ActivityLike[]
   onSaved: () => void
 }
 
@@ -26,6 +34,8 @@ export default function ModalAnaliseSemana({
   weekLabel,
   analiseAtual,
   onSaved,
+  partialWeight = 0.5,
+  atividades,
 }: Props) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -38,40 +48,19 @@ export default function ModalAnaliseSemana({
     if (!open || !organizacaoId || !weekId) return
     setLoading(true)
     setError('')
-    getWeekAnalysis(organizacaoId, weekId)
-      .then((data) => {
-        setItens(data)
-        // Calcula resumo a partir dos dados
-        const baseline = data
-          .filter(i => !i.was_added_after_lock)
-          .map(i => ({
-            activity_id: i.activity_id,
-            name: i.activity_name,
-            planned_date: i.baseline_date ?? i.planned_date ?? '',
-            status: (i.baseline_status ?? 'pendente') as 'pendente' | 'concluida' | 'parcial' | 'nao_concluida',
-            is_extra: i.is_extra,
-          }))
-        const current = data
-          .filter(i => !i.was_removed_after_lock)
-          .map(i => ({
-            id: i.activity_id,
-            name: i.activity_name,
-            company: null,
-            discipline: null,
-            area: null,
-            stage: null,
-            foreman: null,
-            planned_date: i.planned_date ?? '',
-            planned_pct: 100,
-            status: (i.current_status === 'removida' ? 'pendente' : i.current_status) as 'pendente' | 'concluida' | 'parcial' | 'nao_concluida',
-            is_extra: i.is_extra,
-            observation: null,
-          }))
-        setResumo(computeWeekAnalysisSummary(baseline, current))
+    // As listas (reprogramados/extras/removidos) vêm do RPC; o RESUMO vem do
+    // baseline real cruzado com as atividades atuais da tela. Remontar os dois
+    // lados a partir do RPC descartava inativa/fora do plano e lia o status
+    // congelado do baseline — que, com o snapshot no início da semana, é sempre
+    // "pendente", o que zerava "Concluídos".
+    Promise.all([getWeekAnalysis(organizacaoId, weekId), getWeekBaseline(organizacaoId, weekId)])
+      .then(([analise, baseline]) => {
+        setItens(analise)
+        setResumo(computeWeekAnalysisSummary(baseline, atividades, partialWeight))
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [open, organizacaoId, weekId])
+  }, [open, organizacaoId, weekId, atividades, partialWeight])
 
   useEffect(() => {
     setAnalise(analiseAtual ?? '')
@@ -91,8 +80,11 @@ export default function ModalAnaliseSemana({
   }
 
   const reprogramados = itens.filter(i => i.was_reprogrammed)
-  const naoConcluidos = itens.filter(i => i.was_removed_after_lock || (i.baseline_status !== 'concluida' && i.baseline_status !== 'parcial' && !i.was_added_after_lock))
   const extrasAdicionados = itens.filter(i => i.was_added_after_lock)
+  // Havia aqui uma lista `naoConcluidos` que nunca era renderizada e ainda lia
+  // `baseline_status` — que hoje é sempre "pendente", já que o snapshot é do
+  // início da semana. Quem informa não concluídos é resumo.naoConcluidas, que
+  // olha o status atual.
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -136,19 +128,29 @@ export default function ModalAnaliseSemana({
 
             {/* Aderência */}
             {resumo && (
-              <div className="rounded-lg border p-3 flex items-center justify-between">
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Aderência do Cronograma:</span>{' '}
-                  <span className="font-semibold">{Math.round(resumo.aderenciaBaseline * 100)}%</span>
+              <div className="rounded-lg border p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Plano comprometido:</span>{' '}
+                    <span className="font-semibold">{Math.round(resumo.aderenciaBaseline * 100)}%</span>
+                  </div>
+                  <ArrowRight size={14} className="text-muted-foreground" />
+                  <div className="text-sm">
+                    <span className="text-muted-foreground">Aderência atual:</span>{' '}
+                    <span className="font-semibold">{Math.round(resumo.aderenciaAtual * 100)}%</span>
+                  </div>
+                  {/* Delta positivo é o sinal ruim aqui: significa que a conta
+                      "atual" ficou ACIMA do compromisso, ou seja, o conjunto foi
+                      alterado a favor do número. */}
+                  <Badge variant={resumo.delta > 0.05 ? 'destructive' : 'default'} className="ml-2">
+                    {resumo.delta >= 0 ? '+' : ''}{Math.round(resumo.delta * 100)}pp
+                  </Badge>
                 </div>
-                <ArrowRight size={14} className="text-muted-foreground" />
-                <div className="text-sm">
-                  <span className="text-muted-foreground">Aderência Atual:</span>{' '}
-                  <span className="font-semibold">{Math.round(resumo.aderenciaAtual * 100)}%</span>
-                </div>
-                <Badge variant={resumo.delta >= 0 ? 'default' : 'destructive'} className="ml-2">
-                  {resumo.delta >= 0 ? '+' : ''}{Math.round(resumo.delta * 100)}pp
-                </Badge>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {resumo.delta > 0.05
+                    ? 'A aderência atual está acima do plano comprometido: itens do compromisso saíram da conta (viraram extra, foram inativados ou excluídos). Vale conferir se a reprogramação foi coerente.'
+                    : 'O plano comprometido é o conjunto congelado no início da semana; a aderência atual reflete o quadro como está agora. Quanto mais próximos, mais coerente foi a semana.'}
+                </p>
               </div>
             )}
 

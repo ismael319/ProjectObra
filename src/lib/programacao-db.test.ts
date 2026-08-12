@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeStatusFromSubetapas } from "./programacao-db";
+import { computeStatusFromSubetapas, descreverMergeExcel } from "./programacao-db";
 import type { SubEtapa, SubEtapaStatus } from "./adherence";
 
 function sub(status: SubEtapaStatus): SubEtapa {
@@ -42,5 +42,41 @@ describe("computeStatusFromSubetapas", () => {
 
   it("uma única sub-etapa não concluída -> nao_concluida", () => {
     expect(computeStatusFromSubetapas([sub("nao_concluida")])).toBe("nao_concluida");
+  });
+});
+
+describe("descreverMergeExcel", () => {
+  it("importação normal é sucesso e diz quantas mudaram", () => {
+    const r = descreverMergeExcel({ updated: 12, semUid: 0, naoEncontradas: 0 });
+    expect(r.ok).toBe(true);
+    expect(r.texto).toContain("12 atividade(s) atualizada(s)");
+  });
+
+  it("zero atualizadas com linhas descartadas vira erro, não sucesso silencioso", () => {
+    // O caso do round-trip quebrado: a planilha inteira tinha UID, nenhum casou.
+    const r = descreverMergeExcel({ updated: 0, semUid: 0, naoEncontradas: 40 });
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain("40 linha(s) com UID que não existe nesta semana");
+    expect(r.texto).toContain("Exportar Excel");
+  });
+
+  it("planilha sem a coluna UID explica o motivo", () => {
+    const r = descreverMergeExcel({ updated: 0, semUid: 40, naoEncontradas: 0 });
+    expect(r.ok).toBe(false);
+    expect(r.texto).toContain("40 linha(s) sem UID");
+  });
+
+  it("semana sem nada pra mudar continua sendo sucesso", () => {
+    // Nenhuma linha descartada: a planilha casou tudo, só não havia diferença.
+    const r = descreverMergeExcel({ updated: 0, semUid: 0, naoEncontradas: 0 });
+    expect(r.ok).toBe(true);
+  });
+
+  it("importação parcial avisa das descartadas sem virar erro", () => {
+    const r = descreverMergeExcel({ updated: 8, semUid: 1, naoEncontradas: 2 });
+    expect(r.ok).toBe(true);
+    expect(r.texto).toContain("8 atividade(s)");
+    expect(r.texto).toContain("2 linha(s)");
+    expect(r.texto).toContain("1 linha(s) sem UID");
   });
 });

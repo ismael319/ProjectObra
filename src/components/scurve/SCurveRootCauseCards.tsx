@@ -3,7 +3,7 @@ import { format, subDays } from 'date-fns'
 import { CloudRain, AlertTriangle, Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
-import { getActivitiesInDateRange } from '@/lib/programacao-db'
+import { getActivitiesInDateRange, getPartialWeight } from '@/lib/programacao-db'
 import { computeIndicators } from '@/lib/adherence'
 
 interface Props {
@@ -37,8 +37,11 @@ export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
     queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), PPC_WINDOW_DAYS), 'yyyy-MM-dd')
-      const activities = await getActivitiesInDateRange(organizacaoId, start, today)
-      return computeIndicators(activities)
+      const [activities, partialWeight] = await Promise.all([
+        getActivitiesInDateRange(organizacaoId, start, today),
+        getPartialWeight(),
+      ])
+      return computeIndicators(activities, partialWeight)
     },
     enabled: !!organizacaoId,
   })
