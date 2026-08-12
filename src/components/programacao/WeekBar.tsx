@@ -1,14 +1,15 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck, Undo2 } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import type { WeekStatus } from '@/lib/programacao-db'
 
 interface Props {
   isoYear: number
   isoWeek: number
   startDate: string
   endDate: string
-  status: 'rascunho' | 'consolidado'
+  status: WeekStatus
   /** Papel efetivo do usuário no módulo Engenharia — só quem tem Edição pode
    * bloquear/desbloquear a semana (a RLS já barra no banco; isso só evita
    * oferecer a ação pra quem não pode usá-la). */
@@ -27,6 +28,10 @@ interface Props {
   onLock: () => void
   onUnlock: () => void
   onImportActivities: () => void
+  /** Congela o plano da semana (baseline) e move o estado pra 'comprometida'. */
+  onComprometer: () => void
+  /** Descarta o plano comprometido e volta pra montagem — destrutivo. */
+  onReabrirMontagem: () => void
   onClearWeek: () => void
   onManageEngenheiros: () => void
   onExportSemanal: () => void
@@ -50,6 +55,8 @@ export default function WeekBar({
   onLock,
   onUnlock,
   onImportActivities,
+  onComprometer,
+  onReabrirMontagem,
   onClearWeek,
   onManageEngenheiros,
   onExportSemanal,
@@ -59,7 +66,33 @@ export default function WeekBar({
   const end = parseISODateStr(endDate)
   const isoLabel = `${isoYear}-S${String(isoWeek).padStart(2, '0')}`
   const locked = status === 'consolidado'
+  const comprometida = status === 'comprometida'
   const [actionsOpen, setActionsOpen] = useState(false)
+
+  // Três estados, três leituras diferentes do quadro — ver WeekStatus.
+  const badge = locked
+    ? {
+        rotulo: 'Fechada',
+        classe: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400',
+        icone: <Lock size={11} />,
+        ajuda:
+          'Semana fechada: status travados contra edição e o PPC do plano comprometido congelado. Desbloqueie no menu "Ações" pra editar de novo.',
+      }
+    : comprometida
+      ? {
+          rotulo: 'Comprometida',
+          classe: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400',
+          icone: <ClipboardCheck size={11} />,
+          ajuda:
+            'O plano da semana foi congelado num baseline e a semana está rodando. Apontar status é livre — é o dia a dia. Mexer no CONJUNTO (excluir, marcar Extra, inativar) continua possível, mas fica registrado na Análise Semanal e aparece como diferença entre o PPC comprometido e a aderência ajustada.',
+        }
+      : {
+          rotulo: 'Em montagem',
+          classe: 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300',
+          icone: null,
+          ajuda:
+            'Semana ainda em montagem: importe do cronograma, ajuste os dias e marque o que fica "fora desta semana". Ainda não existe PPC — ninguém se comprometeu com nada. Use "Comprometer semana" quando o plano estiver fechado.',
+        }
   // Ajustada bem acima da do Cronograma = sinal de reprogramação incoerente (Extra/
   // Inativa usados pra "limpar" o número em vez de refletir o que foi entregue).
   const deltaPP = Math.round((aderenciaAjustada - aderenciaCronograma) * 100)
@@ -99,20 +132,14 @@ export default function WeekBar({
       <Tooltip>
         <TooltipTrigger asChild>
           <span
-            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full ${
-              locked
-                ? 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400'
-                : 'bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300'
-            }`}
+            className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full ${badge.classe}`}
           >
-            {locked ? <Lock size={11} /> : null}
-            {locked ? 'Bloqueada' : 'Rascunho'}
+            {badge.icone}
+            {badge.rotulo}
           </span>
         </TooltipTrigger>
         <TooltipContent side="bottom" className="max-w-xs">
-          {locked
-            ? 'Semana consolidada: os status das atividades já foram fechados e ficam travados contra edição (só atividades extras podem ser removidas). Desbloqueie no menu "Ações" pra editar de novo.'
-            : 'Semana ainda em rascunho: os status podem ser editados livremente. Bloqueie no menu "Ações" quando o apontamento estiver fechado.'}
+          {badge.ajuda}
         </TooltipContent>
       </Tooltip>
 
@@ -174,6 +201,10 @@ export default function WeekBar({
           <>
             <div className="fixed inset-0 z-10" onClick={() => setActionsOpen(false)} />
             <div className="absolute right-0 top-full mt-1 w-56 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 z-20 p-1">
+              {/* Uma ação por estado, na ordem do ciclo: montagem → comprometida
+                  → fechada. Antes o menu só tinha Bloquear/Desbloquear, porque o
+                  compromisso não existia como passo — o baseline era tirado no
+                  fechamento, o que fazia dele uma cópia do resultado. */}
               {locked ? (
                 <Tooltip>
                   <TooltipTrigger asChild>
@@ -184,32 +215,68 @@ export default function WeekBar({
                       className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     >
                       <Unlock size={14} className="text-green-600" />
-                      Desbloquear semana
+                      Reabrir semana
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-xs">
                     {podeEditar
-                      ? 'Volta a semana pro rascunho, liberando os status das atividades pra edição de novo.'
-                      : 'Só quem tem nível de acesso Edição pode desbloquear a semana.'}
+                      ? 'Volta a semana pra "Comprometida", liberando os status pra edição. O plano comprometido é mantido — reabrir não gera um baseline novo.'
+                      : 'Só quem tem nível de acesso Edição pode reabrir a semana.'}
                   </TooltipContent>
                 </Tooltip>
+              ) : comprometida ? (
+                <>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => { setActionsOpen(false); onLock() }}
+                        disabled={!podeEditar}
+                        title={!podeEditar ? 'Só quem tem nível de acesso Edição pode fechar a semana' : undefined}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      >
+                        <Lock size={14} className="text-red-600" />
+                        Fechar semana
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-xs">
+                      {podeEditar
+                        ? 'Encerra a semana: trava status e conjunto contra edição e congela o PPC do plano comprometido.'
+                        : 'Só quem tem nível de acesso Edição pode fechar a semana.'}
+                    </TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => { setActionsOpen(false); onReabrirMontagem() }}
+                        disabled={!podeEditar}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      >
+                        <Undo2 size={14} />
+                        Voltar pra montagem
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left" className="max-w-xs">
+                      Descarta o plano comprometido desta semana e volta pra montagem. Use só pra corrigir um comprometimento feito por engano — o compromisso assumido é apagado.
+                    </TooltipContent>
+                  </Tooltip>
+                </>
               ) : (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => { setActionsOpen(false); onLock() }}
+                      onClick={() => { setActionsOpen(false); onComprometer() }}
                       disabled={!podeEditar}
-                      title={!podeEditar ? 'Só quem tem nível de acesso Edição pode bloquear a semana' : undefined}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                      title={!podeEditar ? 'Só quem tem nível de acesso Edição pode comprometer a semana' : undefined}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium text-left text-blue-700 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                     >
-                      <Lock size={14} className="text-red-600" />
-                      Bloquear semana
+                      <ClipboardCheck size={14} />
+                      Comprometer semana
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="left" className="max-w-xs">
                     {podeEditar
-                      ? 'Consolida a semana: trava os status das atividades contra edição (só extras continuam removíveis).'
-                      : 'Só quem tem nível de acesso Edição pode bloquear a semana.'}
+                      ? 'Congela o plano desta semana: o conjunto de atividades vira o compromisso contra o qual o PPC é medido. Faça isso no INÍCIO da semana, depois de importar do cronograma e marcar o que fica "fora desta semana". Apontar status continua livre.'
+                      : 'Só quem tem nível de acesso Edição pode comprometer a semana.'}
                   </TooltipContent>
                 </Tooltip>
               )}
@@ -251,7 +318,11 @@ export default function WeekBar({
                 </TooltipTrigger>
                 <TooltipContent side="left" className="max-w-xs">Gera uma imagem com a semana inteira por Engenheiro, pra compartilhar no WhatsApp.</TooltipContent>
               </Tooltip>
-              {locked && (
+              {/* Disponível já na semana comprometida, não só na fechada: com o
+                  baseline gravado no início, a análise passa a ter o que
+                  comparar durante a semana — antes o plano só existia depois de
+                  fechar, então não havia nada pra mostrar. */}
+              {(locked || comprometida) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <button
@@ -262,7 +333,7 @@ export default function WeekBar({
                       Análise Semanal
                     </button>
                   </TooltipTrigger>
-                  <TooltipContent side="left" className="max-w-xs">Visualiza itens não concluídos, reprogramações e permite registrar observações sobre a semana.</TooltipContent>
+                  <TooltipContent side="left" className="max-w-xs">Compara o plano comprometido com o que aconteceu: itens não concluídos, reprogramações, extras e removidos, mais o campo de observações da semana.</TooltipContent>
                 </Tooltip>
               )}
               <Tooltip>

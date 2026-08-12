@@ -1,15 +1,25 @@
 import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock, Ban } from 'lucide-react'
 import { parseISODateStr, WEEKDAY_LABELS, formatShortDate } from '@/lib/iso-week'
-import { statusWeight, type ActivityLike } from '@/lib/adherence'
+import { statusWeight, type ActivityLike, type WeekIndicators } from '@/lib/adherence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface Props {
   date: string
   activities: ActivityLike[]
   onOpen: (date: string) => void
+  /** Peso da atividade parcial, de app_settings.partial_weight (ver getWeek).
+   * Era 0.5 fixo aqui, então mudar a configuração fazia o card do dia divergir
+   * dos indicadores da semana pros mesmos dados. */
+  partialWeight?: number
+  /** Taxa de acerto do dia contra o que foi comprometido PRA ele
+   * (computeIndicatorsDia) — null quando a semana ainda está em montagem ou o
+   * dia não tinha nada comprometido. Diferente da "Aderência" abaixo, que olha o
+   * quadro como está agora e por isso sobe sozinha quando uma pendência é
+   * arrastada pra outro dia. */
+  acertoDia?: WeekIndicators | null
 }
 
-export default function CardDia({ date, activities, onOpen }: Props) {
+export default function CardDia({ date, activities, onOpen, partialWeight = 0.5, acertoDia }: Props) {
   const d = parseISODateStr(date)
   const weekdayIdx = (d.getDay() - 5 + 7) % 7 // Sex=0, Sáb=1, ..., Qui=6
   const label = WEEKDAY_LABELS[weekdayIdx]
@@ -33,7 +43,7 @@ export default function CardDia({ date, activities, onOpen }: Props) {
   // inativas e extras fora do denominador, pendentes contam, parcial vale meio crédito.
   const planejadas = ativas.filter((a) => !a.is_extra)
   const denom = planejadas.length
-  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, 0.5), 0)
+  const weighted = planejadas.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0)
   const aderenciaPct = denom > 0 ? Math.round((weighted / denom) * 100) : null
 
   return (
@@ -49,12 +59,24 @@ export default function CardDia({ date, activities, onOpen }: Props) {
               <span className="mr-1 font-semibold text-gray-900 dark:text-white">{label}</span>
               {short}
             </span>
-            <span className="text-right leading-none">
-              <span className="block text-sm font-bold tabular-nums text-gray-900 dark:text-white">
-                {aderenciaPct != null ? `${aderenciaPct}%` : '—'}
-              </span>
-              <span className="mt-0.5 block text-[9px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                Aderência
+            <span className="flex items-start gap-3">
+              {acertoDia && (
+                <span className="text-right leading-none">
+                  <span className="block text-sm font-bold tabular-nums text-blue-700 dark:text-blue-400">
+                    {Math.round(acertoDia.ppc * 100)}%
+                  </span>
+                  <span className="mt-0.5 block text-[9px] uppercase tracking-wide text-blue-400 dark:text-blue-500">
+                    Acerto
+                  </span>
+                </span>
+              )}
+              <span className="text-right leading-none">
+                <span className="block text-sm font-bold tabular-nums text-gray-900 dark:text-white">
+                  {aderenciaPct != null ? `${aderenciaPct}%` : '—'}
+                </span>
+                <span className="mt-0.5 block text-[9px] uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                  Aderência
+                </span>
               </span>
             </span>
           </div>
@@ -80,11 +102,19 @@ export default function CardDia({ date, activities, onOpen }: Props) {
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-xs">
+        {acertoDia && (
+          <p className="mb-1.5">
+            <span className="font-semibold text-blue-400">Acerto {Math.round(acertoDia.ppc * 100)}%</span> —{' '}
+            {acertoDia.concluidas} de {acertoDia.total - acertoDia.extras} atividade(s) comprometidas
+            PRA este dia foram concluídas. Esse número não muda quando uma pendência é arrastada pra
+            outro dia: o compromisso do dia foi congelado quando a semana foi comprometida.
+          </p>
+        )}
         Clique pra abrir o detalhe do dia. "Extras" são atividades marcadas como não planejadas pro
         dia (mesmo vindas do cronograma); "Cronograma" são as importadas de um cronograma carregado.
         "Inativas" estão de lado pra análise e não entram nos outros números nem no PPC/Aderência —
         os demais status (Concluída, Parcial, Não concluída, Pendente) alimentam o PPC e a Aderência
-        da semana.
+        da semana. A "Aderência" reflete o quadro como está AGORA.
       </TooltipContent>
     </Tooltip>
   )

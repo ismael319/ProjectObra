@@ -38,6 +38,8 @@ const AdministracaoHome = lazy(() => import('@/pages/administracao/Administracao
 const SecurityMonitoring = lazy(() => import('@/pages/admin/SecurityMonitoring'))
 const ValidacaoConfig = lazy(() => import('@/pages/admin/ValidacaoConfig'))
 const MinhasValidacoes = lazy(() => import('@/pages/MinhasValidacoes'))
+const GestaoVista = lazy(() => import('@/pages/gestao-vista/GestaoVista'))
+const GestaoVistaPlanta = lazy(() => import('@/pages/gestao-vista/PlantaDetalhe'))
 
 // Legal pages
 const Privacy = lazy(() => import('@/pages/legal/Privacy'))
@@ -45,6 +47,7 @@ const Terms = lazy(() => import('@/pages/legal/Terms'))
 const DPA = lazy(() => import('@/pages/legal/DPA'))
 const Subprocessors = lazy(() => import('@/pages/legal/Subprocessors'))
 const AceitarTermos = lazy(() => import('@/pages/AceitarTermos'))
+const CompletarPerfil = lazy(() => import('@/pages/CompletarPerfil'))
 const ImportarEfetivo = lazy(() => import('@/pages/administracao/ImportarEfetivo'))
 const ImportarPonto = lazy(() => import('@/pages/administracao/ImportarPonto'))
 
@@ -121,6 +124,15 @@ function App() {
                       element={
                         <SessionOnlyRoute>
                           <PendingApproval />
+                        </SessionOnlyRoute>
+                      }
+                    />
+
+                    <Route
+                      path="/completar-perfil"
+                      element={
+                        <SessionOnlyRoute>
+                          <CompletarPerfil />
                         </SessionOnlyRoute>
                       }
                     />
@@ -205,6 +217,8 @@ function App() {
                       <Route path="people/importar-xml" element={<RequireModulo modulo="engenharia"><ApontamentoImportarXml /></RequireModulo>} />
                       <Route path="people/importar-eap" element={<RequireModulo modulo="engenharia"><ApontamentoImportarEap /></RequireModulo>} />
                       <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
+                      <Route path="gestao-vista" element={<RequireModulo modulo="engenharia"><GestaoVista /></RequireModulo>} />
+                      <Route path="gestao-vista/:plantaId" element={<RequireModulo modulo="engenharia"><GestaoVistaPlanta /></RequireModulo>} />
                       <Route path="suprimentos" element={<RequireModulo modulo="suprimentos"><SiengeAlertas /></RequireModulo>} />
                       <Route path="administracao" element={<RequireModulo modulo="administracao"><AdministracaoHome /></RequireModulo>} />
                       <Route path="administracao/importar-efetivo" element={<RequireModulo modulo="administracao"><ImportarEfetivo /></RequireModulo>} />

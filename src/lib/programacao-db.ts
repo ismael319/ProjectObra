@@ -2,8 +2,30 @@
 // Adaptado do Weekly Craft Pro para usar Supabase client diretamente.
 
 import { supabase } from './supabase'
-import type { ActivityLike, ActivityStatus, SubEtapa, SubEtapaStatus } from './adherence'
+import type {
+  ActivityLike,
+  ActivityStatus,
+  SubEtapa,
+  SubEtapaStatus,
+  BaselineActivity as BaselineActivityCalc,
+} from './adherence'
 import { isoWeekFromParts, addDays, toISODateStr } from './iso-week'
+
+/**
+ * Ciclo de vida da semana.
+ *
+ * - `rascunho`     — montagem. Importa-se do cronograma, ajusta-se dia e
+ *                    conjunto, marca-se o que fica "fora desta semana".
+ *                    Não existe PPC: ninguém se comprometeu com nada ainda.
+ * - `comprometida` — o plano foi congelado num baseline (comprometerSemana) e a
+ *                    semana está rodando. Status é livre (é o dia a dia); mexer
+ *                    no CONJUNTO deixa rastro na Análise Semanal.
+ * - `consolidado`  — fechada. Nada mais muda; o PPC do que foi comprometido
+ *                    fica congelado.
+ *
+ * O rótulo `consolidado` (em vez de `fechada`) vem do enum original do banco.
+ */
+export type WeekStatus = 'rascunho' | 'comprometida' | 'consolidado'
 
 interface WeekRow {
   id: string
@@ -11,9 +33,10 @@ interface WeekRow {
   iso_week: number
   start_date: string
   end_date: string
-  status: 'rascunho' | 'consolidado'
+  status: WeekStatus
   consolidated_at: string | null
   created_at: string
+  analise_semanal?: string | null
 }
 
 interface ActivityRow {
@@ -36,14 +59,21 @@ interface ActivityRow {
   actual_productivity: string | null
   inativa: boolean
   motivo_inativacao: string | null
+  fora_do_plano: boolean
+  motivo_fora: string | null
   created_at: string
   updated_at: string
 }
 
-interface WeekData {
+export interface WeekData {
   week: WeekRow
   activities: ActivityLike[]
   partialWeight: number
+  /** Plano comprometido da semana (vazio enquanto ela está em montagem).
+   * Vem junto porque a tela precisa dele em três lugares — taxa de acerto de
+   * cada dia (computeIndicatorsDia), selo "veio de outro dia" e o resumo da
+   * Análise Semanal —, e buscar em cada um deles seria a mesma query repetida. */
+  baseline: BaselineActivity[]
 }
 
 // Garante que a semana existe (Sex→Qui), criando ou corrigindo se necessário.
@@ -127,6 +157,23 @@ async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<stri
   return map
 }
 
+/**
+ * Peso da atividade "parcial" no cálculo de aderência (app_settings).
+ *
+ * Exportado porque a leitura vivia dentro de getWeek, e quem calculava aderência
+ * fora da tela da semana (card de PPC da Curva S, Análise Semanal, card do dia)
+ * acabava usando 0.5 fixo — bastava alguém mudar a configuração para a mesma
+ * semana mostrar percentuais diferentes em telas diferentes.
+ */
+export async function getPartialWeight(): Promise<number> {
+  const { data } = await supabase
+    .from('app_settings')
+    .select('value')
+    .eq('key', 'partial_weight')
+    .maybeSingle()
+  return data && typeof data.value === 'number' ? data.value : 0.5
+}
+
 // Buscar semana + atividades
 export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
@@ -139,7 +186,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
   for (let from = 0; ; from += PAGE_SIZE) {
     const query = supabase
       .from('activities')
-      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao, fora_do_plano, motivo_fora')
       .eq('week_id', week.id)
       .eq('organizacao_id', organizacaoId)
       .order('planned_date', { ascending: true })
@@ -150,13 +197,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
     if (!data || data.length < PAGE_SIZE) break
   }
 
-  const { data: setting } = await supabase
-    .from('app_settings')
-    .select('value')
-    .eq('key', 'partial_weight')
-    .maybeSingle()
-
-  const partialWeight = setting && typeof setting.value === 'number' ? setting.value : 0.5
+  const partialWeight = await getPartialWeight()
 
   const subetapasPorAtividade = await fetchSubetapasByActivity(activities.map((a) => a.id))
 
@@ -196,9 +237,16 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
     motivoInativacao: a.motivo_inativacao,
+    foraDoPlano: a.fora_do_plano,
+    motivoFora: a.motivo_fora,
   }))
 
-  return { week, activities: mappedActivities, partialWeight }
+  // Semana em montagem não tem plano congelado — evita a query em vez de
+  // devolver uma lista vazia depois de ir ao banco à toa.
+  const baseline =
+    week.status === 'rascunho' ? [] : await getWeekBaseline(organizacaoId, week.id)
+
+  return { week, activities: mappedActivities, partialWeight, baseline }
 }
 
 // Indicadores (PPC/aderência) numa janela de datas corrida — ex.: "últimos 21 dias" —
@@ -218,7 +266,7 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
   for (let from = 0; ; from += PAGE_SIZE) {
     const query = supabase
       .from('activities')
-      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao, fora_do_plano, motivo_fora')
       .gte('planned_date', startDate)
       .lte('planned_date', endDate)
       .eq('organizacao_id', organizacaoId)
@@ -263,6 +311,8 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
     subetapas: subetapasPorAtividade.get(a.id) ?? [],
     inativa: a.inativa,
     motivoInativacao: a.motivo_inativacao,
+    foraDoPlano: a.fora_do_plano,
+    motivoFora: a.motivo_fora,
   }))
 }
 
@@ -284,11 +334,15 @@ export async function lockWeek(organizacaoId: string, weekId: string): Promise<v
   if (!data || data.length === 0) throw new Error('Não foi possível bloquear a semana — verifique se seu nível de acesso é Edição')
 }
 
-// Desbloquear semana — volta pro estado editável
+// Desbloquear semana — volta pra 'comprometida', NÃO pra 'rascunho': o plano da
+// semana já foi assumido e o baseline continua valendo. Voltar pra rascunho (o
+// que unlockWeekWithBaseline fazia, junto com apagar o baseline) fazia o
+// compromisso sumir sem deixar rastro — bastava desbloquear e rebloquear pra
+// gerar um baseline novo em cima do resultado.
 export async function unlockWeek(organizacaoId: string, weekId: string): Promise<void> {
   const { data, error } = await supabase
     .from('weeks')
-    .update({ status: 'rascunho', consolidated_at: null })
+    .update({ status: 'comprometida', consolidated_at: null })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
     .select('id')
@@ -297,13 +351,216 @@ export async function unlockWeek(organizacaoId: string, weekId: string): Promise
   if (!data || data.length === 0) throw new Error('Não foi possível desbloquear a semana — verifique se seu nível de acesso é Edição')
 }
 
+/** Lê só o estado da semana — as funções de escrita precisam dele pra recusar
+ * alteração em semana fechada, e nenhuma delas consultava esse campo. */
+export async function getWeekStatus(organizacaoId: string, weekId: string): Promise<WeekStatus> {
+  const { data, error } = await supabase
+    .from('weeks')
+    .select('status')
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Semana não encontrada.')
+  return data.status as WeekStatus
+}
+
+export interface ResumoComprometimento {
+  /** Entram no plano (viram baseline). */
+  comprometidas: number
+  /** Marcadas "fora desta semana" — ficam visíveis, fora do denominador. */
+  foraDoPlano: number
+}
+
+/**
+ * Prévia do que `comprometerSemana` vai congelar. Serve pro botão mostrar o
+ * número antes de a pessoa clicar — comprometer é a decisão que passa a valer
+ * pro PPC da semana inteira.
+ */
+export async function resumoComprometimento(
+  organizacaoId: string,
+  weekId: string,
+): Promise<ResumoComprometimento> {
+  const { data, error } = await supabase
+    .from('activities')
+    .select('fora_do_plano')
+    .eq('week_id', weekId)
+    .eq('organizacao_id', organizacaoId)
+  if (error) throw new Error(error.message)
+  const linhas = data ?? []
+  const foraDoPlano = linhas.filter((a) => a.fora_do_plano).length
+  return { comprometidas: linhas.length - foraDoPlano, foraDoPlano }
+}
+
+/**
+ * Congela o plano da semana: grava o baseline e move o estado pra
+ * 'comprometida'.
+ *
+ * É a peça que faltava. Até aqui o baseline era gravado dentro de
+ * `lockWeekWithBaseline`, ou seja, no FECHAMENTO da semana — copiando status já
+ * preenchidos. O snapshot não era o plano de segunda, era uma fotocópia do
+ * resultado, e o delta da Análise Semanal comparava o fechamento com ele mesmo.
+ *
+ * Atividades marcadas "fora desta semana" ficam de fora do snapshot: é o que
+ * tira a tarefa pausada do denominador sem precisar abusar de `Inativa`.
+ */
+export async function comprometerSemana(organizacaoId: string, weekId: string): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, weekId)
+  if (status === 'consolidado') {
+    throw new Error('A semana está fechada. Desbloqueie antes de comprometer novamente.')
+  }
+  if (status === 'comprometida') {
+    throw new Error('Esta semana já foi comprometida — o plano dela já está congelado.')
+  }
+
+  const { comprometidas } = await resumoComprometimento(organizacaoId, weekId)
+  if (comprometidas === 0) {
+    throw new Error(
+      'Nenhuma atividade entra no plano desta semana. Importe do cronograma ou desmarque algum item de "fora desta semana".',
+    )
+  }
+
+  // Baseline primeiro: se a mudança de estado falhar (permissão), a semana
+  // continua em rascunho e dá pra tentar de novo. Na ordem inversa a semana
+  // ficaria 'comprometida' sem plano congelado — o pior dos estados.
+  await saveWeekBaseline(organizacaoId, weekId)
+
+  const { data, error } = await supabase
+    .from('weeks')
+    .update({ status: 'comprometida' })
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) {
+    throw new Error('Não foi possível comprometer a semana — verifique se seu nível de acesso é Edição')
+  }
+}
+
+/**
+ * Volta a semana pra montagem e apaga o baseline. Existe pra corrigir um
+ * comprometimento feito por engano — é destrutivo (o plano assumido some), então
+ * a UI pede confirmação explícita.
+ */
+export async function reabrirParaMontagem(organizacaoId: string, weekId: string): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, weekId)
+  if (status === 'consolidado') {
+    throw new Error('A semana está fechada. Desbloqueie antes de voltar pra montagem.')
+  }
+
+  const { data, error } = await supabase
+    .from('weeks')
+    .update({ status: 'rascunho' })
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) {
+    throw new Error('Não foi possível reabrir a semana — verifique se seu nível de acesso é Edição')
+  }
+
+  await clearWeekBaseline(organizacaoId, weekId)
+}
+
+/**
+ * Marca (ou desmarca) uma atividade como "fora desta semana".
+ *
+ * Só faz sentido antes de comprometer: depois disso o conjunto já foi assumido e
+ * o caminho pro imprevisto é `setActivityInativa`, que deixa rastro na análise.
+ */
+export async function setActivityForaDoPlano(
+  organizacaoId: string,
+  activityId: string,
+  fora: boolean,
+  motivo?: string | null,
+): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'plano')
+  const { data, error } = await supabase
+    .from('activities')
+    .update({ fora_do_plano: fora, motivo_fora: fora ? (motivo ?? null) : null })
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) {
+    throw new Error('Não foi possível atualizar a atividade — verifique se seu nível de acesso é Edição')
+  }
+}
+
 // Atualizar status de atividade
+/**
+ * Que tipo de escrita está sendo tentada — determina em quais estados da semana
+ * ela é permitida.
+ *
+ * - `status`   — apontar o que aconteceu (concluída/parcial/não concluída,
+ *                sub-etapas, observação). É o dia a dia: liberado enquanto a
+ *                semana não fechar.
+ * - `conjunto` — mexer em QUAIS atividades existem e em que dia (adicionar,
+ *                excluir, mover, marcar Extra/Inativa). Também liberado até
+ *                fechar, mas numa semana comprometida a diferença contra o
+ *                baseline aparece na Análise Semanal e no delta do PPC.
+ * - `plano`    — definir o plano em si (marcar "fora desta semana"). Só antes de
+ *                comprometer: depois disso o conjunto já foi assumido, e o
+ *                caminho pro imprevisto é inativar, que deixa rastro.
+ */
+type TipoEscrita = 'status' | 'conjunto' | 'plano'
+
+const MSG_FECHADA: Record<TipoEscrita, string> = {
+  status: 'A semana está fechada — desbloqueie no menu "Ações" para apontar status.',
+  conjunto: 'A semana está fechada — desbloqueie no menu "Ações" para alterar as atividades.',
+  plano: 'A semana está fechada — desbloqueie no menu "Ações" para alterar o plano.',
+}
+
+/**
+ * Recusa a escrita quando o estado da semana não a permite.
+ *
+ * Nenhuma função de escrita consultava `weeks.status`: a trava existia só como
+ * `disabled` em alguns botões, e vários caminhos (sub-etapas, mover atividade,
+ * importar) editavam semana fechada sem barreira nenhuma — contrariando o
+ * tooltip do WeekBar, que promete que fechar trava os status.
+ */
+async function exigirEscritaPermitida(
+  organizacaoId: string,
+  weekId: string,
+  tipo: TipoEscrita,
+): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, weekId)
+  if (status === 'consolidado') throw new Error(MSG_FECHADA[tipo])
+  if (tipo === 'plano' && status === 'comprometida') {
+    throw new Error(
+      'A semana já foi comprometida — o plano dela está congelado. Para tirar uma atividade da conta agora, inative-a informando o motivo (fica registrado na Análise Semanal).',
+    )
+  }
+}
+
+/** Mesma checagem, quando só se tem o id da atividade. */
+async function exigirEscritaPermitidaPorAtividade(
+  organizacaoId: string,
+  activityId: string,
+  tipo: TipoEscrita,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('activities')
+    .select('week_id')
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  // Atividade inexistente (ou invisível pela RLS): deixa a própria escrita
+  // falhar com a mensagem de permissão dela, que é mais precisa que um genérico
+  // daqui.
+  if (!data) return
+  await exigirEscritaPermitida(organizacaoId, data.week_id as string, tipo)
+}
+
 export async function setActivityStatus(
   organizacaoId: string,
   activityId: string,
   status: ActivityStatus,
   observation?: string | null,
 ): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'status')
+
   const patch: { status: ActivityStatus; observation?: string | null } = { status }
   if (observation !== undefined) patch.observation = observation
 
@@ -324,10 +581,13 @@ export async function setActivityStatus(
 }
 
 // Inativar/reativar atividade — item colocado de lado pra análise (ex.: não fica
-// claro por que não foi executado); sai do PPC/aderência enquanto estiver inativo
-// (ver computeIndicators/computeSegment e buildRelatorioVisual/buildMatrizSemanal).
-// Funciona mesmo com a semana bloqueada, igual às sub-etapas.
+// claro por que não foi executado); sai do PPC/aderência ATUAL enquanto estiver
+// inativo (ver computeIndicators/computeSegment e buildRelatorioVisual/
+// buildMatrizSemanal). Numa semana comprometida NÃO sai do PPC comprometido: o
+// item já fazia parte do plano assumido (ver computeIndicatorsComprometido), e é
+// essa diferença que a Análise Semanal mostra.
 export async function setActivityInativa(organizacaoId: string, activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
   const { data, error } = await supabase
     .from('activities')
     .update({ inativa, motivo_inativacao: inativa ? motivo : null })
@@ -344,6 +604,7 @@ export async function setActivityInativa(organizacaoId: string, activityId: stri
 // source_cronograma/area/task_uid, então uma atividade real do cronograma marcada
 // extra continua agrupada no cronograma dela (ver addActivitiesBulk).
 export async function setActivityExtra(organizacaoId: string, activityId: string, isExtra: boolean): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
   const { data, error } = await supabase
     .from('activities')
     .update({ is_extra: isExtra })
@@ -357,10 +618,13 @@ export async function setActivityExtra(organizacaoId: string, activityId: string
 // Move uma ou mais atividades já existentes pra outro dia (não cria linha nova) —
 // usado tanto pelo "Reprogramar" (1 id) quanto pelo "Adicionar atividades não
 // realizadas" (vários ids de uma vez, trazendo pendências de dias anteriores da
-// mesma semana pro dia de hoje). Funciona mesmo com a semana bloqueada; quem chama é
-// responsável por só oferecer dias dentro da semana carregada.
+// mesma semana pro dia de hoje). Quem chama é responsável por só oferecer dias
+// dentro da semana carregada.
 export async function moverAtividadesParaDia(organizacaoId: string, activityIds: string[], novaData: string): Promise<void> {
   if (activityIds.length === 0) return
+  // Todos os ids vêm sempre da mesma semana (a carregada na tela), então checar
+  // o primeiro basta pra decidir se a escrita é permitida.
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityIds[0], 'conjunto')
   const { error } = await supabase
     .from('activities')
     .update({ planned_date: novaData })
@@ -390,6 +654,7 @@ export async function finalizarAtividade(organizacaoId: string, activityId: stri
 
 export async function addSubEtapa(organizacaoId: string, activityId: string, nome: string): Promise<SubEtapa> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'status')
   const { data, error } = await supabase
     .from('activity_subetapas')
     .insert({ organizacao_id: organizacaoId, activity_id: activityId, nome })
@@ -399,12 +664,61 @@ export async function addSubEtapa(organizacaoId: string, activityId: string, nom
   return data as SubEtapa
 }
 
-export async function setSubEtapaStatus(organizacaoId: string, id: string, status: SubEtapaStatus): Promise<void> {
-  const { error } = await supabase.from('activity_subetapas').update({ status }).eq('id', id).eq('organizacao_id', organizacaoId)
+/**
+ * Sub-etapas de UMA atividade, direto do banco.
+ *
+ * Existe pra quem precisa do estado recém-gravado sem esperar o refetch da
+ * semana inteira chegar por prop — ver sincronizarStatus em ModalDetalheDia.
+ */
+export async function listSubEtapas(organizacaoId: string, activityId: string): Promise<SubEtapa[]> {
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .select('id,activity_id,nome,status')
+    .eq('activity_id', activityId)
+    .eq('organizacao_id', organizacaoId)
+  if (error) {
+    if (error.code === 'PGRST205' || error.message?.includes('does not exist')) return []
+    throw new Error(error.message)
+  }
+  return (data ?? []) as SubEtapa[]
+}
+
+/** Resolve a atividade dona da sub-etapa pra poder aplicar a trava da semana. */
+async function exigirEscritaPermitidaPorSubEtapa(
+  organizacaoId: string,
+  subEtapaId: string,
+  tipo: TipoEscrita,
+): Promise<void> {
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .select('activity_id')
+    .eq('id', subEtapaId)
+    .eq('organizacao_id', organizacaoId)
+    .maybeSingle()
   if (error) throw new Error(error.message)
+  if (!data) return
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, data.activity_id as string, tipo)
+}
+
+export async function setSubEtapaStatus(organizacaoId: string, id: string, status: SubEtapaStatus): Promise<void> {
+  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, id, 'status')
+  // .select() pelo mesmo motivo de deleteSubEtapa e setActivityStatus: um UPDATE
+  // barrado por RLS não gera erro no Supabase, só afeta 0 linhas em silêncio.
+  // Sem isso, marcar a sub-etapa "funcionava" na tela (o estado local mudava),
+  // o status da atividade era calculado em cima de um dado que nunca chegou ao
+  // banco, e no refetch tudo voltava ao que era — sem nenhum aviso.
+  const { data, error } = await supabase
+    .from('activity_subetapas')
+    .update({ status })
+    .eq('id', id)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível marcar a sub-etapa — verifique se seu nível de acesso é Edição')
 }
 
 export async function deleteSubEtapa(organizacaoId: string, id: string): Promise<void> {
+  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, id, 'status')
   // .select() no delete pra saber se alguma linha foi de fato removida — um DELETE
   // bloqueado por RLS (USING não bate) não gera erro nenhum no Supabase, só afeta 0
   // linhas silenciosamente; sem essa checagem, o botão "excluir" parecia não fazer
@@ -440,20 +754,26 @@ export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatu
   return 'nao_concluida'
 }
 
-// Deletar atividade
+// Deletar atividade. Numa semana comprometida a linha some do quadro, mas NÃO do
+// denominador do PPC comprometido: ela continua no baseline e passa a contar como
+// não concluída (ver computeIndicatorsComprometido). Sem isso, apagar a linha
+// seria a forma mais fácil de subir o indicador.
 export async function deleteActivity(organizacaoId: string, activityId: string): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
   const { error } = await supabase.from('activities').delete().eq('id', activityId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar semana — remove TODAS as atividades (extras e importadas) da semana
 export async function clearWeekActivities(organizacaoId: string, weekId: string): Promise<void> {
+  await exigirEscritaPermitida(organizacaoId, weekId, 'conjunto')
   const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('organizacao_id', organizacaoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar dia — remove TODAS as atividades (extras e importadas) de um dia específico
 export async function clearDayActivities(organizacaoId: string, weekId: string, plannedDate: string): Promise<void> {
+  await exigirEscritaPermitida(organizacaoId, weekId, 'conjunto')
   const { error } = await supabase
     .from('activities')
     .delete()
@@ -509,6 +829,9 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
     throw new Error('Organização não carregada — recarregue a página antes de importar atividades.')
   }
 
+  // Toda importação/inclusão cai numa única semana (a carregada na tela).
+  await exigirEscritaPermitida(payloads[0].organizacaoId, payloads[0].weekId, 'conjunto')
+
   const rows = payloads.map((payload) => {
     const isExtra = payload.isExtra ?? true
     // Provém de um cronograma de verdade ou é uma atividade avulsa (digitada à
@@ -551,13 +874,25 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
   if (error) throw new Error(error.message)
 }
 
+export interface MergeExcelResult {
+  updated: number
+  /** Linhas da planilha sem a coluna UID preenchida. */
+  semUid: number
+  /** Linhas com UID que não corresponde a nenhuma atividade desta semana
+   * (planilha de outra semana, ou UID editado à mão). */
+  naoEncontradas: number
+}
+
 // Merge Excel: atualizar status via planilha
 export async function mergeExcel(
   organizacaoId: string,
   weekId: string,
   rows: Array<Record<string, string | number | null>>,
-): Promise<{ updated: number }> {
+): Promise<MergeExcelResult> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  // Importar planilha é apontar status em massa — mesma regra do apontamento
+  // manual, e o caminho mais fácil de esquecer de travar.
+  await exigirEscritaPermitida(organizacaoId, weekId, 'status')
 
   const { data: existing } = await supabase
     .from('activities')
@@ -565,9 +900,20 @@ export async function mergeExcel(
     .eq('week_id', weekId)
     .eq('organizacao_id', organizacaoId)
 
-  const byUid = new Map(
-    // Sem anotar como ActivityRow: o select acima é parcial (5 colunas), então
-    // o tipo inferido é o que realmente vem do banco.
+  // A coluna UID da planilha exportada carrega o `id` da linha (ver
+  // handleExportExcel em DailyProgramming). Indexar só por task_uid fazia o
+  // round-trip exportar → importar casar ZERO linhas, sempre, em silêncio.
+  //
+  // O id é a chave certa também porque task_uid NÃO é único: uma tarefa do
+  // cronograma que atravessa 3 dias vira 3 linhas com o mesmo task_uid (ver
+  // getOverlappingDays em ModalImportarAtividades), e por task_uid só uma delas
+  // seria alcançável. task_uid fica como fallback para planilhas montadas à mão
+  // a partir do cronograma.
+  //
+  // Sem anotar como ActivityRow: o select acima é parcial (5 colunas), então o
+  // tipo inferido é o que realmente vem do banco.
+  const byId = new Map((existing ?? []).map((a) => [a.id as string, a] as const))
+  const byTaskUid = new Map(
     (existing ?? []).filter((a) => a.task_uid).map((a) => [a.task_uid as string, a] as const),
   )
 
@@ -581,16 +927,24 @@ export async function mergeExcel(
     pendente: 'pendente',
   }
 
-  // Um upsert por linha (id já existe pra todas — vieram de byUid) em vez de
-  // um UPDATE por linha: mesmo resultado, sem N chamadas de rede pra planilhas
-  // grandes.
+  // Um upsert por linha (id já existe pra todas — vieram de byId/byTaskUid) em
+  // vez de um UPDATE por linha: mesmo resultado, sem N chamadas de rede pra
+  // planilhas grandes.
   const patches: Record<string, unknown>[] = []
+  let semUid = 0
+  let naoEncontradas = 0
   for (const raw of rows) {
     const uid = String(raw.UID ?? raw.uid ?? '').trim()
-    if (!uid) continue
+    if (!uid) {
+      semUid += 1
+      continue
+    }
 
-    const target = byUid.get(uid)
-    if (!target) continue
+    const target = byId.get(uid) ?? byTaskUid.get(uid)
+    if (!target) {
+      naoEncontradas += 1
+      continue
+    }
 
     const rawStatus = String(raw.Status ?? raw.status ?? '').trim().toLowerCase()
     const st = STATUS_MAP[rawStatus] ?? (target as ActivityRow).status
@@ -611,7 +965,7 @@ export async function mergeExcel(
     })
   }
 
-  if (patches.length === 0) return { updated: 0 }
+  if (patches.length === 0) return { updated: 0, semUid, naoEncontradas }
 
   const TAMANHO_LOTE = 500
   for (let i = 0; i < patches.length; i += TAMANHO_LOTE) {
@@ -620,7 +974,27 @@ export async function mergeExcel(
     if (error) throw new Error(error.message)
   }
 
-  return { updated: patches.length }
+  return { updated: patches.length, semUid, naoEncontradas }
+}
+
+/** Texto do resultado da importação por planilha. Fora do mergeExcel pra poder
+ * testar sem banco. Existe porque "0 atividade(s) atualizada(s)" não dizia se a
+ * planilha estava sem a coluna UID, se era de outra semana, ou se realmente não
+ * havia nada pra mudar. */
+export function descreverMergeExcel(r: MergeExcelResult): { texto: string; ok: boolean } {
+  const partes = [`${r.updated} atividade(s) atualizada(s)`]
+  if (r.naoEncontradas > 0) {
+    partes.push(`${r.naoEncontradas} linha(s) com UID que não existe nesta semana`)
+  }
+  if (r.semUid > 0) partes.push(`${r.semUid} linha(s) sem UID`)
+
+  if (r.updated === 0 && r.naoEncontradas + r.semUid > 0) {
+    return {
+      ok: false,
+      texto: `Nenhuma atividade foi atualizada — ${partes.slice(1).join(' e ')}. Exporte a planilha desta semana pelo botão "Exportar Excel" e preencha por cima, sem mexer na coluna UID.`,
+    }
+  }
+  return { ok: true, texto: partes.join('; ') + '.' }
 }
 
 // ============ Engenheiro responsável por Área (nível 2 da EDT) ============
@@ -666,26 +1040,37 @@ export async function deleteEngenheiroArea(id: string): Promise<void> {
 }
 
 // ============ Baseline da Programação Semanal ============
-// Snapshot das atividades no momento do bloqueio — usado pra calcular
-// a "Aderência do Cronograma" (plano original vs atual).
+// Snapshot do PLANO no momento em que a semana é comprometida — define o
+// conjunto contra o qual o PPC é medido (ver computeIndicatorsComprometido) e,
+// via planned_date, a taxa de acerto de cada dia (computeIndicatorsDia).
 
-export interface BaselineActivity {
-  activity_id: string
-  name: string
+/**
+ * Linha de week_baseline como vem do banco: estende o tipo que o cálculo usa,
+ * acrescentando as colunas que só a exibição precisa.
+ *
+ * Estende em vez de redeclarar porque havia duas definições independentes de
+ * `BaselineActivity` (uma aqui, outra em adherence.ts) — os campos novos do
+ * cálculo entravam numa e não na outra, e só o tipo estrutural do TypeScript
+ * evitava o erro.
+ */
+export interface BaselineActivity extends BaselineActivityCalc {
   company: string | null
   discipline: string | null
   area: string | null
   stage: string | null
   foreman: string | null
-  planned_date: string
   planned_pct: number
-  status: ActivityStatus
-  is_extra: boolean
   source_cronograma: string | null
   task_uid: string | null
 }
 
-// Salvar baseline: copia todas as atividades da semana para week_baseline
+/**
+ * Copia o PLANO da semana para week_baseline (chamada por comprometerSemana).
+ *
+ * "Plano" exclui as atividades marcadas "fora desta semana" — elas vieram do
+ * cronograma por data, não por decisão. É esse filtro que dispensa o uso de
+ * `Inativa` como remendo.
+ */
 export async function saveWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
   // Primeiro limpa baseline anterior
   const { error: delError } = await supabase
@@ -701,9 +1086,10 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('activities')
-      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, source_cronograma, task_uid')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, inativa, source_cronograma, task_uid')
       .eq('week_id', weekId)
       .eq('organizacao_id', organizacaoId)
+      .eq('fora_do_plano', false)
       .range(from, from + PAGE_SIZE - 1)
     if (error) throw new Error(error.message)
     activities.push(...((data ?? []) as ActivityRow[]))
@@ -729,6 +1115,8 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
     is_extra: a.is_extra,
     source_cronograma: a.source_cronograma,
     task_uid: a.task_uid,
+    inativa: a.inativa,
+    is_extra_original: a.is_extra_original ?? a.is_extra,
   }))
 
   const CHUNK = 500
@@ -806,20 +1194,33 @@ export async function updateWeekAnalise(organizacaoId: string, weekId: string, a
   if (!data || data.length === 0) throw new Error('Não foi possível salvar a análise — verifique se seu nível de acesso é Edição')
 }
 
-// Modificar lockWeek para salvar baseline
-const _originalLockWeek = lockWeek
+/**
+ * Fecha a semana.
+ *
+ * NÃO grava mais baseline — esse era o erro central do módulo. Gravar aqui
+ * significava fotografar o resultado e chamar isso de plano; o baseline agora
+ * nasce em `comprometerSemana`, no início da semana.
+ *
+ * Fechar exige a semana comprometida: sem plano congelado não há o que medir.
+ */
 export async function lockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  // Salva baseline antes de bloquear
-  await saveWeekBaseline(organizacaoId, weekId)
-  // Bloqueia a semana
-  await _originalLockWeek(organizacaoId, weekId)
+  const status = await getWeekStatus(organizacaoId, weekId)
+  if (status === 'rascunho') {
+    throw new Error(
+      'Comprometa a semana antes de fechar — sem o plano congelado não há PPC pra medir.',
+    )
+  }
+  await lockWeek(organizacaoId, weekId)
 }
 
-// Modificar unlockWeek para limpar baseline
-const _originalUnlockWeek = unlockWeek
+/**
+ * Reabre a semana fechada: volta pra 'comprometida' e **mantém o baseline**.
+ *
+ * Antes, desbloquear apagava o baseline e voltava pra rascunho, então
+ * desbloquear + rebloquear gerava um plano novo em cima do resultado já
+ * conhecido, sem deixar rastro nenhum. Pra descartar o plano de fato existe
+ * `reabrirParaMontagem`, que é explícito.
+ */
 export async function unlockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  // Desbloqueia a semana
-  await _originalUnlockWeek(organizacaoId, weekId)
-  // Limpa baseline
-  await clearWeekBaseline(organizacaoId, weekId)
+  await unlockWeek(organizacaoId, weekId)
 }

@@ -10,7 +10,7 @@ interface ProtectedRouteProps {
 const LANCAMENTO_HOME = '/dashboard/people/lancamento'
 
 export default function ProtectedRoute({ children }: ProtectedRouteProps) {
-  const { session, isLoading, userProfile, isLoadingProfile } = useAuth()
+  const { session, isLoading, userProfile, isLoadingProfile, perfilCompleto } = useAuth()
   const location = useLocation()
 
   if (isLoading || (session && isLoadingProfile)) {
@@ -35,6 +35,11 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   // Usuário precisa aceitar os termos de uso e política de privacidade
   if (!userProfile.termos_aceitos_em && location.pathname !== '/aceitar-termos') {
     return <Navigate to="/aceitar-termos" replace />
+  }
+
+  // Usuário precisa completar perfil (nome e função) no primeiro acesso
+  if (!perfilCompleto && location.pathname !== '/completar-perfil') {
+    return <Navigate to="/completar-perfil" replace />
   }
 
   // O papel "insercao_pontual" só existe na tela de lançamento, que ainda não

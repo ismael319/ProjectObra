@@ -110,7 +110,7 @@ export async function downloadMatrizSemanalPdf(params: {
     doc.setFontSize(8);
     const aderencia = matriz.aderenciaPct != null ? `${matriz.aderenciaPct}%` : "—";
     doc.text(
-      `${matriz.concluidas} concluídas   ${matriz.naoConcluidas} não concluídas   Aderência: ${aderencia} (${matriz.concluidas}/${matriz.totalAtividades})`,
+      `${matriz.concluidas} concluídas   ${matriz.naoConcluidas} não concluídas   Aderência: ${aderencia} (${matriz.concluidas}/${matriz.totalPlanejadas})`,
       MARGIN + 8,
       y,
     );

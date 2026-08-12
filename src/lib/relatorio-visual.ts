@@ -37,6 +37,10 @@ export type RelatorioVisual = {
    * só quando não há nenhuma atividade planejada (ex.: dia só com extras). */
   aderenciaPct: number | null;
   totalAtividades: number;
+  /** Denominador REAL da aderência (planejadas, sem extras). A tela mostra a
+   * fração "concluidas/totalPlanejadas" — usar totalAtividades ali misturava
+   * conjuntos e a fração nunca explicava o percentual ao lado. */
+  totalPlanejadas: number;
 };
 
 const SEM_AREA = "Sem área";
@@ -109,6 +113,7 @@ export function buildRelatorioVisual(activities: ActivityLike[], partialWeight =
     naoConcluidas,
     aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
     totalAtividades: ativas.length,
+    totalPlanejadas: denom,
   };
 }
 
@@ -142,6 +147,7 @@ export type EngenheiroMatriz = {
   naoConcluidas: number;
   aderenciaPct: number | null;
   totalAtividades: number;
+  totalPlanejadas: number;
 };
 
 export type MatrizSemanal = {
@@ -152,6 +158,8 @@ export type MatrizSemanal = {
   /** Mesmo critério de RelatorioVisual.aderenciaPct — ver ali. */
   aderenciaPct: number | null;
   totalAtividades: number;
+  /** Denominador REAL da aderência — ver RelatorioVisual.totalPlanejadas. */
+  totalPlanejadas: number;
 };
 
 const SEM_ENGENHEIRO = "Sem engenheiro";
@@ -183,6 +191,7 @@ function statsDeAtividades(atividades: ActivityLike[], partialWeight: number) {
     naoConcluidas,
     aderenciaPct: denom > 0 ? Math.round((weighted / denom) * 100) : null,
     totalAtividades: atividades.length,
+    totalPlanejadas: denom,
   };
 }
 

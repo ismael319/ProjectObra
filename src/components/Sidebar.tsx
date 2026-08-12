@@ -1,12 +1,21 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   ChevronDown, ChevronRight, LayoutDashboard,
-  PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck,
+  PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
 import type { PapelUsuario } from '@/lib/auth-context'
 import { buildNavSections, getNavItemDestination, navSectionsInsercaoPontual, type NavItem } from '@/lib/nav-config'
+
+// Telas de administração do sistema — agrupadas sob "Sistema" no rodapé da
+// sidebar, visíveis só pra quem tem papel Edição no módulo 'sistema'.
+// A chave não é uma rota: o grupo só abre/fecha, não navega pra lugar nenhum.
+const SISTEMA_KEY = 'grupo:sistema'
+const SISTEMA_ITEMS = [
+  { to: '/dashboard/admin/users', label: 'Usuários', Icon: UserCog },
+  { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
+]
 
 function hexToHSL(hex: string): string {
   const r = parseInt(hex.slice(1, 3), 16) / 255
@@ -97,6 +106,29 @@ export default function Sidebar({
   const sidebarActiveTint = `${brandColor}30`
 
   const isActive = (path: string) => location.pathname === path
+
+  // Seção do módulo em que o usuário está agora. Derivada dos próprios itens do
+  // nav (não de um mapa paralelo módulo→paths, como era antes do
+  // buildNavSections existir) — assim uma rota nova não precisa ser registrada
+  // em dois lugares.
+  const cobreRota = (item: NavItem): boolean =>
+    location.pathname === item.path ||
+    location.pathname.startsWith(item.path + '/') ||
+    (item.children?.some(cobreRota) ?? false)
+  const secaoAtual = navSections.find((s) => s.items.some(cobreRota))?.title ?? null
+
+  // Ao navegar pra outro módulo, recolhe as seções dos demais. Depende só do
+  // título (string estável): navSections é recalculado a cada render, e usá-lo
+  // como dependência entraria em laço.
+  useEffect(() => {
+    if (!secaoAtual) return
+    setExpandedSections((prev) =>
+      prev.size === 1 && prev.has(secaoAtual) ? prev : new Set([secaoAtual]),
+    )
+  }, [secaoAtual])
+
+  const isSistemaAtivo = SISTEMA_ITEMS.some((i) => isActive(i.to))
+  const sistemaAberto = expandedItems.has(SISTEMA_KEY)
 
   const activeStyle = (path: string): React.CSSProperties =>
     isActive(path)
@@ -326,30 +358,53 @@ export default function Sidebar({
 
         {podeGerenciarUsuarios && (
           <div className={`border-t ${collapsed ? 'p-2' : 'p-3'}`} style={{ borderColor: 'rgba(255,255,255,0.15)' }}>
-            {[
-              { to: '/dashboard/admin/users', label: 'Sistema', Icon: Settings },
-              { to: '/dashboard/admin/validacoes', label: 'Validações', Icon: ShieldCheck },
-            ].map(({ to, label, Icon }) => (
-              <Link
-                key={to}
-                to={to}
-                onClick={() => onMobileClose()}
-                className={`flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
-                  collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
-                } ${
-                  isActive(to)
-                    ? 'text-white'
-                    : 'text-white/80 hover:text-white'
-                }`}
-                style={activeStyle(to)}
-                onMouseEnter={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = sidebarHover }}
-                onMouseLeave={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = 'transparent' }}
-                title={label}
-              >
-                <Icon size={18} />
-                {!collapsed && <span>{label}</span>}
-              </Link>
-            ))}
+            {/* "Sistema" é o grupo; Usuários e Validações são as telas dentro
+                dele. Reusa expandedItems/toggleItem do nav — começa fechado,
+                igual aos outros itens com filhos. "Sistema" deixou de ser link:
+                só abre e fecha, e as telas são alcançadas pelos itens de dentro. */}
+            <button
+              type="button"
+              onClick={() => !collapsed && toggleItem(SISTEMA_KEY)}
+              className={`w-full flex items-center gap-3 rounded-lg text-sm font-medium transition-colors duration-150 ${
+                collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+              } ${isSistemaAtivo ? 'text-white' : 'text-white/80 hover:text-white'}`}
+              style={isSistemaAtivo ? { backgroundColor: sidebarActiveTint, borderLeft: `3px solid ${sidebarActive}` } : undefined}
+              onMouseEnter={(e) => { if (!isSistemaAtivo) e.currentTarget.style.backgroundColor = sidebarHover }}
+              onMouseLeave={(e) => { if (!isSistemaAtivo) e.currentTarget.style.backgroundColor = 'transparent' }}
+              title="Sistema"
+            >
+              <Settings size={18} />
+              {!collapsed && (
+                <>
+                  <span className="flex-1 text-left">Sistema</span>
+                  {sistemaAberto ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                </>
+              )}
+            </button>
+
+            {/* Recolhida, os filhos ficam sempre à mostra como ícones: o rótulo
+                do grupo não cabe e esconder deixaria as telas sem caminho. */}
+            {(collapsed || sistemaAberto) && (
+              <div className={collapsed ? 'space-y-0.5' : 'mt-0.5 ml-3 pl-3 border-l border-white/15 space-y-0.5'}>
+                {SISTEMA_ITEMS.map(({ to, label, Icon }) => (
+                  <Link
+                    key={to}
+                    to={to}
+                    onClick={() => onMobileClose()}
+                    className={`flex items-center gap-3 rounded-md text-sm transition-colors duration-150 ${
+                      collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2'
+                    } ${isActive(to) ? 'text-white font-semibold' : 'text-white/80 hover:text-white font-medium'}`}
+                    style={activeStyle(to)}
+                    onMouseEnter={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = sidebarHover }}
+                    onMouseLeave={(e) => { if (!isActive(to)) e.currentTarget.style.backgroundColor = 'transparent' }}
+                    title={label}
+                  >
+                    <Icon size={collapsed ? 18 : 15} />
+                    {!collapsed && <span>{label}</span>}
+                  </Link>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </aside>

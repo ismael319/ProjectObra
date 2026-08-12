@@ -3,7 +3,7 @@ import { Calendar, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
-import { computeIndicators, computeIndicatorsCronograma, computeSegment, type ActivityLike, type ActivityStatus } from '@/lib/adherence'
+import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type WeekIndicators } from '@/lib/adherence'
 import {
   getWeek,
   lockWeekWithBaseline,
@@ -14,11 +14,17 @@ import {
   deleteActivity,
   addExtraActivity,
   mergeExcel,
+  descreverMergeExcel,
   clearWeekActivities,
   clearDayActivities,
   listEngenheirosArea,
   moverAtividadesParaDia,
   finalizarAtividade,
+  comprometerSemana,
+  reabrirParaMontagem,
+  resumoComprometimento,
+  setActivityForaDoPlano,
+  type WeekData,
 } from '@/lib/programacao-db'
 import { useProjects } from '@/lib/project-store'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
@@ -54,11 +60,10 @@ export default function DailyProgramming() {
   const [isoYear, setIsoYear] = useState(cur.year)
   const [isoWeek, setIsoWeek] = useState(cur.week)
   const [loading, setLoading] = useState(true)
-  const [weekData, setWeekData] = useState<{
-    week: { id: string; iso_year: number; iso_week: number; start_date: string; end_date: string; status: 'rascunho' | 'consolidado' }
-    activities: ActivityLike[]
-    partialWeight: number
-  } | null>(null)
+  // Tipo vindo de getWeek em vez de redeclarado aqui: a cópia local ficava pra
+  // trás a cada coluna nova (era ela que ainda dizia status: 'rascunho' |
+  // 'consolidado' depois do estado 'comprometida' existir).
+  const [weekData, setWeekData] = useState<WeekData | null>(null)
   const [openDate, setOpenDate] = useState<string | null>(null)
   const [showWeekActivities, setShowWeekActivities] = useState(false)
   const [weekActivities, setWeekActivities] = useState<WeekActivity[]>([])
@@ -101,6 +106,7 @@ export default function DailyProgramming() {
 
   const activities = weekData?.activities ?? []
   const partialWeight = weekData?.partialWeight ?? 0.5
+  const baseline = weekData?.baseline ?? []
 
   const indicators = useMemo(() => computeIndicators(activities, partialWeight), [activities, partialWeight])
   // Aderência do Cronograma (plano original, ignora Extra/Inativa feitos depois) x
@@ -127,6 +133,18 @@ export default function DailyProgramming() {
     }
     return m
   }, [days, activities])
+
+  // Taxa de acerto de cada dia contra o que foi comprometido PRA ele. Vem do
+  // baseline (não da programação atual), então arrastar uma pendência de um dia
+  // pro outro não maquia nenhum dos dois — ver computeIndicatorsDia.
+  const acertoPorDia = useMemo(() => {
+    const m = new Map<string, WeekIndicators | null>()
+    for (const d of days) m.set(d, computeIndicatorsDia(baseline, activities, d, partialWeight))
+    return m
+  }, [days, baseline, activities, partialWeight])
+
+  /** Dia em que cada atividade foi comprometida — alimenta o selo "veio de". */
+  const diaComprometido = useMemo(() => diaComprometidoPorAtividade(baseline), [baseline])
 
   // Cronogramas ativos no formato que o ColumnValueFilter (mesmo componente da Curva
   // S) e o cálculo de exclusão por coluna esperam — inclui também os índices de LB
@@ -186,6 +204,16 @@ export default function DailyProgramming() {
       for (const act of c.dados.activities) {
         map.set(`${c.nome}::${act.uid}`, act)
       }
+    }
+    return map
+  }, [currentProject])
+
+  // Mapa nome do cronograma -> ID do cronograma, pra converter source (nome) em
+  // cronogramaId (ID) ao calcular as chaves pré-selecionadas no modal de importação.
+  const cronogramaNomeToId = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of currentProject?.cronogramas || []) {
+      map.set(c.nome, c.id)
     }
     return map
   }, [currentProject])
@@ -315,7 +343,12 @@ export default function DailyProgramming() {
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, string | number | null>>(ws, { defval: null })
       const result = await mergeExcel(organizacaoId, weekData.week.id, rows)
-      toast.success(`Excel importado: ${result.updated} atividade(s) atualizada(s)`)
+      const { texto, ok } = descreverMergeExcel(result)
+      // Importação que não casou nenhuma linha é erro do ponto de vista de quem
+      // preencheu a planilha, não sucesso com zero — antes saía um toast verde
+      // dizendo "0 atividade(s) atualizada(s)" e ninguém percebia.
+      if (ok) toast.success(`Excel importado: ${texto}`)
+      else toast.error(texto, { duration: 10000 })
       fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao importar Excel'
@@ -323,25 +356,70 @@ export default function DailyProgramming() {
     }
   }
 
+  // Comprometer é o momento em que o plano da semana vira compromisso: é aqui
+  // que o baseline é congelado, e é contra ele que o PPC passa a ser medido.
+  // O gate de confirmação dos engenheiros veio de handleLock junto com o
+  // baseline — validar no FECHAMENTO era confirmar um plano cujo resultado já
+  // estava na tela; a confirmação só significa alguma coisa antes da semana
+  // rodar.
+  const handleComprometer = async () => {
+    if (!weekData?.week) return
+    try {
+      const { comprometidas, foraDoPlano } = await resumoComprometimento(organizacaoId, weekData.week.id)
+
+      const pronta = await programacaoProntaParaBloqueio(weekData.week.id)
+      const avisoValidacao = pronta
+        ? ''
+        : '\n\nATENÇÃO: nem todos os engenheiros confirmaram a programação desta semana.'
+
+      const seguir = confirm(
+        `Comprometer a semana congela o plano:\n\n` +
+          `• ${comprometidas} atividade(s) entram no compromisso\n` +
+          `• ${foraDoPlano} marcada(s) como "fora desta semana" (ficam fora da conta)\n\n` +
+          `A partir daqui o PPC é medido contra esse conjunto. Apontar status continua livre; ` +
+          `alterações no conjunto passam a aparecer na Análise Semanal.${avisoValidacao}\n\nContinuar?`,
+      )
+      if (!seguir) return
+
+      await comprometerSemana(organizacaoId, weekData.week.id)
+      toast.success(`Semana comprometida — ${comprometidas} atividade(s) no plano`)
+      fetchData(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao comprometer semana'
+      toast.error(msg)
+    }
+  }
+
+  const handleReabrirMontagem = async () => {
+    if (!weekData?.week) return
+    if (
+      !confirm(
+        'Voltar pra montagem DESCARTA o plano comprometido desta semana.\n\n' +
+          'O baseline é apagado e o PPC volta a não existir até você comprometer de novo. ' +
+          'Use só pra corrigir um comprometimento feito por engano.\n\nContinuar?',
+      )
+    )
+      return
+    try {
+      await reabrirParaMontagem(organizacaoId, weekData.week.id)
+      toast.success('Semana voltou pra montagem — plano descartado')
+      fetchData(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao reabrir semana'
+      toast.error(msg)
+    }
+  }
+
+  // Fechar não grava mais baseline — só encerra a semana. O plano já foi
+  // congelado em handleComprometer.
   const handleLock = async () => {
     if (!weekData?.week) return
     try {
-      // Bloquear a semana congela o baseline: fazer isso antes de todo mundo
-      // confirmar deixaria a aderência sendo medida contra um plano que ninguém
-      // validou. Só avisa — quem tem papel Edição decide seguir mesmo assim.
-      const pronta = await programacaoProntaParaBloqueio(weekData.week.id)
-      if (!pronta) {
-        const seguir = confirm(
-          'Nem todos os engenheiros confirmaram a programação desta semana.\n\n' +
-            'Bloquear agora salva o baseline mesmo sem as confirmações. Deseja continuar?',
-        )
-        if (!seguir) return
-      }
       await lockWeekWithBaseline(organizacaoId, weekData.week.id)
-      toast.success('Semana bloqueada com baseline salvo')
+      toast.success('Semana fechada')
       fetchData(false)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Erro ao bloquear semana'
+      const msg = e instanceof Error ? e.message : 'Erro ao fechar semana'
       toast.error(msg)
     }
   }
@@ -350,10 +428,10 @@ export default function DailyProgramming() {
     if (!weekData?.week) return
     try {
       await unlockWeekWithBaseline(organizacaoId, weekData.week.id)
-      toast.success('Semana desbloqueada')
+      toast.success('Semana reaberta — o plano comprometido foi mantido')
       fetchData(false)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Erro ao desbloquear semana'
+      const msg = e instanceof Error ? e.message : 'Erro ao reabrir semana'
       toast.error(msg)
     }
   }
@@ -401,6 +479,17 @@ export default function DailyProgramming() {
       fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao inativar a atividade'
+      toast.error(msg)
+    }
+  }
+
+  const handleSetForaDoPlano = async (id: string, fora: boolean, motivo: string | null) => {
+    try {
+      await setActivityForaDoPlano(organizacaoId, id, fora, motivo)
+      toast.success(fora ? 'Atividade fora desta semana' : 'Atividade de volta ao plano')
+      fetchData(false)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erro ao atualizar o plano da atividade'
       toast.error(msg)
     }
   }
@@ -528,6 +617,8 @@ export default function DailyProgramming() {
         onLock={handleLock}
         onUnlock={handleUnlock}
         onImportActivities={handleSearchWeekActivities}
+        onComprometer={handleComprometer}
+        onReabrirMontagem={handleReabrirMontagem}
         onClearWeek={handleClearWeek}
         onManageEngenheiros={() => setShowEngenheirosArea(true)}
         onExportSemanal={handleExportarSemana}
@@ -536,7 +627,14 @@ export default function DailyProgramming() {
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
         {days.map((d) => (
-          <CardDia key={d} date={d} activities={activitiesByDate.get(d) ?? []} onOpen={setOpenDate} />
+          <CardDia
+            key={d}
+            date={d}
+            activities={activitiesByDate.get(d) ?? []}
+            onOpen={setOpenDate}
+            partialWeight={partialWeight}
+            acertoDia={acertoPorDia.get(d) ?? null}
+          />
         ))}
       </div>
 
@@ -562,8 +660,12 @@ export default function DailyProgramming() {
         weekDays={days}
         todasAtividadesDaSemana={activities}
         weekConsolidated={weekData.week.status === 'consolidado'}
+        weekStatus={weekData.week.status}
+        diaComprometido={diaComprometido}
+        acertoDia={openDate ? (acertoPorDia.get(openDate) ?? null) : null}
         onSetStatus={handleSetStatus}
         onSetInativa={handleSetInativa}
+        onSetForaDoPlano={handleSetForaDoPlano}
         onSetExtra={handleSetExtra}
         onFinalizar={handleFinalizarAtividade}
         onReprogramar={handleReprogramar}
@@ -591,6 +693,18 @@ export default function DailyProgramming() {
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
         onImported={() => fetchData(false)}
+        preSelectedKeys={
+          new Set(
+            activities
+              .filter((a) => a.source && a.taskUid)
+              .map((a) => {
+                const cronogramaId = cronogramaNomeToId.get(a.source!)
+                // Converte taskUid para string para corresponder ao formato de rowKey no modal
+                return cronogramaId ? `${cronogramaId}::${String(a.taskUid)}` : null
+              })
+              .filter((k): k is string => k !== null)
+          )
+        }
       />
 
       <ModalImportarAtividades
@@ -605,6 +719,20 @@ export default function DailyProgramming() {
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
         onImported={() => fetchData(false)}
+        preSelectedKeys={
+          dayImportDate
+            ? new Set(
+                (activitiesByDate.get(dayImportDate) ?? [])
+                  .filter((a) => a.source && a.taskUid)
+                  .map((a) => {
+                    const cronogramaId = cronogramaNomeToId.get(a.source!)
+                    // Converte taskUid para string para corresponder ao formato de rowKey no modal
+                    return cronogramaId ? `${cronogramaId}::${String(a.taskUid)}` : null
+                  })
+                  .filter((k): k is string => k !== null)
+              )
+            : undefined
+        }
       />
 
       <ModalEngenheirosArea
@@ -620,6 +748,9 @@ export default function DailyProgramming() {
         alvo={alvoExportacao}
       />
 
+      {/* analiseAtual vinha fixo em null: o texto era salvo em
+          weeks.analise_semanal e nunca lido de volta, então reabrir a análise
+          mostrava o campo vazio e sobrescrevia o que já estava gravado. */}
       {weekData?.week && (
         <ModalAnaliseSemana
           open={showAnalise}
@@ -627,7 +758,9 @@ export default function DailyProgramming() {
           organizacaoId={organizacaoId}
           weekId={weekData.week.id}
           weekLabel={`${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`}
-          analiseAtual={null}
+          analiseAtual={weekData.week.analise_semanal ?? null}
+          partialWeight={partialWeight}
+          atividades={activities}
           onSaved={() => fetchData(false)}
         />
       )}

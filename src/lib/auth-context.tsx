@@ -41,6 +41,7 @@ interface AuthContextType {
   userProfile: UserProfile | null
   isLoadingProfile: boolean
   precisaAceitarTermos: boolean
+  perfilCompleto: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, nome?: string) => Promise<{ error?: string }>
@@ -48,6 +49,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
   aceitarTermos: () => Promise<void>
+  completarPerfil: (nome: string, funcao: string) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -58,6 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
   const [isLoadingProfile, setIsLoadingProfile] = useState(true)
   const [precisaAceitarTermos, setPrecisaAceitarTermos] = useState(false)
+  const [perfilCompleto, setPerfilCompleto] = useState(false)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -152,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
       setUserProfile(profile)
       setPrecisaAceitarTermos(!data.termos_aceitos_em)
+      setPerfilCompleto(!!(data.nome && data.funcao))
       idbSet(profileCacheKey(userId), profile).catch(() => {})
     } else {
       // Sem rede (apontador em campo), a busca acima não retorna `data` nem
@@ -160,6 +164,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const cached = await idbGet<UserProfile>(profileCacheKey(userId)).catch(() => undefined)
       if (requestId !== profileRequestId.current) return
       setUserProfile(cached ?? null)
+      setPerfilCompleto(!!(cached?.nome && cached?.funcao))
     }
     setIsLoadingProfile(false)
   }
@@ -236,6 +241,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const completarPerfil = async (nome: string, funcao: string) => {
+    const { error } = await supabase.rpc('completar_perfil', { p_nome: nome, p_funcao: funcao })
+    if (!error) {
+      setPerfilCompleto(true)
+      await refetchProfile()
+    }
+    return { error: error?.message }
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -245,6 +259,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         userProfile,
         isLoadingProfile,
         precisaAceitarTermos,
+        perfilCompleto,
         refetchProfile,
         signIn,
         signUp,
@@ -252,6 +267,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         resetPassword,
         updatePassword,
         aceitarTermos,
+        completarPerfil,
       }}
     >
       {children}
