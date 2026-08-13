@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2, Settings2 } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2, Settings2, FolderKanban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { enviarConviteEmail } from '@/lib/convite-email'
 import { useAuth, usePapelModulo, type PapelUsuario } from '@/lib/auth-context'
 import PapelPorModuloModal from '@/components/PapelPorModuloModal'
+import EscopoObrasModal from '@/components/EscopoObrasModal'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -100,6 +101,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const [isExcluindo, setIsExcluindo] = useState(false)
 
   const [papelModuloAlvo, setPapelModuloAlvo] = useState<SolicitacaoRow | null>(null)
+  const [escopoObrasAlvo, setEscopoObrasAlvo] = useState<SolicitacaoRow | null>(null)
 
   const load = useCallback(async () => {
     if (!orgAlvo) return
@@ -546,6 +548,16 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                           <Button
                             size="sm"
                             variant="outline"
+                            title="Definir as obras que este usuário pode acessar"
+                            onClick={() => setEscopoObrasAlvo(row)}
+                          >
+                            <FolderKanban size={14} /> Obras
+                          </Button>
+                        )}
+                        {row.status_solicitacao === 'aprovado' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
                             title="Configurar um papel diferente do padrão em módulos específicos"
                             onClick={() => setPapelModuloAlvo(row)}
                           >
@@ -631,6 +643,15 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
           usuarioId={papelModuloAlvo.id}
           usuarioEmail={papelModuloAlvo.email}
           papelGlobal={papelModuloAlvo.papel}
+          organizacaoId={orgAlvo}
+        />
+      )}
+      {escopoObrasAlvo && orgAlvo && (
+        <EscopoObrasModal
+          open={!!escopoObrasAlvo}
+          onOpenChange={(o) => !o && setEscopoObrasAlvo(null)}
+          usuarioId={escopoObrasAlvo.id}
+          usuarioEmail={escopoObrasAlvo.email}
           organizacaoId={orgAlvo}
         />
       )}
