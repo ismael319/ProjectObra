@@ -3,6 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
+const APP_ORIGIN = Deno.env.get('APP_ORIGIN') ?? 'https://project-obra.vercel.app'
 
 const PAPEL_LABELS: Record<string, string> = {
   edicao: 'Edição',
@@ -20,7 +21,7 @@ function escapeHtml(str: string): string {
 }
 
 const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': APP_ORIGIN,
   'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Access-Control-Max-Age': '86400',
@@ -61,37 +62,55 @@ Deno.serve(async (request: Request) => {
     return json({ error: 'Sessão inválida ou expirada' }, 401)
   }
 
-  let body: { email?: string; papel?: string; organizacao_nome?: string; site_url?: string }
+  let body: { conviteId?: string; email?: string }
   try {
     body = await request.json()
   } catch {
     return json({ error: 'JSON inválido' }, 400)
   }
 
-  const { email, papel, organizacao_nome, site_url } = body ?? {}
-
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    return json({ error: 'Email inválido' }, 400)
-  }
-  if (papel && !Object.keys(PAPEL_LABELS).includes(papel)) {
-    return json({ error: 'Papel inválido' }, 400)
-  }
-  if (organizacao_nome && organizacao_nome.length > 200) {
-    return json({ error: 'Nome da organização muito longo' }, 400)
+  const conviteId = body?.conviteId
+  const legacyEmail = body?.email?.trim()
+  if (
+    (!conviteId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conviteId))
+    && (!legacyEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(legacyEmail))
+  ) {
+    return json({ error: 'Convite inválido' }, 400)
   }
   if (!RESEND_API_KEY) {
     return json({ error: 'RESEND_API_KEY não configurada' }, 500)
   }
 
-  const baseUrl = (site_url ?? '').replace(/\/+$/, '')
-  const signupUrl = baseUrl ? `${baseUrl}/signup` : 'a plataforma ProjectObra'
-  const link = baseUrl
-    ? `<a href="${signupUrl}" style="color:#2563eb;font-weight:600;">criar sua conta</a>`
-    : 'criar sua conta'
+  // O convite é carregado usando o JWT de quem chamou. A RLS de `convites`
+  // decide quem pode reenviar e impede que dados arbitrários virem e-mail.
+  let conviteQuery = authClient
+    .from('convites')
+    .select('email, papel_convidado, organizacoes(nome)')
+    .is('usado_em', null)
+    .maybeSingle()
 
-  const orgName = escapeHtml(organizacao_nome ?? '—')
-  const papelLabel = escapeHtml(PAPEL_LABELS[papel ?? ''] ?? papel ?? '—')
+  conviteQuery = conviteId
+    ? conviteQuery.eq('id', conviteId)
+    : conviteQuery.ilike('email', legacyEmail!)
+
+  const { data: convite, error: conviteError } = await conviteQuery
+
+  if (conviteError) {
+    console.error('Falha ao carregar convite:', conviteError.message)
+    return json({ error: 'Não foi possível validar o convite' }, 500)
+  }
+  if (!convite) {
+    return json({ error: 'Convite não encontrado ou sem permissão' }, 403)
+  }
+
+  const email = convite.email
+  const papel = convite.papel_convidado
+  const org = convite.organizacoes as { nome?: string } | { nome?: string }[] | null
+  const orgName = escapeHtml(Array.isArray(org) ? (org[0]?.nome ?? '—') : (org?.nome ?? '—'))
+  const papelLabel = escapeHtml(PAPEL_LABELS[papel] ?? papel)
   const safeEmail = escapeHtml(email)
+  const signupUrl = `${APP_ORIGIN.replace(/\/+$/, '')}/signup`
+  const link = `<a href="${signupUrl}" style="color:#2563eb;font-weight:600;">criar sua conta</a>`
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -145,8 +164,8 @@ Deno.serve(async (request: Request) => {
 
   if (!res.ok) {
     console.error('Falha ao enviar email via Resend:', JSON.stringify(data))
-    return json({ error: 'Falha ao enviar o email', details: data }, res.status)
+    return json({ error: 'Falha ao enviar o email' }, res.status)
   }
 
-  return json(data)
+  return json({ sent: true })
 })

@@ -1072,68 +1072,19 @@ export interface BaselineActivity extends BaselineActivityCalc {
  * `Inativa` como remendo.
  */
 export async function saveWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  // Primeiro limpa baseline anterior
-  const { error: delError } = await supabase
-    .from('week_baseline')
-    .delete()
-    .eq('week_id', weekId)
-    .eq('organizacao_id', organizacaoId)
-  if (delError) throw new Error(delError.message)
-
-  // Busca atividades atuais
-  const PAGE_SIZE = 1000
-  const activities: ActivityRow[] = []
-  for (let from = 0; ; from += PAGE_SIZE) {
-    const { data, error } = await supabase
-      .from('activities')
-      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, inativa, source_cronograma, task_uid')
-      .eq('week_id', weekId)
-      .eq('organizacao_id', organizacaoId)
-      .eq('fora_do_plano', false)
-      .range(from, from + PAGE_SIZE - 1)
-    if (error) throw new Error(error.message)
-    activities.push(...((data ?? []) as ActivityRow[]))
-    if (!data || data.length < PAGE_SIZE) break
-  }
-
-  if (activities.length === 0) return
-
-  // Insere em lotes
-  const rows = activities.map(a => ({
-    week_id: weekId,
-    organizacao_id: organizacaoId,
-    activity_id: a.id,
-    name: a.name,
-    company: a.company,
-    discipline: a.discipline,
-    area: a.area,
-    stage: a.stage,
-    foreman: a.foreman,
-    planned_date: a.planned_date,
-    planned_pct: a.planned_pct,
-    status: a.status,
-    is_extra: a.is_extra,
-    source_cronograma: a.source_cronograma,
-    task_uid: a.task_uid,
-    inativa: a.inativa,
-    is_extra_original: a.is_extra_original ?? a.is_extra,
-  }))
-
-  const CHUNK = 500
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const lote = rows.slice(i, i + CHUNK)
-    const { error } = await supabase.from('week_baseline').insert(lote)
-    if (error) throw new Error(error.message)
-  }
+  const { error } = await supabase.rpc('save_week_baseline', {
+    p_week_id: weekId,
+    p_organizacao_id: organizacaoId,
+  })
+  if (error) throw new Error(error.message)
 }
 
 // Limpar baseline (chamada ao desbloquear)
 export async function clearWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  const { error } = await supabase
-    .from('week_baseline')
-    .delete()
-    .eq('week_id', weekId)
-    .eq('organizacao_id', organizacaoId)
+  const { error } = await supabase.rpc('clear_week_baseline', {
+    p_week_id: weekId,
+    p_organizacao_id: organizacaoId,
+  })
   if (error) throw new Error(error.message)
 }
 
