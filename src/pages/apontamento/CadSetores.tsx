@@ -6,6 +6,8 @@ export default function CadSetores() {
       title="Setores"
       description="Setores da obra (grande estrutura)"
       table="setores"
+      organizacaoScoped
+      projetoScoped
       fields={[
         { key: "codigo", label: "Código EAP", type: "text" },
         { key: "nome", label: "Nome", type: "text", required: true },

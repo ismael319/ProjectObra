@@ -16,6 +16,8 @@ export default function CadSubareas() {
       title="Etapas"
       description="Detalhamento dentro de cada área"
       table="subareas"
+      organizacaoScoped
+      projetoScoped
       fields={[
         { key: "area_id", label: "Área (setor)", type: "select", required: true, options: areaOpts },
         { key: "codigo", label: "Código EAP", type: "text" },

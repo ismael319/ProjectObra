@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import {
   useEmpresas, useLiderancas, useSetores, useAreas, useSubareas, useAtividades,
@@ -49,7 +50,10 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
 
 export default function LancamentoPage() {
   const qc = useQueryClient();
-  const { user } = useAuth();
+  const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [form, setForm] = useState<FormState>(emptyForm());
   const total = form.pedreiro + form.servente + form.carpinteiro + form.qntdd_funcao;
 
@@ -66,34 +70,41 @@ export default function LancamentoPage() {
   );
 
   const { data: doDia, refetch } = useQuery({
-    queryKey: ["apontamentos-dia", form.data],
+    queryKey: ["apontamentos-dia", organizacaoId, projetoId, form.data],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("apontamentos_diarios")
         .select("*")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .eq("data", form.data);
       if (error) throw error;
       return (data ?? []).sort((a: any, b: any) => (b.criado_em ?? "").localeCompare(a.criado_em ?? ""));
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const online = useOnlineStatus();
   const [syncing, setSyncing] = useState(false);
 
   const { data: pendentes = [], refetch: refetchPendentes } = useQuery({
-    queryKey: ["apontamentos-pendentes"],
+    queryKey: ["apontamentos-pendentes", organizacaoId, projetoId],
     queryFn: () => listPending(),
     networkMode: "always",
   });
+  const pendentesDaObra = useMemo(
+    () => pendentes.filter((p) => p.payload.organizacao_id === organizacaoId && p.payload.projeto_id === projetoId),
+    [pendentes, organizacaoId, projetoId],
+  );
   const pendentesDoDia = useMemo(
-    () => pendentes.filter((p) => p.payload.data === form.data),
-    [pendentes, form.data],
+    () => pendentesDaObra.filter((p) => p.payload.data === form.data),
+    [pendentesDaObra, form.data],
   );
 
   const sync = useCallback(async () => {
     setSyncing(true);
     try {
-      const result = await drain();
+      const result = await drain({ organizacaoId, projetoId });
       if (result.synced.length > 0) {
         toast.success(`${result.synced.length} apontamento(s) sincronizado(s)`);
         refetch();
@@ -106,7 +117,7 @@ export default function LancamentoPage() {
     } finally {
       setSyncing(false);
     }
-  }, [refetch, refetchPendentes, qc]);
+  }, [refetch, refetchPendentes, qc, organizacaoId, projetoId]);
 
   useEffect(() => {
     sync();
@@ -123,6 +134,7 @@ export default function LancamentoPage() {
       const subarea = subareas.find((s) => s.id === f.subarea_id);
       const atividade = atividades.find((a) => a.id === f.atividade_id);
       if (!empresa || !lider || !setor || !atividade) throw new Error("Selecione todos os campos obrigatórios");
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de lançar apontamentos");
       const payload = computeApontamento({
         id: crypto.randomUUID(),
         data: f.data,
@@ -137,6 +149,8 @@ export default function LancamentoPage() {
         validado: false,
         criado_por: user?.id ?? null,
         criado_por_nome: user?.email ?? null,
+        organizacao_id: organizacaoId,
+        projeto_id: projetoId,
       });
 
       // `id` gerado sempre (mesmo online) é a chave de idempotência: se o
@@ -176,7 +190,12 @@ export default function LancamentoPage() {
 
   const delMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("apontamentos_diarios").delete().eq("id", id);
+      const { error } = await supabase
+        .from("apontamentos_diarios")
+        .delete()
+        .eq("id", id)
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!);
       if (error) throw error;
     },
     // Idem — sem isso, tentar remover um apontamento já sincronizado enquanto
@@ -234,9 +253,9 @@ export default function LancamentoPage() {
           <span className={online ? "text-muted-foreground" : "font-medium text-amber-600"}>
             {online ? "Online" : "Offline — os lançamentos ficam salvos no aparelho"}
           </span>
-          {pendentes.length > 0 && (
+          {pendentesDaObra.length > 0 && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
-              {pendentes.length} pendente(s) de envio
+              {pendentesDaObra.length} pendente(s) de envio
             </span>
           )}
         </div>
@@ -245,7 +264,7 @@ export default function LancamentoPage() {
           variant="outline"
           size="sm"
           onClick={sync}
-          disabled={!online || syncing || pendentes.length === 0}
+          disabled={!online || syncing || pendentesDaObra.length === 0}
         >
           {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           Sincronizar agora

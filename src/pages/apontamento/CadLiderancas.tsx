@@ -43,6 +43,8 @@ export default function CadLiderancas() {
             title="Lideranças sem empresa"
             description="Ainda não associadas a nenhuma empresa — edite e escolha a empresa pra mover pra subaba dela."
             table="liderancas"
+            organizacaoScoped
+            projetoScoped
             fields={fieldsFor(null)}
             extraColumns={[{ key: "tipo", label: "Tipo" }]}
             filter={{ column: "empresa_id", value: null }}
@@ -55,6 +57,8 @@ export default function CadLiderancas() {
             <CadastroPage
               title={`Lideranças — ${e.nome}`}
               table="liderancas"
+              organizacaoScoped
+              projetoScoped
               fields={fieldsFor(e.id)}
               extraColumns={[{ key: "tipo", label: "Tipo" }]}
               filter={{ column: "empresa_id", value: e.id }}

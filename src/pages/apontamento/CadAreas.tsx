@@ -9,6 +9,8 @@ export default function CadAreas() {
       title="Áreas"
       description="Áreas dentro de cada setor"
       table="areas"
+      organizacaoScoped
+      projetoScoped
       fields={[
         { key: "setor_id", label: "Setor", type: "select", required: true,
           options: setores.map((s) => ({ value: s.id, label: s.nome })) },

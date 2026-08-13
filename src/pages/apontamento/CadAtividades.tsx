@@ -6,6 +6,8 @@ export default function CadAtividades() {
       title="Atividades"
       description="Frentes de trabalho / atividades executadas"
       table="atividades"
+      organizacaoScoped
+      projetoScoped
       fields={[
         { key: "codigo", label: "Código EAP", type: "text" },
         { key: "nome", label: "Nome", type: "text", required: true },

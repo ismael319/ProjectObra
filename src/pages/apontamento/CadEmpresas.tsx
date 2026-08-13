@@ -6,6 +6,8 @@ export default function CadEmpresas() {
       title="Empresas"
       description="Empresas executantes da obra"
       table="empresas"
+      organizacaoScoped
+      projetoScoped
       fields={[{ key: "nome", label: "Nome", type: "text", required: true }]}
       blockRefs={[{ table: "apontamentos_diarios", fk: "empresa_id", label: "apontamentos" }]}
     />
