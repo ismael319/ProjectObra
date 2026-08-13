@@ -59,8 +59,10 @@ function subareaDe(a: ActivityLike): string {
 
 export function buildRelatorioVisual(activities: ActivityLike[], partialWeight = 0.5): RelatorioVisual {
   // Itens inativados (em análise) não entram no relatório compartilhado — nem nos
-  // cards nem nas estatísticas, mesmo critério de computeIndicators.
-  const ativas = activities.filter((a) => !a.inativa);
+  // cards nem nas estatísticas, mesmo critério de computeIndicators. Os marcados
+  // "fora desta semana" também: nunca fizeram parte do plano, e mandar pro
+  // WhatsApp uma atividade que a obra já sabe que está parada só gera ruído.
+  const ativas = activities.filter((a) => !a.inativa && !a.foraDoPlano);
   const map = new Map<string, ItemRelatorio[]>();
   for (const a of ativas) {
     const key = areaDe(a);
@@ -196,9 +198,9 @@ function statsDeAtividades(atividades: ActivityLike[], partialWeight: number) {
 }
 
 export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[], partialWeight = 0.5): MatrizSemanal {
-  // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) somem da
-  // matriz e das estatísticas.
-  const ativas = activities.filter((a) => !a.inativa);
+  // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) e
+  // marcados "fora desta semana" somem da matriz e das estatísticas.
+  const ativas = activities.filter((a) => !a.inativa && !a.foraDoPlano);
   const porEngenheiro = new Map<string, Map<string, LinhaMatriz>>();
   const atividadesPorEngenheiro = new Map<string, ActivityLike[]>();
   for (const a of ativas) {

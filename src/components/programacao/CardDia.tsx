@@ -1,4 +1,4 @@
-import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock, Ban } from 'lucide-react'
+import { CheckCircle2, Circle, MinusCircle, PlusCircle, XCircle, Clock, Ban, CalendarX } from 'lucide-react'
 import { parseISODateStr, WEEKDAY_LABELS, formatShortDate } from '@/lib/iso-week'
 import { statusWeight, type ActivityLike, type WeekIndicators } from '@/lib/adherence'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -25,13 +25,20 @@ export default function CardDia({ date, activities, onOpen, partialWeight = 0.5,
   const label = WEEKDAY_LABELS[weekdayIdx]
   const short = formatShortDate(d)
 
-  const total = activities.length
   // Inativas (em análise, ver "Inativar" no detalhe do dia) contam à parte, não
   // dentro do status que tinham antes de serem colocadas de lado — senão inflam
   // "Pendentes" (destino mais comum de quem inativa algo ainda não resolvido) sem
   // deixar claro quantas são só pendência de verdade.
-  const ativas = activities.filter((a) => !a.inativa)
-  const inativas = activities.length - ativas.length
+  // "Fora desta semana" sai junto com as inativas: computeIndicators e
+  // computeSegment já as excluem, então contá-las aqui fazia o card do dia
+  // divergir dos indicadores da semana pros mesmos dados.
+  const noPlano = activities.filter((a) => !a.foraDoPlano)
+  const forasDoPlano = activities.length - noPlano.length
+  // O número grande do card conta o que está no plano do dia — uma marcada "fora
+  // desta semana" continua listada no detalhe, mas não é trabalho previsto.
+  const total = noPlano.length
+  const ativas = noPlano.filter((a) => !a.inativa)
+  const inativas = noPlano.length - ativas.length
   const concluidas = ativas.filter((a) => a.status === 'concluida').length
   const parciais = ativas.filter((a) => a.status === 'parcial').length
   const naoConc = ativas.filter((a) => a.status === 'nao_concluida').length
@@ -97,6 +104,9 @@ export default function CardDia({ date, activities, onOpen, partialWeight = 0.5,
             )}
             {inativas > 0 && (
               <Row icon={<Ban size={14} />} label="Inativas" value={inativas} tone="text-gray-500 dark:text-gray-400" />
+            )}
+            {forasDoPlano > 0 && (
+              <Row icon={<CalendarX size={14} />} label="Fora da semana" value={forasDoPlano} tone="text-amber-600 dark:text-amber-400" />
             )}
           </ul>
         </button>

@@ -124,3 +124,43 @@ describe("buildMatrizSemanal", () => {
     expect(linhas.map((l) => l.nome)).toEqual(["Mesa", "Zebra", "Abacate"]);
   });
 });
+
+describe('"fora desta semana" sai dos relatórios', () => {
+  // computeIndicators/computeSegment já excluíam foraDoPlano, mas os relatórios
+  // montam o próprio filtro e só olhavam `inativa` — uma atividade tirada do
+  // plano continuava aparecendo na imagem mandada pro WhatsApp e ainda entrava
+  // no denominador da aderência ali, divergindo da tela pros mesmos dados.
+  const weekDays = ["2026-07-10", "2026-07-11", "2026-07-12", "2026-07-13", "2026-07-14", "2026-07-15", "2026-07-16"];
+
+  it("não aparece nos cards nem conta na aderência do relatório visual", () => {
+    const r = buildRelatorioVisual([
+      act({ name: "Feita", status: "concluida" }),
+      act({ name: "Parada", status: "nao_concluida", foraDoPlano: true }),
+    ]);
+    const nomes = r.areas.flatMap((a) => a.itens.map((i) => i.nome));
+    expect(nomes).toEqual(["Feita"]);
+    expect(r.aderenciaPct).toBe(100);
+    expect(r.totalPlanejadas).toBe(1);
+  });
+
+  it("some da matriz semanal e do seu denominador", () => {
+    const r = buildMatrizSemanal(
+      [
+        act({ foreman: "Alaor", taskUid: "1", name: "Feita", status: "concluida", planned_date: weekDays[0] }),
+        act({ foreman: "Alaor", taskUid: "2", name: "Parada", status: "nao_concluida", foraDoPlano: true, planned_date: weekDays[0] }),
+      ],
+      weekDays,
+    );
+    expect(r.engenheiros[0].linhas.map((l) => l.nome)).toEqual(["Feita"]);
+    expect(r.aderenciaPct).toBe(100);
+  });
+
+  it("sai junto com as inativas, sem uma anular a outra", () => {
+    const r = buildRelatorioVisual([
+      act({ name: "Feita", status: "concluida" }),
+      act({ name: "Parada", status: "nao_concluida", foraDoPlano: true }),
+      act({ name: "Em análise", status: "nao_concluida", inativa: true }),
+    ]);
+    expect(r.areas.flatMap((a) => a.itens.map((i) => i.nome))).toEqual(["Feita"]);
+  });
+});
