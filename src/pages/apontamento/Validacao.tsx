@@ -19,6 +19,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import {
   useValidacaoEtapas, useValidacaoResponsaveis, useConfirmacoes, useDecidir, useDesfazerDecisao,
 } from "@/lib/validacao/validacao-db";
@@ -114,14 +115,16 @@ export default function ValidacaoPage() {
   });
 
   const { user, userProfile } = useAuth();
-  const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [etapaChave, setEtapaChave] = useState<string | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [motivo, setMotivo] = useState("");
   const [confirmandoRejeicao, setConfirmandoRejeicao] = useState(false);
 
-  const { data: etapas = [] } = useValidacaoEtapas(organizacaoId);
-  const { data: responsaveis = [] } = useValidacaoResponsaveis(organizacaoId);
+  const { data: etapas = [] } = useValidacaoEtapas(organizacaoId ?? undefined);
+  const { data: responsaveis = [] } = useValidacaoResponsaveis(organizacaoId ?? undefined);
   const decidir = useDecidir();
   const desfazer = useDesfazerDecisao();
 
@@ -162,30 +165,34 @@ export default function ValidacaoPage() {
   // como referência; os campos de início/término continuam editáveis e, ao
   // confirmar a validação de novo, o valor recalculado substitui o salvo.
   const { data: diaTrabalho } = useQuery({
-    queryKey: ["dias_trabalho", data],
+    queryKey: ["dias_trabalho", organizacaoId, projetoId, data],
     queryFn: async () => {
       const { data: row, error } = await supabase
         .from("dias_trabalho")
         .select("horas_dia")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .eq("data", data)
         .maybeSingle();
       if (error) throw error;
       return row as { horas_dia: number } | null;
     },
-    enabled: !!data,
+    enabled: !!organizacaoId && !!projetoId && !!data,
   });
 
   const { data: apontamentos = [], isFetching } = useQuery({
-    queryKey: ["validacao", data],
+    queryKey: ["validacao", organizacaoId, projetoId, data],
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from("apontamentos_diarios")
         .select("*")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .eq("data", data);
       if (error) throw error;
       return (rows as Apontamento[]).sort((a, b) => (a.criado_em ?? "").localeCompare(b.criado_em ?? ""));
     },
-    enabled: !!data,
+    enabled: !!organizacaoId && !!projetoId && !!data,
   });
 
   const calMonthStr = `${calMonth.getFullYear()}-${String(calMonth.getMonth() + 1).padStart(2, "0")}`;
@@ -193,16 +200,19 @@ export default function ValidacaoPage() {
   const calEnd = new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0).toISOString().slice(0, 10);
 
   const { data: calData = [] } = useQuery({
-    queryKey: ["validacao-calendar", calMonthStr],
+    queryKey: ["validacao-calendar", organizacaoId, projetoId, calMonthStr],
     queryFn: async () => {
       const { data: rows, error } = await supabase
         .from("apontamentos_diarios")
         .select("data,validacao_status")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .gte("data", calStart)
         .lte("data", calEnd);
       if (error) throw error;
       return (rows ?? []) as { data: string; validacao_status: ValidacaoStatus }[];
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const calDayStatus = useMemo(() => {
@@ -252,6 +262,7 @@ export default function ValidacaoPage() {
 
   const editarMut = useMutation({
     mutationFn: async ({ id, dados }: { id: string; dados: Record<string, unknown> }) => {
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de editar apontamentos");
       // Campos que o banco controla e o client não deve mandar de volta.
       // `validado`/`validado_em` costumavam ser um buraco: descartá-los aqui
       // fazia um apontamento já validado continuar validado depois de editado.
@@ -273,26 +284,39 @@ export default function ValidacaoPage() {
         servente: Number(rest.servente ?? 0),
         carpinteiro: Number(rest.carpinteiro ?? 0),
         qntdd_funcao: Number(rest.qntdd_funcao ?? 0),
+        organizacao_id: organizacaoId,
+        projeto_id: projetoId,
       });
-      const { error } = await supabase.from("apontamentos_diarios").update(payload).eq("id", id);
+      const { error } = await supabase
+        .from("apontamentos_diarios")
+        .update(payload)
+        .eq("id", id)
+        .eq("organizacao_id", organizacaoId)
+        .eq("projeto_id", projetoId);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Apontamento atualizado");
       setEditandoId(null);
-      qc.invalidateQueries({ queryKey: ["validacao", data] });
+      qc.invalidateQueries({ queryKey: ["validacao", organizacaoId, projetoId, data] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const excluirMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("apontamentos_diarios").delete().eq("id", id);
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de excluir apontamentos");
+      const { error } = await supabase
+        .from("apontamentos_diarios")
+        .delete()
+        .eq("id", id)
+        .eq("organizacao_id", organizacaoId)
+        .eq("projeto_id", projetoId);
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Apontamento excluído");
-      qc.invalidateQueries({ queryKey: ["validacao", data] });
+      qc.invalidateQueries({ queryKey: ["validacao", organizacaoId, projetoId, data] });
     },
     onError: (e: Error) => toast.error(e.message),
   });
@@ -332,16 +356,23 @@ export default function ValidacaoPage() {
   // era salva de carona no botão "Confirmar validação".
   const salvarJornadaMut = useMutation({
     mutationFn: async () => {
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de salvar a jornada");
       const { error } = await supabase
         .from("dias_trabalho")
-        .upsert({ data, horas_dia: horasTrab, atualizado_em: new Date().toISOString() });
+        .upsert({
+          data,
+          horas_dia: horasTrab,
+          organizacao_id: organizacaoId,
+          projeto_id: projetoId,
+          atualizado_em: new Date().toISOString(),
+        });
       if (error) throw error;
       // A jornada entra na conta de horas-homem: mudou a jornada, a EAP muda.
-      await sincronizarHorasHomem();
+      await sincronizarHorasHomem(organizacaoId, projetoId);
     },
     onSuccess: () => {
       toast.success(`Jornada de ${horasTrab}h salva para ${formatBR(data)}`);
-      qc.invalidateQueries({ queryKey: ["dias_trabalho", data] });
+      qc.invalidateQueries({ queryKey: ["dias_trabalho", organizacaoId, projetoId, data] });
       qc.invalidateQueries({ queryKey: ["cronograma_itens"] });
     },
     onError: (e: Error) => toast.error(e.message),
@@ -366,9 +397,10 @@ export default function ValidacaoPage() {
       );
       // O trigger já atualizou `validado` das linhas que fecharam todas as
       // etapas; agora a EAP reflete o novo conjunto de aprovados.
-      await sincronizarHorasHomem();
-      qc.invalidateQueries({ queryKey: ["validacao", data] });
-      qc.invalidateQueries({ queryKey: ["validacao-calendar", calMonthStr] });
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de validar apontamentos");
+      await sincronizarHorasHomem(organizacaoId, projetoId);
+      qc.invalidateQueries({ queryKey: ["validacao", organizacaoId, projetoId, data] });
+      qc.invalidateQueries({ queryKey: ["validacao-calendar", organizacaoId, projetoId, calMonthStr] });
       qc.invalidateQueries({ queryKey: ["cronograma_itens"] });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -928,9 +960,10 @@ export default function ValidacaoPage() {
                                 onClick={async () => {
                                   try {
                                     await desfazer.mutateAsync(minhaDecisao.id);
-                                    await sincronizarHorasHomem();
-                                    qc.invalidateQueries({ queryKey: ["validacao", data] });
-                                    qc.invalidateQueries({ queryKey: ["validacao-calendar", calMonthStr] });
+                                    if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra antes de validar apontamentos");
+                                    await sincronizarHorasHomem(organizacaoId, projetoId);
+                                    qc.invalidateQueries({ queryKey: ["validacao", organizacaoId, projetoId, data] });
+                                    qc.invalidateQueries({ queryKey: ["validacao-calendar", organizacaoId, projetoId, calMonthStr] });
                                     toast.success("Decisão desfeita");
                                   } catch (err) {
                                     toast.error(

@@ -29,6 +29,7 @@ export type WeekStatus = 'rascunho' | 'comprometida' | 'consolidado'
 
 interface WeekRow {
   id: string
+  projeto_id: string
   iso_year: number
   iso_week: number
   start_date: string
@@ -77,14 +78,14 @@ export interface WeekData {
 }
 
 // Garante que a semana existe (Sex→Qui), criando ou corrigindo se necessário.
-// organizacaoId isola a semana por empresa (UNIQUE(organizacao_id, iso_year, iso_week)).
-async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekRow> {
+// A chave da semana é isolada por organização e projeto.
+async function ensureWeek(organizacaoId: string, projetoId: string, isoYear: number, isoWeek: number): Promise<WeekRow> {
   const friday = isoWeekFromParts(isoYear, isoWeek)
   const thursday = addDays(friday, 6)
   const startDate = toISODateStr(friday)
   const endDate = toISODateStr(thursday)
 
-  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  if (!organizacaoId || !projetoId) throw new Error('Organização ou projeto não carregado — recarregue a página.')
 
   const { data: existing } = await supabase
     .from('weeks')
@@ -92,6 +93,7 @@ async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: numbe
     .eq('iso_year', isoYear)
     .eq('iso_week', isoWeek)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .maybeSingle()
 
   if (existing) {
@@ -104,6 +106,7 @@ async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: numbe
     .update({ start_date: startDate, end_date: endDate })
     .eq('id', existing.id)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('*')
     .single()
       if (!error && data) return data as WeekRow
@@ -118,6 +121,7 @@ async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: numbe
     .from('weeks')
     .insert({
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       iso_year: isoYear,
       iso_week: isoWeek,
       start_date: startDate,
@@ -165,19 +169,21 @@ async function fetchSubetapasByActivity(activityIds: string[]): Promise<Map<stri
  * acabava usando 0.5 fixo — bastava alguém mudar a configuração para a mesma
  * semana mostrar percentuais diferentes em telas diferentes.
  */
-export async function getPartialWeight(): Promise<number> {
+export async function getPartialWeight(organizacaoId: string, projetoId: string): Promise<number> {
   const { data } = await supabase
     .from('app_settings')
     .select('value')
     .eq('key', 'partial_weight')
+    .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .maybeSingle()
   return data && typeof data.value === 'number' ? data.value : 0.5
 }
 
 // Buscar semana + atividades
-export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
-  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
-  const week = await ensureWeek(organizacaoId, isoYear, isoWeek)
+export async function getWeek(organizacaoId: string, projetoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
+  if (!organizacaoId || !projetoId) throw new Error('Organização ou projeto não carregado — recarregue a página.')
+  const week = await ensureWeek(organizacaoId, projetoId, isoYear, isoWeek)
 
   // Paginado pelo mesmo motivo de getActivitiesInDateRange: sem isso, o Supabase corta
   // na página default (1000 linhas), o que uma semana cheia de atividades pode passar.
@@ -189,6 +195,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
       .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao, fora_do_plano, motivo_fora')
       .eq('week_id', week.id)
       .eq('organizacao_id', organizacaoId)
+      .eq('projeto_id', projetoId)
       .order('planned_date', { ascending: true })
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
@@ -197,7 +204,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
     if (!data || data.length < PAGE_SIZE) break
   }
 
-  const partialWeight = await getPartialWeight()
+  const partialWeight = await getPartialWeight(organizacaoId, projetoId)
 
   const subetapasPorAtividade = await fetchSubetapasByActivity(activities.map((a) => a.id))
 
@@ -244,7 +251,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
   // Semana em montagem não tem plano congelado — evita a query em vez de
   // devolver uma lista vazia depois de ir ao banco à toa.
   const baseline =
-    week.status === 'rascunho' ? [] : await getWeekBaseline(organizacaoId, week.id)
+    week.status === 'rascunho' ? [] : await getWeekBaseline(organizacaoId, projetoId, week.id)
 
   return { week, activities: mappedActivities, partialWeight, baseline }
 }
@@ -254,8 +261,8 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
 // computeIndicators (mesma regra: concluídas / planejadas, extras não contam no
 // denominador), só muda a query pra filtrar por intervalo de planned_date em vez de
 // week_id.
-export async function getActivitiesInDateRange(organizacaoId: string, startDate: string, endDate: string): Promise<ActivityLike[]> {
-  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+export async function getActivitiesInDateRange(organizacaoId: string, projetoId: string, startDate: string, endDate: string): Promise<ActivityLike[]> {
+  if (!organizacaoId || !projetoId) throw new Error('Organização ou projeto não carregado — recarregue a página.')
 
   // Sem paginar, o Supabase corta na página default (1000 linhas) — um intervalo de 7
   // dias com várias dezenas de tarefas por dia passa disso fácil (cada tarefa gera 1
@@ -270,6 +277,7 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
       .gte('planned_date', startDate)
       .lte('planned_date', endDate)
       .eq('organizacao_id', organizacaoId)
+      .eq('projeto_id', projetoId)
       .order('planned_date', { ascending: true })
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
@@ -318,7 +326,7 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
 
 // Bloquear semana (reaproveita o status "consolidado" do banco — trocar o enum
 // exigiria migração; só o rótulo na UI virou "Bloqueada")
-export async function lockWeek(organizacaoId: string, weekId: string): Promise<void> {
+export async function lockWeek(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
   // .select() pra saber se o UPDATE realmente afetou alguma linha — a RLS já
   // exige papel Edição no módulo Engenharia pra bloquear/desbloquear, mas sem
   // essa checagem um usuário sem permissão via um caminho fora da UI (ou uma
@@ -328,6 +336,7 @@ export async function lockWeek(organizacaoId: string, weekId: string): Promise<v
     .update({ status: 'consolidado', consolidated_at: new Date().toISOString() })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
 
   if (error) throw new Error(error.message)
@@ -339,12 +348,13 @@ export async function lockWeek(organizacaoId: string, weekId: string): Promise<v
 // que unlockWeekWithBaseline fazia, junto com apagar o baseline) fazia o
 // compromisso sumir sem deixar rastro — bastava desbloquear e rebloquear pra
 // gerar um baseline novo em cima do resultado.
-export async function unlockWeek(organizacaoId: string, weekId: string): Promise<void> {
+export async function unlockWeek(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
   const { data, error } = await supabase
     .from('weeks')
     .update({ status: 'comprometida', consolidated_at: null })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
 
   if (error) throw new Error(error.message)
@@ -353,12 +363,13 @@ export async function unlockWeek(organizacaoId: string, weekId: string): Promise
 
 /** Lê só o estado da semana — as funções de escrita precisam dele pra recusar
  * alteração em semana fechada, e nenhuma delas consultava esse campo. */
-export async function getWeekStatus(organizacaoId: string, weekId: string): Promise<WeekStatus> {
+export async function getWeekStatus(organizacaoId: string, projetoId: string, weekId: string): Promise<WeekStatus> {
   const { data, error } = await supabase
     .from('weeks')
     .select('status')
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) throw new Error('Semana não encontrada.')
@@ -379,6 +390,7 @@ export interface ResumoComprometimento {
  */
 export async function resumoComprometimento(
   organizacaoId: string,
+  projetoId: string,
   weekId: string,
 ): Promise<ResumoComprometimento> {
   const { data, error } = await supabase
@@ -386,6 +398,7 @@ export async function resumoComprometimento(
     .select('fora_do_plano')
     .eq('week_id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
   const linhas = data ?? []
   const foraDoPlano = linhas.filter((a) => a.fora_do_plano).length
@@ -404,8 +417,8 @@ export async function resumoComprometimento(
  * Atividades marcadas "fora desta semana" ficam de fora do snapshot: é o que
  * tira a tarefa pausada do denominador sem precisar abusar de `Inativa`.
  */
-export async function comprometerSemana(organizacaoId: string, weekId: string): Promise<void> {
-  const status = await getWeekStatus(organizacaoId, weekId)
+export async function comprometerSemana(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, projetoId, weekId)
   if (status === 'consolidado') {
     throw new Error('A semana está fechada. Desbloqueie antes de comprometer novamente.')
   }
@@ -413,7 +426,7 @@ export async function comprometerSemana(organizacaoId: string, weekId: string): 
     throw new Error('Esta semana já foi comprometida — o plano dela já está congelado.')
   }
 
-  const { comprometidas } = await resumoComprometimento(organizacaoId, weekId)
+  const { comprometidas } = await resumoComprometimento(organizacaoId, projetoId, weekId)
   if (comprometidas === 0) {
     throw new Error(
       'Nenhuma atividade entra no plano desta semana. Importe do cronograma ou desmarque algum item de "fora desta semana".',
@@ -423,13 +436,14 @@ export async function comprometerSemana(organizacaoId: string, weekId: string): 
   // Baseline primeiro: se a mudança de estado falhar (permissão), a semana
   // continua em rascunho e dá pra tentar de novo. Na ordem inversa a semana
   // ficaria 'comprometida' sem plano congelado — o pior dos estados.
-  await saveWeekBaseline(organizacaoId, weekId)
+  await saveWeekBaseline(organizacaoId, projetoId, weekId)
 
   const { data, error } = await supabase
     .from('weeks')
     .update({ status: 'comprometida' })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) {
@@ -442,8 +456,8 @@ export async function comprometerSemana(organizacaoId: string, weekId: string): 
  * comprometimento feito por engano — é destrutivo (o plano assumido some), então
  * a UI pede confirmação explícita.
  */
-export async function reabrirParaMontagem(organizacaoId: string, weekId: string): Promise<void> {
-  const status = await getWeekStatus(organizacaoId, weekId)
+export async function reabrirParaMontagem(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, projetoId, weekId)
   if (status === 'consolidado') {
     throw new Error('A semana está fechada. Desbloqueie antes de voltar pra montagem.')
   }
@@ -453,13 +467,14 @@ export async function reabrirParaMontagem(organizacaoId: string, weekId: string)
     .update({ status: 'rascunho' })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) {
     throw new Error('Não foi possível reabrir a semana — verifique se seu nível de acesso é Edição')
   }
 
-  await clearWeekBaseline(organizacaoId, weekId)
+  await clearWeekBaseline(organizacaoId, projetoId, weekId)
 }
 
 /**
@@ -470,16 +485,18 @@ export async function reabrirParaMontagem(organizacaoId: string, weekId: string)
  */
 export async function setActivityForaDoPlano(
   organizacaoId: string,
+  projetoId: string,
   activityId: string,
   fora: boolean,
   motivo?: string | null,
 ): Promise<void> {
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'plano')
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'plano')
   const { data, error } = await supabase
     .from('activities')
     .update({ fora_do_plano: fora, motivo_fora: fora ? (motivo ?? null) : null })
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) {
@@ -521,10 +538,11 @@ const MSG_FECHADA: Record<TipoEscrita, string> = {
  */
 async function exigirEscritaPermitida(
   organizacaoId: string,
+  projetoId: string,
   weekId: string,
   tipo: TipoEscrita,
 ): Promise<void> {
-  const status = await getWeekStatus(organizacaoId, weekId)
+  const status = await getWeekStatus(organizacaoId, projetoId, weekId)
   if (status === 'consolidado') throw new Error(MSG_FECHADA[tipo])
   if (tipo === 'plano' && status === 'comprometida') {
     throw new Error(
@@ -536,6 +554,7 @@ async function exigirEscritaPermitida(
 /** Mesma checagem, quando só se tem o id da atividade. */
 async function exigirEscritaPermitidaPorAtividade(
   organizacaoId: string,
+  projetoId: string,
   activityId: string,
   tipo: TipoEscrita,
 ): Promise<void> {
@@ -544,22 +563,37 @@ async function exigirEscritaPermitidaPorAtividade(
     .select('week_id')
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .maybeSingle()
   if (error) throw new Error(error.message)
   // Atividade inexistente (ou invisível pela RLS): deixa a própria escrita
   // falhar com a mensagem de permissão dela, que é mais precisa que um genérico
   // daqui.
   if (!data) return
-  await exigirEscritaPermitida(organizacaoId, data.week_id as string, tipo)
+  await exigirEscritaPermitida(organizacaoId, projetoId, data.week_id as string, tipo)
+}
+
+/** Confirma que uma sub-etapa pertence a uma atividade visível no projeto atual. */
+async function exigirAtividadeDoProjeto(organizacaoId: string, projetoId: string, activityId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('activities')
+    .select('id')
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Atividade não encontrada neste projeto.')
 }
 
 export async function setActivityStatus(
   organizacaoId: string,
+  projetoId: string,
   activityId: string,
   status: ActivityStatus,
   observation?: string | null,
 ): Promise<void> {
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'status')
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'status')
 
   const patch: { status: ActivityStatus; observation?: string | null } = { status }
   if (observation !== undefined) patch.observation = observation
@@ -575,6 +609,7 @@ export async function setActivityStatus(
     .update(patch)
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível atualizar o status — verifique se seu nível de acesso é Edição')
@@ -586,13 +621,14 @@ export async function setActivityStatus(
 // buildMatrizSemanal). Numa semana comprometida NÃO sai do PPC comprometido: o
 // item já fazia parte do plano assumido (ver computeIndicatorsComprometido), e é
 // essa diferença que a Análise Semanal mostra.
-export async function setActivityInativa(organizacaoId: string, activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
+export async function setActivityInativa(organizacaoId: string, projetoId: string, activityId: string, inativa: boolean, motivo: string | null): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'conjunto')
   const { data, error } = await supabase
     .from('activities')
     .update({ inativa, motivo_inativacao: inativa ? motivo : null })
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível atualizar — verifique se seu nível de acesso é Edição')
@@ -603,13 +639,14 @@ export async function setActivityInativa(organizacaoId: string, activityId: stri
 // deduzido automaticamente na importação. Só mexe no status: não altera
 // source_cronograma/area/task_uid, então uma atividade real do cronograma marcada
 // extra continua agrupada no cronograma dela (ver addActivitiesBulk).
-export async function setActivityExtra(organizacaoId: string, activityId: string, isExtra: boolean): Promise<void> {
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
+export async function setActivityExtra(organizacaoId: string, projetoId: string, activityId: string, isExtra: boolean): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'conjunto')
   const { data, error } = await supabase
     .from('activities')
     .update({ is_extra: isExtra })
     .eq('id', activityId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível atualizar — verifique se seu nível de acesso é Edição')
@@ -620,16 +657,17 @@ export async function setActivityExtra(organizacaoId: string, activityId: string
 // realizadas" (vários ids de uma vez, trazendo pendências de dias anteriores da
 // mesma semana pro dia de hoje). Quem chama é responsável por só oferecer dias
 // dentro da semana carregada.
-export async function moverAtividadesParaDia(organizacaoId: string, activityIds: string[], novaData: string): Promise<void> {
+export async function moverAtividadesParaDia(organizacaoId: string, projetoId: string, activityIds: string[], novaData: string): Promise<void> {
   if (activityIds.length === 0) return
   // Todos os ids vêm sempre da mesma semana (a carregada na tela), então checar
   // o primeiro basta pra decidir se a escrita é permitida.
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityIds[0], 'conjunto')
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityIds[0], 'conjunto')
   const { error } = await supabase
     .from('activities')
     .update({ planned_date: novaData })
     .in('id', activityIds)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
 }
 
@@ -639,10 +677,10 @@ export async function moverAtividadesParaDia(organizacaoId: string, activityIds:
 // pendente nos dias seguintes, inflando a aderência desses dias com um trabalho que
 // já não existe mais. Nunca mexe em dias passados: os ids a remover já vêm
 // calculados pelo chamador (só dias com planned_date > o dia da atividade finalizada).
-export async function finalizarAtividade(organizacaoId: string, activityId: string, idsDiasFuturos: string[], observation?: string | null): Promise<void> {
-  await setActivityStatus(organizacaoId, activityId, 'concluida', observation ?? null)
+export async function finalizarAtividade(organizacaoId: string, projetoId: string, activityId: string, idsDiasFuturos: string[], observation?: string | null): Promise<void> {
+  await setActivityStatus(organizacaoId, projetoId, activityId, 'concluida', observation ?? null)
   if (idsDiasFuturos.length === 0) return
-  const { error } = await supabase.from('activities').delete().in('id', idsDiasFuturos).eq('organizacao_id', organizacaoId)
+  const { error } = await supabase.from('activities').delete().in('id', idsDiasFuturos).eq('organizacao_id', organizacaoId).eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
 }
 
@@ -652,9 +690,9 @@ export async function finalizarAtividade(organizacaoId: string, activityId: stri
 // individualmente e o status da atividade passa a ser derivado delas — ver
 // computeStatusFromSubetapas.
 
-export async function addSubEtapa(organizacaoId: string, activityId: string, nome: string): Promise<SubEtapa> {
+export async function addSubEtapa(organizacaoId: string, projetoId: string, activityId: string, nome: string): Promise<SubEtapa> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'status')
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'status')
   const { data, error } = await supabase
     .from('activity_subetapas')
     .insert({ organizacao_id: organizacaoId, activity_id: activityId, nome })
@@ -670,7 +708,8 @@ export async function addSubEtapa(organizacaoId: string, activityId: string, nom
  * Existe pra quem precisa do estado recém-gravado sem esperar o refetch da
  * semana inteira chegar por prop — ver sincronizarStatus em ModalDetalheDia.
  */
-export async function listSubEtapas(organizacaoId: string, activityId: string): Promise<SubEtapa[]> {
+export async function listSubEtapas(organizacaoId: string, projetoId: string, activityId: string): Promise<SubEtapa[]> {
+  await exigirAtividadeDoProjeto(organizacaoId, projetoId, activityId)
   const { data, error } = await supabase
     .from('activity_subetapas')
     .select('id,activity_id,nome,status')
@@ -686,6 +725,7 @@ export async function listSubEtapas(organizacaoId: string, activityId: string): 
 /** Resolve a atividade dona da sub-etapa pra poder aplicar a trava da semana. */
 async function exigirEscritaPermitidaPorSubEtapa(
   organizacaoId: string,
+  projetoId: string,
   subEtapaId: string,
   tipo: TipoEscrita,
 ): Promise<void> {
@@ -697,11 +737,11 @@ async function exigirEscritaPermitidaPorSubEtapa(
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) return
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, data.activity_id as string, tipo)
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, data.activity_id as string, tipo)
 }
 
-export async function setSubEtapaStatus(organizacaoId: string, id: string, status: SubEtapaStatus): Promise<void> {
-  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, id, 'status')
+export async function setSubEtapaStatus(organizacaoId: string, projetoId: string, id: string, status: SubEtapaStatus): Promise<void> {
+  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, projetoId, id, 'status')
   // .select() pelo mesmo motivo de deleteSubEtapa e setActivityStatus: um UPDATE
   // barrado por RLS não gera erro no Supabase, só afeta 0 linhas em silêncio.
   // Sem isso, marcar a sub-etapa "funcionava" na tela (o estado local mudava),
@@ -717,8 +757,8 @@ export async function setSubEtapaStatus(organizacaoId: string, id: string, statu
   if (!data || data.length === 0) throw new Error('Não foi possível marcar a sub-etapa — verifique se seu nível de acesso é Edição')
 }
 
-export async function deleteSubEtapa(organizacaoId: string, id: string): Promise<void> {
-  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, id, 'status')
+export async function deleteSubEtapa(organizacaoId: string, projetoId: string, id: string): Promise<void> {
+  await exigirEscritaPermitidaPorSubEtapa(organizacaoId, projetoId, id, 'status')
   // .select() no delete pra saber se alguma linha foi de fato removida — um DELETE
   // bloqueado por RLS (USING não bate) não gera erro nenhum no Supabase, só afeta 0
   // linhas silenciosamente; sem essa checagem, o botão "excluir" parecia não fazer
@@ -758,33 +798,35 @@ export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatu
 // denominador do PPC comprometido: ela continua no baseline e passa a contar como
 // não concluída (ver computeIndicatorsComprometido). Sem isso, apagar a linha
 // seria a forma mais fácil de subir o indicador.
-export async function deleteActivity(organizacaoId: string, activityId: string): Promise<void> {
-  await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'conjunto')
-  const { error } = await supabase.from('activities').delete().eq('id', activityId).eq('organizacao_id', organizacaoId)
+export async function deleteActivity(organizacaoId: string, projetoId: string, activityId: string): Promise<void> {
+  await exigirEscritaPermitidaPorAtividade(organizacaoId, projetoId, activityId, 'conjunto')
+  const { error } = await supabase.from('activities').delete().eq('id', activityId).eq('organizacao_id', organizacaoId).eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar semana — remove TODAS as atividades (extras e importadas) da semana
-export async function clearWeekActivities(organizacaoId: string, weekId: string): Promise<void> {
-  await exigirEscritaPermitida(organizacaoId, weekId, 'conjunto')
-  const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('organizacao_id', organizacaoId)
+export async function clearWeekActivities(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  await exigirEscritaPermitida(organizacaoId, projetoId, weekId, 'conjunto')
+  const { error } = await supabase.from('activities').delete().eq('week_id', weekId).eq('organizacao_id', organizacaoId).eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
 }
 
 // Limpar dia — remove TODAS as atividades (extras e importadas) de um dia específico
-export async function clearDayActivities(organizacaoId: string, weekId: string, plannedDate: string): Promise<void> {
-  await exigirEscritaPermitida(organizacaoId, weekId, 'conjunto')
+export async function clearDayActivities(organizacaoId: string, projetoId: string, weekId: string, plannedDate: string): Promise<void> {
+  await exigirEscritaPermitida(organizacaoId, projetoId, weekId, 'conjunto')
   const { error } = await supabase
     .from('activities')
     .delete()
     .eq('week_id', weekId)
     .eq('planned_date', plannedDate)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
   if (error) throw new Error(error.message)
 }
 
 export interface NewActivityPayload {
   organizacaoId: string
+  projetoId: string
   weekId: string
   planned_date: string
   name: string
@@ -830,7 +872,14 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
   }
 
   // Toda importação/inclusão cai numa única semana (a carregada na tela).
-  await exigirEscritaPermitida(payloads[0].organizacaoId, payloads[0].weekId, 'conjunto')
+  if (payloads.some((p) => !p.projetoId)) {
+    throw new Error('Projeto não carregado — recarregue a página antes de importar atividades.')
+  }
+  const primeiro = payloads[0]
+  if (payloads.some((p) => p.organizacaoId !== primeiro.organizacaoId || p.projetoId !== primeiro.projetoId || p.weekId !== primeiro.weekId)) {
+    throw new Error('A importação deve conter atividades da mesma organização, projeto e semana.')
+  }
+  await exigirEscritaPermitida(primeiro.organizacaoId, primeiro.projetoId, primeiro.weekId, 'conjunto')
 
   const rows = payloads.map((payload) => {
     const isExtra = payload.isExtra ?? true
@@ -846,6 +895,7 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
     const isReal = !!payload.sourceCronograma
     return {
       organizacao_id: payload.organizacaoId,
+      projeto_id: payload.projetoId,
       week_id: payload.weekId,
       name: payload.name,
       planned_date: payload.planned_date,
@@ -886,19 +936,21 @@ export interface MergeExcelResult {
 // Merge Excel: atualizar status via planilha
 export async function mergeExcel(
   organizacaoId: string,
+  projetoId: string,
   weekId: string,
   rows: Array<Record<string, string | number | null>>,
 ): Promise<MergeExcelResult> {
-  if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  if (!organizacaoId || !projetoId) throw new Error('Organização ou projeto não carregado — recarregue a página.')
   // Importar planilha é apontar status em massa — mesma regra do apontamento
   // manual, e o caminho mais fácil de esquecer de travar.
-  await exigirEscritaPermitida(organizacaoId, weekId, 'status')
+  await exigirEscritaPermitida(organizacaoId, projetoId, weekId, 'status')
 
   const { data: existing } = await supabase
     .from('activities')
     .select('id, task_uid, status, observation, actual_productivity')
     .eq('week_id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
 
   // A coluna UID da planilha exportada carrega o `id` da linha (ver
   // handleExportExcel em DailyProgramming). Indexar só por task_uid fazia o
@@ -951,6 +1003,8 @@ export async function mergeExcel(
 
     patches.push({
       id: target.id,
+      organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       status: st,
       observation:
         raw['Observações'] != null
@@ -1071,7 +1125,8 @@ export interface BaselineActivity extends BaselineActivityCalc {
  * cronograma por data, não por decisão. É esse filtro que dispensa o uso de
  * `Inativa` como remendo.
  */
-export async function saveWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
+export async function saveWeekBaseline(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  await getWeekStatus(organizacaoId, projetoId, weekId)
   const { error } = await supabase.rpc('save_week_baseline', {
     p_week_id: weekId,
     p_organizacao_id: organizacaoId,
@@ -1080,7 +1135,8 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
 }
 
 // Limpar baseline (chamada ao desbloquear)
-export async function clearWeekBaseline(organizacaoId: string, weekId: string): Promise<void> {
+export async function clearWeekBaseline(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  await getWeekStatus(organizacaoId, projetoId, weekId)
   const { error } = await supabase.rpc('clear_week_baseline', {
     p_week_id: weekId,
     p_organizacao_id: organizacaoId,
@@ -1089,7 +1145,7 @@ export async function clearWeekBaseline(organizacaoId: string, weekId: string): 
 }
 
 // Buscar baseline da semana
-export async function getWeekBaseline(organizacaoId: string, weekId: string): Promise<BaselineActivity[]> {
+export async function getWeekBaseline(organizacaoId: string, projetoId: string, weekId: string): Promise<BaselineActivity[]> {
   const PAGE_SIZE = 1000
   const items: BaselineActivity[] = []
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -1098,6 +1154,7 @@ export async function getWeekBaseline(organizacaoId: string, weekId: string): Pr
       .select('*')
       .eq('week_id', weekId)
       .eq('organizacao_id', organizacaoId)
+      .eq('projeto_id', projetoId)
       .order('planned_date', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
     if (error) throw new Error(error.message)
@@ -1123,7 +1180,8 @@ export interface WeekAnalysisItem {
 }
 
 // Buscar análise da semana via function SQL
-export async function getWeekAnalysis(organizacaoId: string, weekId: string): Promise<WeekAnalysisItem[]> {
+export async function getWeekAnalysis(organizacaoId: string, projetoId: string, weekId: string): Promise<WeekAnalysisItem[]> {
+  await getWeekStatus(organizacaoId, projetoId, weekId)
   const { data, error } = await supabase
     .rpc('get_week_analysis', {
       p_week_id: weekId,
@@ -1134,12 +1192,13 @@ export async function getWeekAnalysis(organizacaoId: string, weekId: string): Pr
 }
 
 // Atualizar campo de análise semanal
-export async function updateWeekAnalise(organizacaoId: string, weekId: string, analise: string | null): Promise<void> {
+export async function updateWeekAnalise(organizacaoId: string, projetoId: string, weekId: string, analise: string | null): Promise<void> {
   const { data, error } = await supabase
     .from('weeks')
     .update({ analise_semanal: analise })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .select('id')
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível salvar a análise — verifique se seu nível de acesso é Edição')
@@ -1154,14 +1213,14 @@ export async function updateWeekAnalise(organizacaoId: string, weekId: string, a
  *
  * Fechar exige a semana comprometida: sem plano congelado não há o que medir.
  */
-export async function lockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  const status = await getWeekStatus(organizacaoId, weekId)
+export async function lockWeekWithBaseline(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, projetoId, weekId)
   if (status === 'rascunho') {
     throw new Error(
       'Comprometa a semana antes de fechar — sem o plano congelado não há PPC pra medir.',
     )
   }
-  await lockWeek(organizacaoId, weekId)
+  await lockWeek(organizacaoId, projetoId, weekId)
 }
 
 /**
@@ -1172,6 +1231,6 @@ export async function lockWeekWithBaseline(organizacaoId: string, weekId: string
  * conhecido, sem deixar rastro nenhum. Pra descartar o plano de fato existe
  * `reabrirParaMontagem`, que é explícito.
  */
-export async function unlockWeekWithBaseline(organizacaoId: string, weekId: string): Promise<void> {
-  await unlockWeek(organizacaoId, weekId)
+export async function unlockWeekWithBaseline(organizacaoId: string, projetoId: string, weekId: string): Promise<void> {
+  await unlockWeek(organizacaoId, projetoId, weekId)
 }

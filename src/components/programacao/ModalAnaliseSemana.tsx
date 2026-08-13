@@ -12,6 +12,7 @@ interface Props {
   open: boolean
   onClose: () => void
   organizacaoId: string
+  projetoId: string
   weekId: string
   weekLabel: string
   analiseAtual: string | null
@@ -30,6 +31,7 @@ export default function ModalAnaliseSemana({
   open,
   onClose,
   organizacaoId,
+  projetoId,
   weekId,
   weekLabel,
   analiseAtual,
@@ -45,7 +47,7 @@ export default function ModalAnaliseSemana({
   const [analise, setAnalise] = useState(analiseAtual ?? '')
 
   useEffect(() => {
-    if (!open || !organizacaoId || !weekId) return
+    if (!open || !organizacaoId || !projetoId || !weekId) return
     setLoading(true)
     setError('')
     // As listas (reprogramados/extras/removidos) vêm do RPC; o RESUMO vem do
@@ -53,14 +55,14 @@ export default function ModalAnaliseSemana({
     // lados a partir do RPC descartava inativa/fora do plano e lia o status
     // congelado do baseline — que, com o snapshot no início da semana, é sempre
     // "pendente", o que zerava "Concluídos".
-    Promise.all([getWeekAnalysis(organizacaoId, weekId), getWeekBaseline(organizacaoId, weekId)])
+    Promise.all([getWeekAnalysis(organizacaoId, projetoId, weekId), getWeekBaseline(organizacaoId, projetoId, weekId)])
       .then(([analise, baseline]) => {
         setItens(analise)
         setResumo(computeWeekAnalysisSummary(baseline, atividades, partialWeight))
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false))
-  }, [open, organizacaoId, weekId, atividades, partialWeight])
+  }, [open, organizacaoId, projetoId, weekId, atividades, partialWeight])
 
   useEffect(() => {
     setAnalise(analiseAtual ?? '')
@@ -69,7 +71,7 @@ export default function ModalAnaliseSemana({
   async function handleSave() {
     setSaving(true)
     try {
-      await updateWeekAnalise(organizacaoId, weekId, analise || null)
+      await updateWeekAnalise(organizacaoId, projetoId, weekId, analise || null)
       onSaved()
       onClose()
     } catch (e) {

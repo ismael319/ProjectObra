@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -143,6 +145,12 @@ function flattenTree(list: XmlTask[]): XmlTask[] { const flat: XmlTask[] = []; f
 
 export default function ImportarXmlPage() {
   const qc = useQueryClient();
+  const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
+  const hasScope = !!organizacaoId && !!projetoId;
+  const cadastroQueryKey = ["cadastro", organizacaoId, projetoId] as const;
   const fileRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [tasks, setTasks] = useState<XmlTask[]>([]);
@@ -183,11 +191,12 @@ export default function ImportarXmlPage() {
 
   const importMut = useMutation({
     mutationFn: async () => {
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra para continuar.");
       const [s, a, sa, at] = await Promise.all([
-        supabase.from("setores").select("id,codigo"),
-        supabase.from("areas").select("id,codigo"),
-        supabase.from("subareas").select("id,codigo"),
-        supabase.from("atividades").select("id,codigo"),
+        supabase.from("setores").select("id,codigo").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
+        supabase.from("areas").select("id,codigo").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
+        supabase.from("subareas").select("id,codigo").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
+        supabase.from("atividades").select("id,codigo").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
       ]);
       const existingCodes: Record<number, Set<string>> = {
         1: new Set((s.data ?? []).filter((x) => x.codigo).map((x) => x.codigo!)),
@@ -207,7 +216,7 @@ export default function ImportarXmlPage() {
         const code = task.outlineNumber;
         const dbLevel = isSubItem ? 4 : mappedLevel;
         if (existingCodes[dbLevel].has(code)) { skipped++; continue; }
-        const payload: Record<string, any> = { nome: task.name, codigo: code, ativo: true, obs: task.duration ? `Duração: ${formatDuration(task.duration)}` : null };
+        const payload: Record<string, any> = { nome: task.name, codigo: code, ativo: true, obs: task.duration ? `Duração: ${formatDuration(task.duration)}` : null, organizacao_id: organizacaoId, projeto_id: projetoId };
         if (isSubItem || mappedLevel === 4) { const parentCode = task.outlineNumber.split(".").slice(0, -1).join("."); payload.subarea_id = codeToId.get(parentCode); }
         else if (mappedLevel === 3) { const parentCode = task.outlineNumber.split(".").slice(0, -1).join("."); payload.area_id = codeToId.get(parentCode); }
         else if (mappedLevel === 2) { const parentCode = task.outlineNumber.split(".").slice(0, -1).join("."); payload.setor_id = codeToId.get(parentCode); }
@@ -238,11 +247,11 @@ export default function ImportarXmlPage() {
       }
       return { inserted, skipped, failed };
     },
-    onSuccess: (r) => { toast.success(`Importação concluída: ${r.inserted} inseridos, ${r.skipped} ignorados, ${r.failed} falhas`); qc.invalidateQueries(); setTasks([]); setFileName(""); if (fileRef.current) fileRef.current.value = ""; },
+    onSuccess: (r) => { toast.success(`Importação concluída: ${r.inserted} inseridos, ${r.skipped} ignorados, ${r.failed} falhas`); qc.invalidateQueries({ queryKey: cadastroQueryKey }); setTasks([]); setFileName(""); if (fileRef.current) fileRef.current.value = ""; },
     onError: (e: any) => toast.error("Erro: " + e.message),
   });
 
-  const canImport = tasks.length > 0 && !importMut.isPending && stats.selected > 0 && stats.projetos > 0;
+  const canImport = hasScope && tasks.length > 0 && !importMut.isPending && stats.selected > 0 && stats.projetos > 0;
 
   return (
     <div className="space-y-6">

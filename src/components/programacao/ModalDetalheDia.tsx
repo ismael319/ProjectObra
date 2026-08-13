@@ -19,6 +19,7 @@ interface Props {
   onOpenChange: (v: boolean) => void
   date: string | null
   organizacaoId: string
+  projetoId: string
   activities: ActivityLike[]
   /** As 7 datas ISO da semana carregada — usado pelo "Reprogramar" (só oferece dias
    * dentro dessa semana) e pelo "Adicionar não realizadas". */
@@ -165,6 +166,7 @@ export default function ModalDetalheDia({
   onOpenChange,
   date,
   organizacaoId,
+  projetoId,
   activities,
   weekDays,
   todasAtividadesDaSemana,
@@ -405,6 +407,7 @@ export default function ModalDetalheDia({
                               key={a.id}
                               activity={a}
                               organizacaoId={organizacaoId}
+                              projetoId={projetoId}
                               weekDays={weekDays}
                               todasAtividadesDaSemana={todasAtividadesDaSemana}
                               weekConsolidated={weekConsolidated}
@@ -500,6 +503,7 @@ export default function ModalDetalheDia({
 function ActivityRow({
   activity,
   organizacaoId,
+  projetoId,
   weekDays,
   todasAtividadesDaSemana,
   weekConsolidated,
@@ -517,6 +521,7 @@ function ActivityRow({
 }: {
   activity: ActivityLike
   organizacaoId: string
+  projetoId: string
   weekDays: Props['weekDays']
   todasAtividadesDaSemana: Props['todasAtividadesDaSemana']
   weekConsolidated: boolean
@@ -651,7 +656,7 @@ function ActivityRow({
   // atualizada — de forma intermitente, porque bastava o refetch anterior ter
   // chegado a tempo pra dar certo.
   async function sincronizarStatus() {
-    const lista = await listSubEtapas(organizacaoId, activity.id)
+    const lista = await listSubEtapas(organizacaoId, projetoId, activity.id)
     const status = computeStatusFromSubetapas(lista)
     if (status) await onSetStatus(activity.id, status, obs || null)
     else onRefresh()
@@ -662,7 +667,7 @@ function ActivityRow({
     if (!nome) return
     setSavingSubetapa(true)
     try {
-      await addSubEtapa(organizacaoId, activity.id, nome)
+      await addSubEtapa(organizacaoId, projetoId, activity.id, nome)
       setNovaSubetapa('')
       await sincronizarStatus()
     } catch (e: unknown) {
@@ -678,7 +683,7 @@ function ActivityRow({
     const novoStatus = sub.status === status ? 'pendente' : status
     setSavingSubetapa(true)
     try {
-      await setSubEtapaStatus(organizacaoId, sub.id, novoStatus)
+      await setSubEtapaStatus(organizacaoId, projetoId, sub.id, novoStatus)
       await sincronizarStatus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao marcar sub-etapa')
@@ -690,7 +695,7 @@ function ActivityRow({
   async function handleDeleteSubetapa(sub: SubEtapa) {
     setSavingSubetapa(true)
     try {
-      await deleteSubEtapa(organizacaoId, sub.id)
+      await deleteSubEtapa(organizacaoId, projetoId, sub.id)
       await sincronizarStatus()
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Erro ao remover sub-etapa')

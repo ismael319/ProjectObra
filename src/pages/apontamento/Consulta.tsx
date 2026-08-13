@@ -18,6 +18,8 @@ import {
 import { toast } from "sonner";
 import { Trash2, Download, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { buildWorkbook, downloadWorkbook, exportFilename, type Apontamento } from "./lib/excel-export";
+import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 
 type Filters = {
   data_inicio: string;
@@ -46,6 +48,10 @@ function defaultFilters(): Filters {
 
 export default function Consulta() {
   const qc = useQueryClient();
+  const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [page, setPage] = useState(0);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
@@ -58,7 +64,7 @@ export default function Consulta() {
   const { data: subareas = [] } = useSubareas(filters.area_id, false);
   const { data: atividades = [] } = useAtividades(false);
 
-  const queryKey = ["apontamentos", filters, page];
+  const queryKey = ["apontamentos", organizacaoId, projetoId, filters, page];
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -66,6 +72,8 @@ export default function Consulta() {
       let q = supabase
         .from("apontamentos_diarios")
         .select("*", { count: "exact" })
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .gte("data", filters.data_inicio)
         .lte("data", filters.data_fim);
       if (filters.empresa_id) q = q.eq("empresa_id", filters.empresa_id);
@@ -80,16 +88,22 @@ export default function Consulta() {
       const paged = sorted.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
       return { rows: paged, count: count ?? 0 };
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const totalPages = Math.max(1, Math.ceil((data?.count ?? 0) / PAGE_SIZE));
 
   const delMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("apontamentos_diarios").delete().eq("id", id);
+      const { error } = await supabase
+        .from("apontamentos_diarios")
+        .delete()
+        .eq("id", id)
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Removido"); setConfirmDel(null); qc.invalidateQueries({ queryKey: ["apontamentos"] }); },
+    onSuccess: () => { toast.success("Removido"); setConfirmDel(null); qc.invalidateQueries({ queryKey: ["apontamentos", organizacaoId, projetoId] }); },
   });
 
   const setF = <K extends keyof Filters>(k: K, v: Filters[K]) => {
@@ -103,6 +117,8 @@ export default function Consulta() {
       let q = supabase
         .from("apontamentos_diarios")
         .select("*")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .gte("data", filters.data_inicio)
         .lte("data", filters.data_fim);
       if (filters.empresa_id) q = q.eq("empresa_id", filters.empresa_id);

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { useProjects } from "@/lib/project-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -90,7 +91,17 @@ function friendlyDbError(e: unknown): string {
 
 export default function EapPage() {
   const qc = useQueryClient();
+  const { userProfile } = useAuth();
   const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
+  const hasScope = !!organizacaoId && !!projetoId;
+  const cadastroQueryKey = ["cadastro", organizacaoId, projetoId] as const;
+  const apontamentosQueryKey = ["apontamentos_diarios", organizacaoId, projetoId] as const;
+  const modelosQueryKey = ["eap_modelos", organizacaoId, projetoId] as const;
+  const ensureScope = () => {
+    if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra para continuar.");
+  };
   const [search, setSearch] = useState("");
   // Cada EapNode guarda seu próprio "aberto/fechado" (useState local, não é um Set
   // compartilhado) — pra expandir/recolher tudo de uma vez, força a árvore inteira a
@@ -127,39 +138,43 @@ export default function EapPage() {
   const [viewingModelo, setViewingModelo] = useState<EapModelo | null>(null);
 
   const { data: setores = [] } = useQuery({
-    queryKey: ["cadastro", "setores"],
+    queryKey: [...cadastroQueryKey, "setores"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("setores").select("*").order("ordem", { nullsFirst: false }).order("nome");
+      const { data, error } = await supabase.from("setores").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
+    enabled: hasScope,
   });
 
   const { data: areas = [] } = useQuery({
-    queryKey: ["cadastro", "areas"],
+    queryKey: [...cadastroQueryKey, "areas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("areas").select("*").order("ordem", { nullsFirst: false }).order("nome");
+      const { data, error } = await supabase.from("areas").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
+    enabled: hasScope,
   });
 
   const { data: subareas = [] } = useQuery({
-    queryKey: ["cadastro", "subareas"],
+    queryKey: [...cadastroQueryKey, "subareas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("subareas").select("*").order("ordem", { nullsFirst: false }).order("nome");
+      const { data, error } = await supabase.from("subareas").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
+    enabled: hasScope,
   });
 
   const { data: atividades = [] } = useQuery({
-    queryKey: ["cadastro", "atividades"],
+    queryKey: [...cadastroQueryKey, "atividades"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("atividades").select("*").order("ordem", { nullsFirst: false }).order("nome");
+      const { data, error } = await supabase.from("atividades").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).order("ordem", { nullsFirst: false }).order("nome");
       if (error) throw error;
       return data;
     },
+    enabled: hasScope,
   });
 
   // Apontamentos já validados — só o que passou pela tela de Validação conta
@@ -167,27 +182,31 @@ export default function EapPage() {
   // subarea_id/atividade_id diretamente, então dá pra somar por nível sem
   // precisar percorrer a árvore (robusto a mesclagens/renomeações).
   const { data: apontamentosValidados = [] } = useQuery({
-    queryKey: ["apontamentos_diarios", "validados"],
+    queryKey: [...apontamentosQueryKey, "validados"],
     queryFn: async () => {
       const { data, error } = await supabase
-        .from("apontamentos_diarios")
-        .select("setor_id,area_id,subarea_id,atividade_id,total,data")
-        .eq("validado", true);
+         .from("apontamentos_diarios")
+         .select("setor_id,area_id,subarea_id,atividade_id,total,data")
+         .eq("organizacao_id", organizacaoId!)
+         .eq("projeto_id", projetoId!)
+         .eq("validado", true);
       if (error) throw error;
       return data as { setor_id: string | null; area_id: string | null; subarea_id: string | null; atividade_id: string | null; total: number; data: string }[];
     },
+    enabled: hasScope,
   });
 
   // Todas as atividades com pelo menos 1 apontamento (validado ou não) — é o que
   // trava a exclusão via "apontamentos_diarios_atividade_id_fkey". Sem isso a EAP
   // deixava tentar apagar e só descobria o erro depois, vindo do banco.
   const { data: apontamentosAtividadeIds = [] } = useQuery({
-    queryKey: ["apontamentos_diarios", "atividade_ids"],
+    queryKey: [...apontamentosQueryKey, "atividade_ids"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("apontamentos_diarios").select("atividade_id").not("atividade_id", "is", null);
+      const { data, error } = await supabase.from("apontamentos_diarios").select("atividade_id").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).not("atividade_id", "is", null);
       if (error) throw error;
       return data as { atividade_id: string }[];
     },
+    enabled: hasScope,
   });
   const atividadesComApontamento = useMemo(
     () => new Set(apontamentosAtividadeIds.map((a) => a.atividade_id)),
@@ -195,21 +214,23 @@ export default function EapPage() {
   );
 
   const { data: diasTrabalho = [] } = useQuery({
-    queryKey: ["dias_trabalho"],
+    queryKey: ["dias_trabalho", organizacaoId, projetoId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("dias_trabalho").select("data,horas_dia");
+      const { data, error } = await supabase.from("dias_trabalho").select("data,horas_dia").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) throw error;
       return data as { data: string; horas_dia: number }[];
     },
+    enabled: hasScope,
   });
 
   const { data: modelos = [] } = useQuery({
-    queryKey: ["eap_modelos"],
+    queryKey: modelosQueryKey,
     queryFn: async () => {
-      const { data, error } = await supabase.from("eap_modelos").select("*").order("criado_em", { ascending: false });
+      const { data, error } = await supabase.from("eap_modelos").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).order("criado_em", { ascending: false });
       if (error) throw error;
       return data as EapModelo[];
     },
+    enabled: hasScope,
   });
 
   // id -> id do pai direto (ou null), pra qualquer nível — usado só pra achar o "avô"
@@ -383,17 +404,18 @@ export default function EapPage() {
     return tree.map(filterNode).filter(Boolean) as TreeNode[];
   }, [tree, search]);
 
-  const invalidateAll = () => { qc.invalidateQueries({ queryKey: ["cadastro"] }); };
+  const invalidateAll = () => { qc.invalidateQueries({ queryKey: cadastroQueryKey }); };
 
   const saveMut = useMutation({
     mutationFn: async () => {
+      ensureScope();
       const table = nivel === "setor" ? "setores" : nivel === "area" ? "areas" : nivel === "subarea" ? "subareas" : "atividades";
-      const payload: Record<string, any> = { nome: form.nome, codigo: form.codigo || null, ativo: form.ativo };
+      const payload: Record<string, any> = { nome: form.nome, codigo: form.codigo || null, ativo: form.ativo, organizacao_id: organizacaoId, projeto_id: projetoId };
       if (nivel === "area") payload.setor_id = parentId;
       if (nivel === "subarea") payload.area_id = parentId;
       if (nivel === "atividade") payload.subarea_id = parentId;
       if (editing) {
-        const { error } = await supabase.from(table).update(payload).eq("id", editing.id);
+        const { error } = await supabase.from(table).update(payload).eq("id", editing.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (error) throw error;
       } else {
         // Item novo entra no fim da lista de irmãos (não no meio, por ordem alfabética).
@@ -408,8 +430,9 @@ export default function EapPage() {
 
   const toggleMut = useMutation({
     mutationFn: async ({ id, nivel: n, ativo }: { id: string; nivel: Nivel; ativo: boolean }) => {
+      ensureScope();
       const table = n === "setor" ? "setores" : n === "area" ? "areas" : n === "subarea" ? "subareas" : "atividades";
-      const { error } = await supabase.from(table).update({ ativo }).eq("id", id);
+      const { error } = await supabase.from(table).update({ ativo }).eq("id", id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) throw error;
     },
     onSuccess: () => invalidateAll(),
@@ -422,12 +445,13 @@ export default function EapPage() {
   // continua no banco, só some da árvore (nada mais referencia aquele id).
   const deleteMut = useMutation({
     mutationFn: async (node: TreeNode) => {
+      ensureScope();
       const subtree = collectSubtree(node);
       const byNivelDesc = [...subtree].sort(
         (a, b) => NIVEL_ORDER.indexOf(b.nivel) - NIVEL_ORDER.indexOf(a.nivel),
       );
       for (const n of byNivelDesc) {
-        const { error } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id);
+        const { error } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (error) throw error;
       }
     },
@@ -442,6 +466,7 @@ export default function EapPage() {
   // o total de horas já apontado — ele passa a contar pro item resultante.
   const mergeMut = useMutation({
     mutationFn: async () => {
+      ensureScope();
       if (!mergeNivel || !mergeTargetId) throw new Error("Selecione o item de destino");
       const sourceIds = [...mergeSelected.keys()].filter((id) => id !== mergeTargetId);
       if (sourceIds.length === 0) throw new Error("Selecione pelo menos 2 itens pra mesclar");
@@ -456,32 +481,32 @@ export default function EapPage() {
       const apontNomeField = mergeNivel === "setor" ? "setor_nome" : mergeNivel === "area" ? "area_nome" : mergeNivel === "subarea" ? "subarea_nome" : "atividade_nome";
 
       if (childTable && childField) {
-        const { error } = await supabase.from(childTable).update({ [childField]: mergeTargetId }).in(childField, sourceIds);
+        const { error } = await supabase.from(childTable).update({ [childField]: mergeTargetId }).in(childField, sourceIds).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (error) throw error;
       }
       const { error: apontErr } = await supabase
-        .from("apontamentos_diarios")
-        .update({ [apontField]: mergeTargetId, [apontNomeField]: targetNome })
-        .in(apontField, sourceIds);
+         .from("apontamentos_diarios")
+         .update({ [apontField]: mergeTargetId, [apontNomeField]: targetNome })
+         .in(apontField, sourceIds).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (apontErr) throw apontErr;
       if (mergeNivel === "atividade") {
         await supabase.from("cronograma_itens").update({ atividade_id: mergeTargetId }).in("atividade_id", sourceIds);
       }
       const { error: mescladoErr } = await supabase
-        .from(table)
-        .update({ ativo: false, mesclado_em: mergeTargetId })
-        .in("id", sourceIds);
+         .from(table)
+         .update({ ativo: false, mesclado_em: mergeTargetId })
+         .in("id", sourceIds).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (mescladoErr) throw mescladoErr;
 
       if (mergeNewName.trim()) {
-        const { error: renameErr } = await supabase.from(table).update({ nome: targetNome }).eq("id", mergeTargetId);
+        const { error: renameErr } = await supabase.from(table).update({ nome: targetNome }).eq("id", mergeTargetId).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (renameErr) throw renameErr;
       }
     },
     onSuccess: () => {
       toast.success("Itens mesclados — histórico de horas preservado no item resultante. Origens ficam inativas, listadas abaixo dele.");
       invalidateAll();
-      qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
+      qc.invalidateQueries({ queryKey: apontamentosQueryKey });
       cancelMerge();
     },
     onError: (e: Error) => toast.error(friendlyDbError(e)),
@@ -496,6 +521,7 @@ export default function EapPage() {
   // chamador — ver handleIndent) — igual ao Tab do MS Project/Excel.
   const changeLevelMut = useMutation({
     mutationFn: async ({ node, direction, newParentId }: { node: TreeNode; direction: "up" | "down"; newParentId?: string }) => {
+      ensureScope();
       const delta = direction === "up" ? -1 : 1;
       const subtree = collectSubtree(node);
 
@@ -526,7 +552,7 @@ export default function EapPage() {
 
         const parentValue: string | null = isRoot ? newParentIdRoot : n.parentId; // descendente: valor do FK não muda, só a coluna/tabela
 
-        const payload: Record<string, unknown> = { id: n.id, nome: n.nome, codigo: n.codigo, ativo: n.ativo, ordem: isRoot ? rootNewOrdem : n.ordem };
+        const payload: Record<string, unknown> = { id: n.id, nome: n.nome, codigo: n.codigo, ativo: n.ativo, ordem: isRoot ? rootNewOrdem : n.ordem, organizacao_id: organizacaoId, projeto_id: projetoId };
         if (newParentField) payload[newParentField] = parentValue;
 
         const { error: insErr } = await supabase.from(NIVEL_TABLE[newNivel]).insert(payload);
@@ -537,7 +563,7 @@ export default function EapPage() {
         const { error: apontErr } = await supabase
           .from("apontamentos_diarios")
           .update({ [newApontField]: n.id, [NIVEL_APONT_NOME_FIELD[newNivel]]: n.nome, [oldApontField]: null, [NIVEL_APONT_NOME_FIELD[n.nivel]]: null })
-          .eq(oldApontField, n.id);
+          .eq(oldApontField, n.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (apontErr) throw apontErr;
 
         if (n.nivel === "atividade" && newNivel !== "atividade") {
@@ -550,13 +576,13 @@ export default function EapPage() {
       // antes do filho.
       const byOldNivelDesc = [...subtree].sort((a, b) => NIVEL_ORDER.indexOf(b.nivel) - NIVEL_ORDER.indexOf(a.nivel));
       for (const n of byOldNivelDesc) {
-        const { error: delErr } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id);
+        const { error: delErr } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (delErr) throw delErr;
       }
     },
     onSuccess: () => {
       invalidateAll();
-      qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
+      qc.invalidateQueries({ queryKey: apontamentosQueryKey });
     },
     onError: (e: Error) => toast.error(friendlyDbError(e)),
   });
@@ -566,6 +592,7 @@ export default function EapPage() {
   // eles são renderizados aninhados sob o pai, não reordenados por conta própria.
   const moveMut = useMutation({
     mutationFn: async ({ node, direction }: { node: TreeNode; direction: "up" | "down" }) => {
+      ensureScope();
       const siblings = siblingsOf(node.nivel, node.parentId);
       const idx = siblings.findIndex((s) => s.id === node.id);
       const swapIdx = direction === "up" ? idx - 1 : idx + 1;
@@ -574,9 +601,9 @@ export default function EapPage() {
       }
       const other = siblings[swapIdx];
       const table = NIVEL_TABLE[node.nivel];
-      const { error: e1 } = await supabase.from(table).update({ ordem: other.ordem }).eq("id", node.id);
+      const { error: e1 } = await supabase.from(table).update({ ordem: other.ordem }).eq("id", node.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (e1) throw e1;
-      const { error: e2 } = await supabase.from(table).update({ ordem: siblings[idx].ordem }).eq("id", other.id);
+      const { error: e2 } = await supabase.from(table).update({ ordem: siblings[idx].ordem }).eq("id", other.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (e2) throw e2;
     },
     onSuccess: () => invalidateAll(),
@@ -589,6 +616,7 @@ export default function EapPage() {
   // relativa entre eles (igual a "mover linhas selecionadas" de uma planilha).
   const moveBulkMut = useMutation({
     mutationFn: async ({ nodes, direction }: { nodes: TreeNode[]; direction: "up" | "down" }) => {
+      ensureScope();
       const groups = new Map<string, TreeNode[]>();
       for (const n of nodes) {
         const key = `${n.nivel}::${n.parentId ?? ""}`;
@@ -624,7 +652,7 @@ export default function EapPage() {
         }
       }
       for (const u of updates) {
-        const { error } = await supabase.from(u.table).update({ ordem: u.ordem }).eq("id", u.id);
+        const { error } = await supabase.from(u.table).update({ ordem: u.ordem }).eq("id", u.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (error) throw error;
       }
     },
@@ -690,33 +718,35 @@ export default function EapPage() {
     onSuccess: ({ done }) => {
       if (done > 0) toast.success(`${done} item(ns) atualizado(s)`);
       invalidateAll();
-      qc.invalidateQueries({ queryKey: ["apontamentos_diarios"] });
+      qc.invalidateQueries({ queryKey: apontamentosQueryKey });
     },
     onError: (e: Error) => toast.error(friendlyDbError(e)),
   });
 
   const saveModeloMut = useMutation({
     mutationFn: async () => {
+      ensureScope();
       if (!modeloNome.trim()) throw new Error("Dê um nome ao modelo");
       const estrutura = tree.map(toSnapshot);
-      const { error } = await supabase.from("eap_modelos").insert({ nome: modeloNome.trim(), estrutura });
+      const { error } = await supabase.from("eap_modelos").insert({ nome: modeloNome.trim(), estrutura, organizacao_id: organizacaoId, projeto_id: projetoId });
       if (error) throw error;
     },
     onSuccess: () => {
       toast.success("Modelo salvo");
       setModeloDialogOpen(false);
       setModeloNome("");
-      qc.invalidateQueries({ queryKey: ["eap_modelos"] });
+      qc.invalidateQueries({ queryKey: modelosQueryKey });
     },
     onError: (e: Error) => toast.error(e.message),
   });
 
   const deleteModeloMut = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("eap_modelos").delete().eq("id", id);
+      ensureScope();
+      const { error } = await supabase.from("eap_modelos").delete().eq("id", id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) throw error;
     },
-    onSuccess: () => { toast.success("Modelo excluído"); qc.invalidateQueries({ queryKey: ["eap_modelos"] }); },
+    onSuccess: () => { toast.success("Modelo excluído"); qc.invalidateQueries({ queryKey: modelosQueryKey }); },
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -778,6 +808,7 @@ export default function EapPage() {
   // do mais profundo pro mais raso, igual ao deleteMut de item único.
   const deleteBulkMut = useMutation({
     mutationFn: async (nodes: TreeNode[]) => {
+      ensureScope();
       const selectedIds = new Set(nodes.map((n) => n.id));
       function hasSelectedAncestor(n: TreeNode): boolean {
         let pId = n.parentId;
@@ -794,7 +825,7 @@ export default function EapPage() {
         (a, b) => NIVEL_ORDER.indexOf(b.nivel) - NIVEL_ORDER.indexOf(a.nivel),
       );
       for (const n of byNivelDesc) {
-        const { error } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id);
+        const { error } = await supabase.from(NIVEL_TABLE[n.nivel]).delete().eq("id", n.id).eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
         if (error) throw error;
       }
       return roots.length;

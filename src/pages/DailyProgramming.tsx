@@ -54,6 +54,7 @@ export default function DailyProgramming() {
   const { currentProject } = useProjects()
   const { userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? ''
+  const projetoId = currentProject?.id ?? ''
   const { podeEditar } = usePapelModulo('engenharia')
   const now = new Date()
   const cur = getISOWeekYearAndNumber(now)
@@ -87,10 +88,10 @@ export default function DailyProgramming() {
     // sem essa guarda, o primeiro disparo do efeito abaixo (no mount, antes do
     // perfil chegar) tentava buscar a semana sem organização, o que ou
     // vazava dados de outra empresa ou quebrava com um 400 (ver getWeek).
-    if (!organizacaoId) return
+    if (!organizacaoId || !projetoId) return
     if (showLoading) setLoading(true)
     try {
-      const data = await getWeek(organizacaoId, isoYear, isoWeek)
+      const data = await getWeek(organizacaoId, projetoId, isoYear, isoWeek)
       setWeekData(data)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar semana'
@@ -98,7 +99,7 @@ export default function DailyProgramming() {
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [organizacaoId, isoYear, isoWeek])
+  }, [organizacaoId, projetoId, isoYear, isoWeek])
 
   useEffect(() => {
     fetchData()
@@ -342,7 +343,7 @@ export default function DailyProgramming() {
       const wb = XLSX.read(buf)
       const ws = wb.Sheets[wb.SheetNames[0]]
       const rows = XLSX.utils.sheet_to_json<Record<string, string | number | null>>(ws, { defval: null })
-      const result = await mergeExcel(organizacaoId, weekData.week.id, rows)
+      const result = await mergeExcel(organizacaoId, projetoId, weekData.week.id, rows)
       const { texto, ok } = descreverMergeExcel(result)
       // Importação que não casou nenhuma linha é erro do ponto de vista de quem
       // preencheu a planilha, não sucesso com zero — antes saía um toast verde
@@ -365,7 +366,7 @@ export default function DailyProgramming() {
   const handleComprometer = async () => {
     if (!weekData?.week) return
     try {
-      const { comprometidas, foraDoPlano } = await resumoComprometimento(organizacaoId, weekData.week.id)
+      const { comprometidas, foraDoPlano } = await resumoComprometimento(organizacaoId, projetoId, weekData.week.id)
 
       const pronta = await programacaoProntaParaBloqueio(weekData.week.id)
       const avisoValidacao = pronta
@@ -381,7 +382,7 @@ export default function DailyProgramming() {
       )
       if (!seguir) return
 
-      await comprometerSemana(organizacaoId, weekData.week.id)
+      await comprometerSemana(organizacaoId, projetoId, weekData.week.id)
       toast.success(`Semana comprometida — ${comprometidas} atividade(s) no plano`)
       fetchData(false)
     } catch (e: unknown) {
@@ -401,7 +402,7 @@ export default function DailyProgramming() {
     )
       return
     try {
-      await reabrirParaMontagem(organizacaoId, weekData.week.id)
+      await reabrirParaMontagem(organizacaoId, projetoId, weekData.week.id)
       toast.success('Semana voltou pra montagem — plano descartado')
       fetchData(false)
     } catch (e: unknown) {
@@ -415,7 +416,7 @@ export default function DailyProgramming() {
   const handleLock = async () => {
     if (!weekData?.week) return
     try {
-      await lockWeekWithBaseline(organizacaoId, weekData.week.id)
+      await lockWeekWithBaseline(organizacaoId, projetoId, weekData.week.id)
       toast.success('Semana fechada')
       fetchData(false)
     } catch (e: unknown) {
@@ -427,7 +428,7 @@ export default function DailyProgramming() {
   const handleUnlock = async () => {
     if (!weekData?.week) return
     try {
-      await unlockWeekWithBaseline(organizacaoId, weekData.week.id)
+      await unlockWeekWithBaseline(organizacaoId, projetoId, weekData.week.id)
       toast.success('Semana reaberta — o plano comprometido foi mantido')
       fetchData(false)
     } catch (e: unknown) {
@@ -440,7 +441,7 @@ export default function DailyProgramming() {
     if (!weekData?.week) return
     if (!confirm('Remover todas as atividades desta semana (inclusive as extras)? Esta ação não pode ser desfeita.')) return
     try {
-      await clearWeekActivities(organizacaoId, weekData.week.id)
+      await clearWeekActivities(organizacaoId, projetoId, weekData.week.id)
       toast.success('Semana limpa')
       fetchData(false)
     } catch (e: unknown) {
@@ -453,7 +454,7 @@ export default function DailyProgramming() {
     if (!weekData?.week) return
     if (!confirm(`Remover todas as atividades de ${date} (inclusive as extras)? Esta ação não pode ser desfeita.`)) return
     try {
-      await clearDayActivities(organizacaoId, weekData.week.id, date)
+      await clearDayActivities(organizacaoId, projetoId, weekData.week.id, date)
       toast.success('Dia limpo')
       fetchData(false)
     } catch (e: unknown) {
@@ -464,7 +465,7 @@ export default function DailyProgramming() {
 
   const handleSetStatus = async (id: string, status: ActivityStatus, observation: string | null) => {
     try {
-      await setActivityStatus(organizacaoId, id, status, observation)
+      await setActivityStatus(organizacaoId, projetoId, id, status, observation)
       fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar status'
@@ -474,7 +475,7 @@ export default function DailyProgramming() {
 
   const handleSetInativa = async (id: string, inativa: boolean, motivo: string | null) => {
     try {
-      await setActivityInativa(organizacaoId, id, inativa, motivo)
+      await setActivityInativa(organizacaoId, projetoId, id, inativa, motivo)
       toast.success(inativa ? 'Atividade inativada' : 'Atividade reativada')
       fetchData(false)
     } catch (e: unknown) {
@@ -485,7 +486,7 @@ export default function DailyProgramming() {
 
   const handleSetForaDoPlano = async (id: string, fora: boolean, motivo: string | null) => {
     try {
-      await setActivityForaDoPlano(organizacaoId, id, fora, motivo)
+      await setActivityForaDoPlano(organizacaoId, projetoId, id, fora, motivo)
       toast.success(fora ? 'Atividade fora desta semana' : 'Atividade de volta ao plano')
       fetchData(false)
     } catch (e: unknown) {
@@ -496,7 +497,7 @@ export default function DailyProgramming() {
 
   const handleSetExtra = async (id: string, isExtra: boolean) => {
     try {
-      await setActivityExtra(organizacaoId, id, isExtra)
+      await setActivityExtra(organizacaoId, projetoId, id, isExtra)
       toast.success(isExtra ? 'Marcada como extra' : 'Desmarcada como extra')
       fetchData(false)
     } catch (e: unknown) {
@@ -520,7 +521,7 @@ export default function DailyProgramming() {
       if (!confirm(`Marcar como concluída e remover essa atividade dos dias restantes da semana (${dias})? Essa ação não pode ser desfeita.`)) return
     }
     try {
-      await finalizarAtividade(organizacaoId, activity.id, futuras.map((a) => a.id), activity.observation)
+      await finalizarAtividade(organizacaoId, projetoId, activity.id, futuras.map((a) => a.id), activity.observation)
       toast.success(futuras.length > 0 ? `Atividade finalizada e removida de ${futuras.length} dia(s)` : 'Atividade finalizada')
       fetchData(false)
     } catch (e: unknown) {
@@ -530,7 +531,7 @@ export default function DailyProgramming() {
 
   const handleReprogramar = async (activityId: string, novaData: string) => {
     try {
-      await moverAtividadesParaDia(organizacaoId, [activityId], novaData)
+      await moverAtividadesParaDia(organizacaoId, projetoId, [activityId], novaData)
       toast.success('Atividade reprogramada')
       fetchData(false)
     } catch (e: unknown) {
@@ -540,7 +541,7 @@ export default function DailyProgramming() {
 
   const handleAdicionarNaoRealizadas = async (activityIds: string[], data: string) => {
     try {
-      await moverAtividadesParaDia(organizacaoId, activityIds, data)
+      await moverAtividadesParaDia(organizacaoId, projetoId, activityIds, data)
       toast.success(`${activityIds.length} atividade(s) trazida(s) pra ${formatShortDate(parseISODateStr(data))}`)
       fetchData(false)
     } catch (e: unknown) {
@@ -550,7 +551,7 @@ export default function DailyProgramming() {
 
   const handleDelete = async (id: string) => {
     try {
-      await deleteActivity(organizacaoId, id)
+      await deleteActivity(organizacaoId, projetoId, id)
       toast.success('Atividade removida')
       fetchData(false)
     } catch (e: unknown) {
@@ -570,7 +571,7 @@ export default function DailyProgramming() {
   }) => {
     if (!weekData?.week) return
     try {
-      await addExtraActivity({ organizacaoId, weekId: weekData.week.id, ...payload })
+      await addExtraActivity({ organizacaoId, projetoId, weekId: weekData.week.id, ...payload })
       toast.success('Atividade extra adicionada')
       fetchData(false)
     } catch (e: unknown) {
@@ -656,6 +657,7 @@ export default function DailyProgramming() {
         onOpenChange={(v) => !v && setOpenDate(null)}
         date={openDate}
         organizacaoId={organizacaoId}
+        projetoId={projetoId}
         activities={openDate ? (activitiesByDate.get(openDate) ?? []) : []}
         weekDays={days}
         todasAtividadesDaSemana={activities}
@@ -689,6 +691,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         organizacaoId={organizacaoId}
+        projetoId={projetoId}
         weekDays={days}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
@@ -715,6 +718,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         organizacaoId={organizacaoId}
+        projetoId={projetoId}
         weekDays={dayImportDate ? [dayImportDate] : []}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
@@ -756,6 +760,7 @@ export default function DailyProgramming() {
           open={showAnalise}
           onClose={() => setShowAnalise(false)}
           organizacaoId={organizacaoId}
+          projetoId={projetoId}
           weekId={weekData.week.id}
           weekLabel={`${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`}
           analiseAtual={weekData.week.analise_semanal ?? null}

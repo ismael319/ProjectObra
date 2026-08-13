@@ -3,6 +3,7 @@ import { format, subDays } from 'date-fns'
 import { CloudRain, AlertTriangle, Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useProjects } from '@/lib/project-store'
 import { getActivitiesInDateRange, getPartialWeight } from '@/lib/programacao-db'
 import { computeIndicators } from '@/lib/adherence'
 
@@ -15,11 +16,13 @@ const PPC_WINDOW_DAYS = 21
 
 export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
   const { userProfile } = useAuth()
+  const { currentProject } = useProjects()
   const organizacaoId = userProfile?.organizacao_id ?? ''
+  const projetoId = currentProject?.id ?? ''
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const { data: rainDays = 0 } = useQuery({
-    queryKey: ['scurve-root-cause', 'chuva', today, organizacaoId],
+    queryKey: ['scurve-root-cause', 'chuva', today, organizacaoId, projetoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), RAIN_WINDOW_DAYS), 'yyyy-MM-dd')
       const { data, error } = await supabase
@@ -28,22 +31,25 @@ export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
         .gte('data', start)
         .lte('data', today)
         .in('status', ['parcial', 'constante'])
+        .eq('organizacao_id', organizacaoId)
+        .eq('projeto_id', projetoId)
       if (error) throw error
       return (data ?? []).length
     },
+    enabled: !!organizacaoId && !!projetoId,
   })
 
   const { data: ppc } = useQuery({
-    queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId],
+    queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId, projetoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), PPC_WINDOW_DAYS), 'yyyy-MM-dd')
       const [activities, partialWeight] = await Promise.all([
-        getActivitiesInDateRange(organizacaoId, start, today),
-        getPartialWeight(),
+        getActivitiesInDateRange(organizacaoId, projetoId, start, today),
+        getPartialWeight(organizacaoId, projetoId),
       ])
       return computeIndicators(activities, partialWeight)
     },
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
   })
 
   const plannedTotal = ppc ? ppc.total - ppc.extras : 0

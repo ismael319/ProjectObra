@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { ShieldCheck, Trash2, Plus, Loader2, AlertTriangle } from 'lucide-react'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
+import { useProjects } from '@/lib/project-store'
 import {
   useValidacaoEtapas,
   useValidacaoResponsaveis,
@@ -34,8 +35,10 @@ const ENTIDADES: { key: ValidacaoEntidade; label: string }[] = [
 
 export default function ValidacaoConfig() {
   const { userProfile } = useAuth()
+  const { currentProject } = useProjects()
   const { podeEditar } = usePapelModulo('sistema')
   const organizacaoId = userProfile?.organizacao_id ?? undefined
+  const projetoId = currentProject?.id
   const [entidade, setEntidade] = useState<ValidacaoEntidade>('apontamento')
 
   const { data: etapas = [], isLoading } = useValidacaoEtapas(organizacaoId)
@@ -103,7 +106,7 @@ export default function ValidacaoConfig() {
               />
             ))}
             {e.key === 'programacao' && (
-              <CardDePara organizacaoId={organizacaoId} usuarios={usuarios} />
+              <CardDePara organizacaoId={organizacaoId} projetoId={projetoId} usuarios={usuarios} />
             )}
           </TabsContent>
         ))}
@@ -121,12 +124,14 @@ export default function ValidacaoConfig() {
  */
 function CardDePara({
   organizacaoId,
+  projetoId,
   usuarios,
 }: {
   organizacaoId: string | undefined
+  projetoId: string | undefined
   usuarios: { id: string; email: string | null; funcao: string | null }[]
 }) {
-  const { data: nomes = [], isLoading } = useForemenDistintos(organizacaoId)
+  const { data: nomes = [], isLoading } = useForemenDistintos(organizacaoId, projetoId)
   const { data: dePara = [] } = useDeParaEngenheiros(organizacaoId)
   const salvar = useSalvarDePara(organizacaoId)
   const remover = useRemoverDePara(organizacaoId)
