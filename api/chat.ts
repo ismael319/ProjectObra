@@ -69,23 +69,6 @@ function hojeISODate(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Extrai o id do usuário (claim "sub") do JWT de autenticação — o token já é
-// validado logo abaixo pela própria consulta ao Supabase (RLS), então dá pra
-// saber quem está chamando sem uma chamada de rede extra.
-function usuarioIdDoToken(authHeader: string): string | null {
-  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader
-  const partes = token.split('.')
-  if (partes.length < 2) return null
-  try {
-    const b64 = partes[1].replace(/-/g, '+').replace(/_/g, '/')
-    const pad = b64.length % 4
-    const payload = JSON.parse(atob(pad ? b64 + '='.repeat(4 - pad) : b64))
-    return typeof payload.sub === 'string' ? payload.sub : null
-  } catch {
-    return null
-  }
-}
-
 function diasAtraso(finish: string, percentComplete: number): number {
   const fim = new Date(finish)
   const hoje = new Date(hojeISODate())
@@ -287,6 +270,12 @@ export default async function handler(req: Request): Promise<Response> {
   if (!projetoId || !mensagem?.trim()) {
     return new Response(JSON.stringify({ error: 'projetoId e mensagem são obrigatórios' }), { status: 400 })
   }
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(projetoId)) {
+    return new Response(JSON.stringify({ error: 'projetoId inválido' }), { status: 400 })
+  }
+  if (mensagem.length > 4000 || historico.length > 20 || historico.some((h) => !h?.content || h.content.length > 4000)) {
+    return new Response(JSON.stringify({ error: 'Mensagem ou histórico excede o limite permitido' }), { status: 400 })
+  }
 
   const supabaseUrl = process.env.VITE_SUPABASE_URL
   const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY
@@ -298,6 +287,11 @@ export default async function handler(req: Request): Promise<Response> {
   const supabaseUser = createClient(supabaseUrl, supabaseAnonKey, {
     global: { headers: { Authorization: authHeader } },
   })
+
+  const { data: authData, error: authError } = await supabaseUser.auth.getUser()
+  if (authError || !authData.user) {
+    return new Response(JSON.stringify({ error: 'Sessão inválida' }), { status: 401 })
+  }
 
   // Confirma que o token é válido e pega o nome do projeto — também serve
   // como checagem indireta de que esse projeto existe e é acessível (RLS).
@@ -316,25 +310,16 @@ export default async function handler(req: Request): Promise<Response> {
   // Rate limit: consome um "turno" do assistente de forma atômica e bloqueia
   // quem estourou a janela — protege a cota da Groq de uso abusivo/bots.
   // Configurável via env (com fallback de 20 mensagens/hora por usuário).
-  const usuarioId = usuarioIdDoToken(authHeader)
-  if (!usuarioId) {
-    return new Response(JSON.stringify({ error: 'Token inválido' }), { status: 401 })
-  }
-  const chatMaxPorJanela = Number(process.env.CHAT_MAX_POR_JANELA ?? 20)
-  const chatJanelaMinutos = Number(process.env.CHAT_JANELA_MINUTOS ?? 60)
   const { data: chatPermitido, error: erroRateLimit } = await supabaseUser.rpc('consumir_turno_chat', {
-    p_usuario_id: usuarioId,
-    p_max_por_janela: chatMaxPorJanela,
-    p_janela_minutos: chatJanelaMinutos,
+    p_usuario_id: authData.user.id,
   })
   if (erroRateLimit) {
-    // Fallback seguro: se a migration ainda não rodou no banco, o chat
-    // continua funcionando — mas o erro fica logado pra dar de perceber.
     console.error('Erro ao checar rate limit do chat:', erroRateLimit.message)
+    return new Response(JSON.stringify({ error: 'Serviço temporariamente indisponível' }), { status: 503 })
   } else if (chatPermitido === false) {
     return new Response(
       JSON.stringify({
-        error: `Limite de mensagens atingido (${chatMaxPorJanela} por ${chatJanelaMinutos} min). Tente novamente mais tarde.`,
+        error: 'Limite de mensagens atingido. Tente novamente mais tarde.',
       }),
       { status: 429 },
     )
@@ -377,7 +362,7 @@ export default async function handler(req: Request): Promise<Response> {
       headers: { 'Content-Type': 'application/json' },
     })
   } catch (e) {
-    const msg = e instanceof Error ? e.message : 'Erro inesperado'
-    return new Response(JSON.stringify({ error: msg }), { status: 500 })
+    console.error('Erro no assistente:', e)
+    return new Response(JSON.stringify({ error: 'Não foi possível responder agora' }), { status: 500 })
   }
 }

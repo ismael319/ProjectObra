@@ -176,12 +176,16 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const handleConvidar = async () => {
     if (!conviteEmail.trim() || !orgAlvo) return
     setIsSendingConvite(true)
-    const { error } = await supabase.from('convites').insert({
-      email: conviteEmail.trim(),
-      papel_convidado: convitePapel,
-      organizacao_id: orgAlvo,
-      criado_por: user?.id,
-    })
+    const { data: convite, error } = await supabase
+      .from('convites')
+      .insert({
+        email: conviteEmail.trim(),
+        papel_convidado: convitePapel,
+        organizacao_id: orgAlvo,
+        criado_por: user?.id,
+      })
+      .select('id')
+      .single()
 
     if (error) {
       toast.error(`Não foi possível criar o convite: ${error.message}`)
@@ -189,17 +193,9 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
       return
     }
 
-    const { data: org } = await supabase
-      .from('organizacoes')
-      .select('nome')
-      .eq('id', orgAlvo)
-      .maybeSingle()
-
     try {
       await enviarConviteEmail({
-        email: conviteEmail.trim(),
-        papel: convitePapel,
-        organizacao_nome: org?.nome,
+        conviteId: convite.id,
       })
       toast.success(`Convite enviado para ${conviteEmail.trim()}.`)
     } catch (emailError) {

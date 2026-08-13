@@ -1,20 +1,14 @@
 import { supabase } from '@/lib/supabase'
 
 export interface EnviarConviteParams {
-  email: string
-  papel: string
-  organizacao_nome?: string | null
-  site_url?: string
+  conviteId: string
 }
 
 export async function enviarConviteEmail(params: EnviarConviteParams) {
   await supabase.auth.getSession()
   const { data, error } = await supabase.functions.invoke('enviar-convite', {
     body: {
-      email: params.email,
-      papel: params.papel,
-      organizacao_nome: params.organizacao_nome ?? null,
-      site_url: params.site_url ?? (typeof window !== 'undefined' ? window.location.origin : ''),
+      conviteId: params.conviteId,
     },
   })
 
