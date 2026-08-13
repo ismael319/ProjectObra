@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 type Projeto = { id: string; nome: string; codigo: string | null }
-type Escopo = 'todos' | 'restrito'
+type Escopo = 'todos' | 'vinculados'
 
 interface Props {
   open: boolean
@@ -45,7 +45,7 @@ export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuari
         return
       }
 
-      setEscopo(perfil?.escopo_projetos === 'restrito' ? 'restrito' : 'todos')
+      setEscopo(perfil?.escopo_projetos === 'vinculados' ? 'vinculados' : 'todos')
       setProjetos((projetosData ?? []) as Projeto[])
       setSelecionados(new Set((acessos ?? []).map((acesso) => acesso.projeto_id)))
       setLoading(false)
@@ -65,7 +65,7 @@ export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuari
   }
 
   async function salvar() {
-    if (escopo === 'restrito' && selecionados.size === 0) {
+    if (escopo === 'vinculados' && selecionados.size === 0) {
       toast.error('Selecione pelo menos uma obra ou escolha acesso a todas.')
       return
     }
@@ -73,7 +73,7 @@ export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuari
     setSaving(true)
     try {
       const ids = [...selecionados]
-      if (escopo === 'restrito') {
+      if (escopo === 'vinculados') {
         const { error: insertError } = await supabase.from('projeto_usuarios').upsert(
           ids.map((projeto_id) => ({ projeto_id, user_id: usuarioId, atribuido_por: user?.id ?? null })),
           { onConflict: 'projeto_id,user_id' },
@@ -129,10 +129,10 @@ export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuari
               <span><strong className="block text-sm">Todas as obras</strong><span className="text-xs text-muted-foreground">Acesso a qualquer obra atual ou criada no futuro nesta empresa.</span></span>
             </label>
             <label className="flex cursor-pointer items-start gap-3 rounded-lg border p-3">
-              <input type="radio" checked={escopo === 'restrito'} onChange={() => setEscopo('restrito')} className="mt-1" />
+              <input type="radio" checked={escopo === 'vinculados'} onChange={() => setEscopo('vinculados')} className="mt-1" />
               <span><strong className="block text-sm">Obras específicas</strong><span className="text-xs text-muted-foreground">Acesso somente às obras marcadas abaixo.</span></span>
             </label>
-            {escopo === 'restrito' && (
+            {escopo === 'vinculados' && (
               <div className="max-h-52 space-y-2 overflow-y-auto rounded-lg border p-3">
                 {projetos.map((projeto) => (
                   <label key={projeto.id} className="flex cursor-pointer items-center gap-2 text-sm">

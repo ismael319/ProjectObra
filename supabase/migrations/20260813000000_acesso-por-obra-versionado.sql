@@ -14,7 +14,7 @@ BEGIN
   ) THEN
     ALTER TABLE public.user_profiles
       ADD CONSTRAINT user_profiles_escopo_projetos_check
-      CHECK (escopo_projetos IN ('todos', 'restrito'));
+      CHECK (escopo_projetos IN ('todos', 'vinculados'));
   END IF;
 
   IF NOT EXISTS (
