@@ -111,14 +111,20 @@ export function calcularHhPorItem(
  *
  * @returns quantos itens foram atualizados, ou null se a EAP antiga não existe.
  */
-export async function sincronizarHorasHomem(): Promise<number | null> {
+export async function sincronizarHorasHomem(organizacaoId: string, projetoId: string): Promise<number | null> {
   const { data: validados, error: erroValidados } = await supabase
     .from('apontamentos_diarios')
     .select('atividade_id,atividade_nome,total,data')
+    .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .eq('validado', true)
   if (erroValidados) throw erroValidados
 
-  const { data: dias } = await supabase.from('dias_trabalho').select('data,horas_dia')
+  const { data: dias } = await supabase
+    .from('dias_trabalho')
+    .select('data,horas_dia')
+    .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
   const horasPorData = new Map<string, number>(
     (dias ?? []).map((d: { data: string; horas_dia: number }) => [d.data, d.horas_dia]),
   )

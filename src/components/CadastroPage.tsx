@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth, usePapelModulo } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -52,6 +53,8 @@ interface CadastroPageProps {
   defaultFieldValues?: Record<string, any>;
   /** Tabela escopada por organização (tem coluna organizacao_id própria), ex.: Concreto. */
   organizacaoScoped?: boolean;
+  /** Tabela pertencente à obra atual, além da organização. */
+  projetoScoped?: boolean;
   /** Tabelas cujos vínculos impedem exclusão (ex.: apontamentos, filhos, cargas). */
   blockRefs?: CadastroBlockRef[];
   /** Prefixo do Código EAP sugerido ao criar (S01, A01, SA01, AT01...) — ausente desativa. */
@@ -76,6 +79,7 @@ export function CadastroPage({
   filter,
   defaultFieldValues,
   organizacaoScoped = false,
+  projetoScoped = false,
   blockRefs = [],
   codigoPrefix,
   timestamps = true,
@@ -83,8 +87,10 @@ export function CadastroPage({
 }: CadastroPageProps) {
   const qc = useQueryClient();
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
-  const hasOrg = !organizacaoScoped || !!organizacaoId;
+  const projetoId = currentProject?.id ?? undefined;
+  const hasOrg = (!organizacaoScoped || !!organizacaoId) && (!projetoScoped || !!projetoId);
   const { podeEditar } = usePapelModulo(moduloKey ?? "");
   const bloqueadoPorPapel = !!moduloKey && !podeEditar;
 
@@ -98,10 +104,11 @@ export function CadastroPage({
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
 
   const { data: rows = [], isLoading } = useQuery({
-    queryKey: ["cadastro", table, filter?.column, filter?.value, organizacaoScoped ? organizacaoId : undefined],
+     queryKey: ["cadastro", table, filter?.column, filter?.value, organizacaoScoped ? organizacaoId : undefined, projetoScoped ? projetoId : undefined],
     queryFn: async () => {
       let q = supabase.from(table).select("*");
-      if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+       if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+       if (projetoScoped) q = q.eq("projeto_id", projetoId!);
       if (filter) q = filter.value === null ? q.is(filter.column, null) : q.eq(filter.column, filter.value);
       const { data, error } = await q;
       if (error) throw error;
@@ -117,12 +124,13 @@ export function CadastroPage({
   const blockRefsKey = blockRefs.map((r) => `${r.table}:${r.fk}`).join(",");
   const emptyBlocked = useMemo(() => new Set<string>(), []);
   const { data: blockedIds = emptyBlocked } = useQuery({
-    queryKey: ["cadastro", table, "vinculados", blockRefsKey, organizacaoScoped ? organizacaoId : undefined],
+     queryKey: ["cadastro", table, "vinculados", blockRefsKey, organizacaoScoped ? organizacaoId : undefined, projetoScoped ? projetoId : undefined],
     queryFn: async () => {
       const ids = new Set<string>();
       for (const ref of blockRefs) {
         let q = supabase.from(ref.table).select(ref.fk).not(ref.fk, "is", null);
         if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+        if (projetoScoped) q = q.eq("projeto_id", projetoId!);
         const { data, error } = await q;
         if (error) throw error;
         for (const r of data as unknown as Record<string, string>[]) {
@@ -165,12 +173,16 @@ export function CadastroPage({
       }
       if (editing) {
         if (timestamps) payload.atualizado_em = new Date().toISOString();
-        const { error } = await supabase.from(table).update(payload).eq("id", editing.id);
+        let q = supabase.from(table).update(payload).eq("id", editing.id);
+        if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+        if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+        const { error } = await q;
         if (error) throw error;
       } else {
         payload.ativo = true;
         if (timestamps) payload.criado_em = new Date().toISOString();
         if (organizacaoScoped) payload.organizacao_id = organizacaoId;
+        if (projetoScoped) payload.projeto_id = projetoId;
         const { error } = await supabase.from(table).insert(payload).select().single();
         if (error) throw error;
       }
@@ -189,7 +201,10 @@ export function CadastroPage({
     mutationFn: async ({ id, ativo }: { id: string; ativo: boolean }) => {
       const payload: Record<string, any> = { ativo };
       if (timestamps) payload.atualizado_em = new Date().toISOString();
-      const { error } = await supabase.from(table).update(payload).eq("id", id);
+       let q = supabase.from(table).update(payload).eq("id", id);
+       if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+       if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+       const { error } = await q;
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["cadastro", table] }),
@@ -198,16 +213,22 @@ export function CadastroPage({
   const deleteMut = useMutation({
     mutationFn: async (id: string) => {
       for (const ref of blockRefs) {
-        const { count, error: countErr } = await supabase
+        let q = supabase
           .from(ref.table)
           .select("id", { count: "exact", head: true })
           .eq(ref.fk, id);
+        if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+        if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+        const { count, error: countErr } = await q;
         if (countErr) throw countErr;
         if (count && count > 0) {
           throw new Error(`Registro possui ${ref.label} vinculados. Recomenda-se inativar ao invés de excluir.`);
         }
       }
-      const { error } = await supabase.from(table).delete().eq("id", id);
+       let q = supabase.from(table).delete().eq("id", id);
+       if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+       if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+       const { error } = await q;
       if (error) throw error;
     },
     onSuccess: () => {
@@ -225,7 +246,10 @@ export function CadastroPage({
     mutationFn: async (ids: string[]) => {
       const deletable = ids.filter((id) => !blockedIds.has(id));
       for (const id of deletable) {
-        const { error } = await supabase.from(table).delete().eq("id", id);
+         let q = supabase.from(table).delete().eq("id", id);
+         if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+         if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+         const { error } = await q;
         if (error) throw error;
       }
       return { deletedCount: deletable.length, skippedCount: ids.length - deletable.length };
@@ -243,7 +267,10 @@ export function CadastroPage({
     mutationFn: async (id: string) => {
       const payload: Record<string, any> = { ativo: false };
       if (timestamps) payload.atualizado_em = new Date().toISOString();
-      const { error } = await supabase.from(table).update(payload).eq("id", id);
+       let q = supabase.from(table).update(payload).eq("id", id);
+       if (organizacaoScoped) q = q.eq("organizacao_id", organizacaoId!);
+       if (projetoScoped) q = q.eq("projeto_id", projetoId!);
+       const { error } = await q;
       if (error) throw error;
     },
     onSuccess: () => {

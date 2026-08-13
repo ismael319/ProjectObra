@@ -35,6 +35,7 @@ import { downloadPdf } from "./lib/pdf-export";
 import { groupSum, type Apontamento, type Aggregate } from "./lib/excel-export";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { fetchWithOfflineCacheDetailed } from "@/lib/offline-query";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { EffortDashboardSkeleton, EffortKpiCard } from "./components/EffortKpiCard";
@@ -262,8 +263,11 @@ export default function DashboardPage() {
 function ResumoDiarioTab() {
   const isMobile = useMediaQuery("(max-width: 639px)");
   const { user, userProfile } = useAuth();
-  const cacheScope = user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending";
-  const cacheReady = !!user && !!userProfile;
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
+  const cacheScope = user && organizacaoId && projetoId ? `${organizacaoId}:${projetoId}:${user.id}` : "pending";
+  const cacheReady = !!user && !!organizacaoId && !!projetoId;
   const [data, setData] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
   const [liderancaIds, setLiderancaIds] = useState<string[]>([]);
@@ -281,13 +285,15 @@ function ResumoDiarioTab() {
 
   const sortedFilters = sortFilters([empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds]);
   const { data: apontamentosResult, isLoading, isError } = useQuery({
-    queryKey: ["dashboard", cacheScope, data, ...sortedFilters],
+    queryKey: ["dashboard", organizacaoId, projetoId, cacheScope, data, ...sortedFilters],
     queryFn: () => fetchWithOfflineCacheDetailed(
       buildDashboardCacheKey("apontamento-dashboard", cacheScope, [data, ...sortedFilters]),
       async () => {
         let q = supabase
           .from("apontamentos_diarios")
           .select("*")
+          .eq("organizacao_id", organizacaoId!)
+          .eq("projeto_id", projetoId!)
           .eq("data", data)
           .order("data", { ascending: true })
           .retry(false);
@@ -630,8 +636,11 @@ function EfetivoTooltip({ active, payload }: { active?: boolean; payload?: { pay
 function LinhaDoTempoTab() {
   const isMobile = useMediaQuery("(max-width: 639px)");
   const { user, userProfile } = useAuth();
-  const cacheScope = user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending";
-  const cacheReady = !!user && !!userProfile;
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
+  const cacheScope = user && organizacaoId && projetoId ? `${organizacaoId}:${projetoId}:${user.id}` : "pending";
+  const cacheReady = !!user && !!organizacaoId && !!projetoId;
   const [dataInicio, setDataInicio] = useState(() => isoDaysAgo(29));
   const [dataFim, setDataFim] = useState(todayISO());
   const [empresaIds, setEmpresaIds] = useState<string[]>([]);
@@ -650,13 +659,15 @@ function LinhaDoTempoTab() {
 
   const sortedFilters = sortFilters([empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds]);
   const { data: apontamentosResult, isLoading, isError } = useQuery({
-    queryKey: ["linha-do-tempo", cacheScope, dataInicio, dataFim, ...sortedFilters],
+    queryKey: ["linha-do-tempo", organizacaoId, projetoId, cacheScope, dataInicio, dataFim, ...sortedFilters],
     queryFn: () => fetchWithOfflineCacheDetailed(
       buildDashboardCacheKey("apontamento-timeline", cacheScope, [dataInicio, dataFim, ...sortedFilters]),
       async () => {
         let q = supabase
           .from("apontamentos_diarios")
           .select("*")
+          .eq("organizacao_id", organizacaoId!)
+          .eq("projeto_id", projetoId!)
           .gte("data", dataInicio)
           .lte("data", dataFim)
           .order("data", { ascending: true })

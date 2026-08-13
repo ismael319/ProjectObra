@@ -13,8 +13,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { toast } from "sonner";
 import { Download, Loader2, FileSpreadsheet } from "lucide-react";
 import { buildWorkbook, downloadWorkbook, exportFilename, type Apontamento } from "./lib/excel-export";
+import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 
 export default function ExportarPage() {
+  const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [dataInicio, setDataInicio] = useState(() => {
     const d = new Date(); d.setDate(d.getDate() - 30);
     return d.toISOString().slice(0, 10);
@@ -35,11 +41,13 @@ export default function ExportarPage() {
   const { data: atividades = [] } = useAtividades(false);
 
   const { data: apontamentos = [], isLoading } = useQuery({
-    queryKey: ["exportar", dataInicio, dataFim, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
+    queryKey: ["exportar", organizacaoId, projetoId, dataInicio, dataFim, empresaIds, liderancaIds, setorIds, areaIds, subareaIds, atividadeIds],
     queryFn: async () => {
       let q = supabase
         .from("apontamentos_diarios")
         .select("*")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .gte("data", dataInicio)
         .lte("data", dataFim)
         .order("data", { ascending: true });
@@ -53,8 +61,8 @@ export default function ExportarPage() {
       if (error) throw error;
       return (data ?? []) as Apontamento[];
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
-
   const resumo = useMemo(() => {
     const acc = { registros: apontamentos.length, pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, total: 0 };
     for (const a of apontamentos) { acc.pedreiro += a.pedreiro; acc.servente += a.servente; acc.carpinteiro += a.carpinteiro; acc.qntdd_funcao += a.qntdd_funcao; acc.total += a.total; }

@@ -95,11 +95,11 @@ export function useAlertasDocumentos(organizacaoId?: string) {
   });
 }
 
-export function useEfetivoDoDia(organizacaoId: string | undefined, data: string) {
+export function useEfetivoDoDia(organizacaoId: string | undefined, projetoId: string | undefined, data: string) {
   return useQuery({
-    queryKey: ["efetivo_do_dia", organizacaoId, data],
-    queryFn: () => efetivoDoDia(organizacaoId!, data),
-    enabled: !!organizacaoId,
+    queryKey: ["efetivo_do_dia", organizacaoId, projetoId, data],
+    queryFn: () => efetivoDoDia(organizacaoId!, projetoId!, data),
+    enabled: !!organizacaoId && !!projetoId,
   });
 }
 

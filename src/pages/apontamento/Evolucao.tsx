@@ -12,11 +12,17 @@ import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { useMediaQuery } from "@/lib/use-media-query";
+import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 
 const COLORS = CHART_COLORS;
 
 export default function EvolucaoPage() {
   const isMobile = useMediaQuery("(max-width: 639px)");
+  const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [dataInicio, setDataInicio] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 90); return d.toISOString().slice(0, 10); });
   const [dataFim, setDataFim] = useState(todayISO());
   const [empresaId, setEmpresaId] = useState<string | null>(null);
@@ -34,11 +40,13 @@ export default function EvolucaoPage() {
   const { data: atividades = [] } = useAtividades(false);
 
   const { data: apontamentos = [] } = useQuery({
-    queryKey: ["evolucao", dataInicio, dataFim, empresaId, liderancaId, setorId, areaId, subareaId, atividadeId],
+    queryKey: ["evolucao", organizacaoId, projetoId, dataInicio, dataFim, empresaId, liderancaId, setorId, areaId, subareaId, atividadeId],
     queryFn: async () => {
       let q = supabase
         .from("apontamentos_diarios")
         .select("data,ano_semana,setor_nome,area_nome,subarea_nome,atividade_nome,empresa_nome,pedreiro,servente,carpinteiro,qntdd_funcao,total")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .gte("data", dataInicio)
         .lte("data", dataFim);
       if (empresaId) q = q.eq("empresa_id", empresaId);
@@ -51,8 +59,8 @@ export default function EvolucaoPage() {
       if (error) throw error;
       return data ?? [];
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
-
   const porSemana = useMemo(() => {
     const map = new Map<string, { semana: string; total: number; pedreiro: number; servente: number; carpinteiro: number; outros: number }>();
     for (const a of apontamentos) {

@@ -59,8 +59,11 @@ export type DrainResult = {
  * update — só ignora a duplicata — e assim o reenvio fica seguro (idempotente)
  * sem precisar mudar a RLS.
  */
-export async function drain(): Promise<DrainResult> {
-  const items = await listPending();
+export async function drain(scope?: { organizacaoId: string | null; projetoId: string | null }): Promise<DrainResult> {
+  const items = (await listPending()).filter((item) =>
+    !scope
+    || (item.payload.organizacao_id === scope.organizacaoId && item.payload.projeto_id === scope.projetoId),
+  );
   const synced: string[] = [];
   const errored: QueuedApontamento[] = [];
 
@@ -85,5 +88,8 @@ export async function drain(): Promise<DrainResult> {
     errored.push(item);
   }
 
-  return { synced, stillPending: (await listPending()).length, errored };
+  return { synced, stillPending: (await listPending()).filter((item) =>
+    !scope
+    || (item.payload.organizacao_id === scope.organizacaoId && item.payload.projeto_id === scope.projetoId),
+  ).length, errored };
 }

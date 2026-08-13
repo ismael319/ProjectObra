@@ -16,6 +16,7 @@ import {
   Calendar, ListTree,
 } from "lucide-react";
 import { useProjects } from "@/lib/project-store";
+import { useAuth } from "@/lib/auth-context";
 import type { WBSActivity } from "@/lib/xml-parser";
 
 interface EapRow {
@@ -158,7 +159,12 @@ function EapPreviewNode({
 
 export default function ImportarEapPage() {
   const qc = useQueryClient();
+  const { userProfile } = useAuth();
   const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
+  const hasScope = !!organizacaoId && !!projetoId;
+  const cadastroQueryKey = ["cadastro", organizacaoId, projetoId] as const;
   const [fileName, setFileName] = useState("");
   const [rows, setRows] = useState<EapRow[]>([]);
   const [defaultLevelMap, setDefaultLevelMap] = useState<Record<number, number>>({ 1: 1, 2: 2, 3: 3, 4: 4 });
@@ -182,36 +188,40 @@ export default function ImportarEapPage() {
   );
 
   const { data: existingSetores = [] } = useQuery({
-    queryKey: ["cadastro", "setores"],
+    queryKey: [...cadastroQueryKey, "setores"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("setores").select("id,codigo,nome");
+      const { data, error } = await supabase.from("setores").select("id,codigo,nome").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) return [];
       return (data ?? []) as { id: string; codigo: string | null; nome: string }[];
     },
+    enabled: hasScope,
   });
   const { data: existingAreas = [] } = useQuery({
-    queryKey: ["cadastro", "areas"],
+    queryKey: [...cadastroQueryKey, "areas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("areas").select("id,codigo,setor_id");
+      const { data, error } = await supabase.from("areas").select("id,codigo,setor_id").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) return [];
       return (data ?? []) as { id: string; codigo: string | null; setor_id: string | null }[];
     },
+    enabled: hasScope,
   });
   const { data: existingSubareas = [] } = useQuery({
-    queryKey: ["cadastro", "subareas"],
+    queryKey: [...cadastroQueryKey, "subareas"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("subareas").select("id,codigo,area_id");
+      const { data, error } = await supabase.from("subareas").select("id,codigo,area_id").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) return [];
       return (data ?? []) as { id: string; codigo: string | null; area_id: string | null }[];
     },
+    enabled: hasScope,
   });
   const { data: existingAtividades = [] } = useQuery({
-    queryKey: ["cadastro", "atividades"],
+    queryKey: [...cadastroQueryKey, "atividades"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("atividades").select("id,codigo,subarea_id");
+      const { data, error } = await supabase.from("atividades").select("id,codigo,subarea_id").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!);
       if (error) return [];
       return (data ?? []) as { id: string; codigo: string | null; subarea_id: string | null }[];
     },
+    enabled: hasScope,
   });
 
   const existingIndex = useMemo<ExistingIndex>(() => {
@@ -344,6 +354,7 @@ export default function ImportarEapPage() {
 
   const importMut = useMutation({
     mutationFn: async () => {
+      if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra para continuar.");
       const selectedBase = rows.filter((r) => r.selected);
       if (selectedBase.length === 0) throw new Error("Nenhum item selecionado para importação.");
 
@@ -439,6 +450,8 @@ export default function ImportarEapPage() {
           nome: row.nome,
           codigo: dedupeCodigo(table, row.codigo),
           ativo: row.ativo,
+          organizacao_id: organizacaoId,
+          projeto_id: projetoId,
         };
 
         if (row.nivel === 2 && row.parentCodigo) payload.setor_id = dbIdByCodigo.get(row.parentCodigo);
@@ -462,14 +475,14 @@ export default function ImportarEapPage() {
     onSuccess: (r) => {
       const extra = r.autoIncluidos > 0 ? ` (${r.autoIncluidos} pai(s) incluído(s) automaticamente)` : "";
       toast.success(`Importação concluída: ${r.inserted} inseridos, ${r.skipped} ignorados, ${r.failed} falhas${extra}`);
-      qc.invalidateQueries({ queryKey: ["cadastro"] });
+      qc.invalidateQueries({ queryKey: cadastroQueryKey });
       setRows([]);
       setFileName("");
     },
     onError: (e: any) => toast.error("Erro: " + e.message),
   });
 
-  const canImport = rows.length > 0 && !importMut.isPending && stats.selected > 0;
+  const canImport = hasScope && rows.length > 0 && !importMut.isPending && stats.selected > 0;
 
   const estruturaTree = useMemo(() => {
     const filtered = rows.filter((r) => nivelFilter[r.nivel]);

@@ -50,15 +50,16 @@ export function useDeParaEngenheiros(organizacaoId: string | undefined) {
  * a consulta traz uma única coluna de texto curto, então o custo é baixo mesmo
  * com milhares de atividades.
  */
-export function useForemenDistintos(organizacaoId: string | undefined) {
+export function useForemenDistintos(organizacaoId: string | undefined, projetoId: string | undefined) {
   return useQuery({
-    queryKey: ['activities_foremen', organizacaoId],
-    enabled: !!organizacaoId,
+    queryKey: ['activities_foremen', organizacaoId, projetoId],
+    enabled: !!organizacaoId && !!projetoId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from('activities')
         .select('foreman')
         .eq('organizacao_id', organizacaoId!)
+        .eq('projeto_id', projetoId!)
         .not('foreman', 'is', null)
       if (error) throw error
       const nomes = new Set<string>()

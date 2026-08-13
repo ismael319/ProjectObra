@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { fetchWithOfflineCache } from "@/lib/offline-query";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 
 // Cadastros de apoio usados nos combos do Lançamento em campo: cacheados em
 // IndexedDB a cada busca bem-sucedida e servidos desse cache quando a rede
@@ -26,19 +27,24 @@ export type Atividade = { id: string; nome: string; ativo: boolean; subarea_id?:
 
 function useCatalogScope() {
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   return {
-    cacheScope: user && userProfile ? `${userProfile.organizacao_id ?? "all"}:${user.id}` : "pending",
-    cacheReady: !!user && !!userProfile,
+    organizacaoId,
+    projetoId,
+    cacheScope: user && organizacaoId && projetoId ? `${organizacaoId}:${projetoId}:${user.id}` : "pending",
+    cacheReady: !!user && !!organizacaoId && !!projetoId,
   };
 }
 
 export function useEmpresas(onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["empresas", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:empresas:${onlyActive}`, async () => {
-        let q = supabase.from("empresas").select("id,nome,ativo").retry(false);
+         let q = supabase.from("empresas").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Empresa[]).sort((a, b) => a.nome.localeCompare(b.nome))),
@@ -48,12 +54,12 @@ export function useEmpresas(onlyActive = true) {
 }
 
 export function useLiderancas(onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["liderancas", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:liderancas:${onlyActive}`, async () => {
-        let q = supabase.from("liderancas").select("id,nome,tipo,ativo").retry(false);
+         let q = supabase.from("liderancas").select("id,nome,tipo,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Lideranca[]).sort((a, b) => a.nome.localeCompare(b.nome))),
@@ -63,12 +69,12 @@ export function useLiderancas(onlyActive = true) {
 }
 
 export function useSetores(onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["setores", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:setores:${onlyActive}`, async () => {
-        let q = supabase.from("setores").select("id,nome,ativo").retry(false);
+         let q = supabase.from("setores").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Setor[]).sort((a, b) => a.nome.localeCompare(b.nome))),
@@ -86,12 +92,12 @@ export function useSetores(onlyActive = true) {
 // setor funciona offline assim que a tela é aberta uma vez online — e trocar
 // de setor deixa de disparar uma nova busca de rede.
 export function useAreas(setorId?: string | null, onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["areas", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:areas:${onlyActive}`, async () => {
-        let q = supabase.from("areas").select("id,setor_id,nome,ativo").retry(false);
+         let q = supabase.from("areas").select("id,setor_id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Area[]).sort((a, b) => a.nome.localeCompare(b.nome))),
@@ -102,12 +108,12 @@ export function useAreas(setorId?: string | null, onlyActive = true) {
 }
 
 export function useSubareas(areaId?: string | null, onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["subareas", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:subareas:${onlyActive}`, async () => {
-        let q = supabase.from("subareas").select("id,area_id,nome,ativo").retry(false);
+         let q = supabase.from("subareas").select("id,area_id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Subarea[]).sort((a, b) => a.nome.localeCompare(b.nome))),
@@ -118,12 +124,12 @@ export function useSubareas(areaId?: string | null, onlyActive = true) {
 }
 
 export function useAtividades(onlyActive = true) {
-  const { cacheScope, cacheReady } = useCatalogScope();
+   const { cacheScope, cacheReady, organizacaoId, projetoId } = useCatalogScope();
   return useQuery({
     queryKey: ["atividades", cacheScope, onlyActive],
     queryFn: () =>
       fetchWithOfflineCache(`catalog:v2:${cacheScope}:atividades:${onlyActive}`, async () => {
-        let q = supabase.from("atividades").select("id,nome,ativo").retry(false);
+         let q = supabase.from("atividades").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Atividade[]).sort((a, b) => a.nome.localeCompare(b.nome))),

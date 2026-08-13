@@ -2,6 +2,8 @@ import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -25,16 +27,26 @@ interface RegistroChuva {
 
 export default function MapaChuvas() {
   const qc = useQueryClient();
+  const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
+  const organizacaoId = userProfile?.organizacao_id ?? null;
+  const projetoId = currentProject?.id ?? null;
   const [month, setMonth] = useState<Date>(new Date());
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { data: registros = [] } = useQuery({
-    queryKey: ["mapa_chuvas"],
+    queryKey: ["mapa_chuvas", organizacaoId, projetoId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("mapa_chuvas").select("data,status").order("data");
+      const { data, error } = await supabase
+        .from("mapa_chuvas")
+        .select("data,status")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
+        .order("data");
       if (error) throw error;
       return data as RegistroChuva[];
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const registroByDate = useMemo(() => new Map(registros.map((r) => [r.data, r.status])), [registros]);
@@ -43,13 +55,19 @@ export default function MapaChuvas() {
   // validados x horas do dia) — usada só pra converter "dias impactados" em horas
   // perdidas estimadas. Sem apontamentos, fica 0 (não tem base pra estimar).
   const { data: hhMedioDiario = 0 } = useQuery({
-    queryKey: ["mapa_chuvas", "hh_medio_diario"],
+    queryKey: ["mapa_chuvas", "hh_medio_diario", organizacaoId, projetoId],
     queryFn: async () => {
       const { data: apontamentos } = await supabase
         .from("apontamentos_diarios")
         .select("data,total")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .eq("validado", true);
-      const { data: dias } = await supabase.from("dias_trabalho").select("data,horas_dia");
+      const { data: dias } = await supabase
+        .from("dias_trabalho")
+        .select("data,horas_dia")
+        .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!);
       if (!apontamentos || apontamentos.length === 0) return 0;
       const horasDiaMap = new Map((dias ?? []).map((d: { data: string; horas_dia: number }) => [d.data, d.horas_dia]));
       const pessoasPorDia = new Map<string, number>();
@@ -60,21 +78,27 @@ export default function MapaChuvas() {
       for (const [data, pessoas] of pessoasPorDia) totalHH += pessoas * (horasDiaMap.get(data) ?? 8);
       return pessoasPorDia.size > 0 ? totalHH / pessoasPorDia.size : 0;
     },
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const setMut = useMutation({
     mutationFn: async ({ data, status }: { data: string; status: ChuvaStatus | null }) => {
       if (status === null) {
-        const { error } = await supabase.from("mapa_chuvas").delete().eq("data", data);
+        const { error } = await supabase
+          .from("mapa_chuvas")
+          .delete()
+          .eq("data", data)
+          .eq("organizacao_id", organizacaoId!)
+          .eq("projeto_id", projetoId!);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("mapa_chuvas")
-          .upsert({ data, status, atualizado_em: new Date().toISOString() });
+          .upsert({ data, status, organizacao_id: organizacaoId, projeto_id: projetoId, atualizado_em: new Date().toISOString() });
         if (error) throw error;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["mapa_chuvas"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["mapa_chuvas", organizacaoId, projetoId] }),
     onError: (e: Error) => toast.error(e.message),
   });
 
@@ -118,13 +142,13 @@ export default function MapaChuvas() {
       if (rows.length === 0) throw new Error("Nenhum registro válido encontrado no arquivo (esperado: data,status)");
       const { error } = await supabase
         .from("mapa_chuvas")
-        .upsert(rows.map((r) => ({ ...r, atualizado_em: new Date().toISOString() })));
+        .upsert(rows.map((r) => ({ ...r, organizacao_id: organizacaoId, projeto_id: projetoId, atualizado_em: new Date().toISOString() })));
       if (error) throw error;
       return rows.length;
     },
     onSuccess: (count) => {
       toast.success(`${count} registro(s) importado(s)`);
-      qc.invalidateQueries({ queryKey: ["mapa_chuvas"] });
+      qc.invalidateQueries({ queryKey: ["mapa_chuvas", organizacaoId, projetoId] });
     },
     onError: (e: Error) => toast.error(e.message),
   });

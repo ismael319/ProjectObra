@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useEfetivoDoDia } from "@/lib/administracao/catalog";
 import { todayISO } from "@/pages/apontamento/lib/date-utils";
 
@@ -19,10 +20,12 @@ function Delta({ cadastro, campo }: { cadastro: number; campo: number | null }) 
 
 export default function EfetivoDoDia() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const [data, setData] = useState(todayISO());
 
-  const { data: linhas = [], isLoading } = useEfetivoDoDia(organizacaoId, data);
+  const { data: linhas = [], isLoading } = useEfetivoDoDia(organizacaoId, projetoId, data);
 
   const totais = linhas.reduce(
     (acc, l) => ({

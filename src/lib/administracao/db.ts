@@ -668,12 +668,17 @@ export type EfetivoDoDiaLinha = {
 // setor_id resolvido na importação). Só Campo (apontamentos_diarios) usa o
 // catálogo global antigo, sem organizacao_id — casa por NOME normalizado,
 // mesma decisão já tomada no schema pra essa reconciliação.
-export async function efetivoDoDia(organizacaoId: string, data: string): Promise<EfetivoDoDiaLinha[]> {
+export async function efetivoDoDia(organizacaoId: string, projetoId: string, data: string): Promise<EfetivoDoDiaLinha[]> {
   const [setoresResp, funcionariosResp, pontoResp, campoResp] = await Promise.all([
     supabase.from("rh_setores").select("id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
     supabase.from("funcionarios").select("setor_id").eq("organizacao_id", organizacaoId).eq("ativo", true),
     supabase.from("rh_efetivo_ponto_diario").select("setor_id,total_presentes").eq("organizacao_id", organizacaoId).eq("data", data),
-    supabase.from("apontamentos_diarios").select("setor_nome,pedreiro,servente,carpinteiro,qntdd_funcao").eq("data", data),
+    supabase
+      .from("apontamentos_diarios")
+      .select("setor_nome,pedreiro,servente,carpinteiro,qntdd_funcao")
+      .eq("organizacao_id", organizacaoId)
+      .eq("projeto_id", projetoId)
+      .eq("data", data),
   ]);
   if (setoresResp.error) throw new Error(setoresResp.error.message);
   if (funcionariosResp.error) throw new Error(funcionariosResp.error.message);
