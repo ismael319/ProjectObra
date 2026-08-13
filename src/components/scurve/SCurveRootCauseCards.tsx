@@ -3,6 +3,7 @@ import { format, subDays } from 'date-fns'
 import { CloudRain, AlertTriangle, Target } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useProjects } from '@/lib/project-store'
 import { getActivitiesInDateRange, getPartialWeight } from '@/lib/programacao-db'
 import { computeIndicators } from '@/lib/adherence'
 
@@ -16,6 +17,8 @@ const PPC_WINDOW_DAYS = 21
 export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
   const { userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? ''
+  const { currentProject } = useProjects()
+  const projetoId = currentProject?.id ?? ''
   const today = format(new Date(), 'yyyy-MM-dd')
 
   const { data: rainDays = 0 } = useQuery({
@@ -34,16 +37,16 @@ export function SCurveRootCauseCards({ openOccurrencesCount }: Props) {
   })
 
   const { data: ppc } = useQuery({
-    queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId],
+    queryKey: ['scurve-root-cause', 'ppc', today, organizacaoId, projetoId],
     queryFn: async () => {
       const start = format(subDays(new Date(), PPC_WINDOW_DAYS), 'yyyy-MM-dd')
       const [activities, partialWeight] = await Promise.all([
-        getActivitiesInDateRange(organizacaoId, start, today),
+        getActivitiesInDateRange(organizacaoId, projetoId, start, today),
         getPartialWeight(),
       ])
       return computeIndicators(activities, partialWeight)
     },
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
   })
 
   const plannedTotal = ppc ? ppc.total - ppc.extras : 0

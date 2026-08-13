@@ -31,6 +31,18 @@ export default function DashboardLayout() {
   // controla quem vê o link "Sistema" e o selo de pendências.
   const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
   const podeAcessarSistema = !!userProfile?.modulos?.includes('sistema') && podeGerenciarUsuarios
+  // Mesmo critério de RequirePortfolio (gate da rota) — só repete aqui pra
+  // decidir se mostra o link no menu; a rota já se protege sozinha.
+  const podeVerPortfolio = !!userProfile?.is_super_admin || (userProfile?.escopo_projetos === 'todos' && !isInsercaoPontual)
+  const podeConfigurarApresentacao = userProfile?.papel === 'edicao' || !!userProfile?.is_super_admin
+  // Telas de gerência que olham TODOS os projetos de uma vez (Portfólio,
+  // configurar/rodar Apresentação da empresa) não fazem sentido atrás do
+  // "abra um projeto primeiro" — sobretudo Apresentação, que o gerente na
+  // matriz precisa alcançar direto de "Meus Projetos" (ver ProjectSelection),
+  // sem escolher uma obra qualquer só pra passar por aqui.
+  const rotaSemProjetoObrigatorio = ['/dashboard/apresentacao', '/dashboard/portfolio'].some((p) =>
+    location.pathname.startsWith(p),
+  )
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
@@ -79,7 +91,7 @@ export default function DashboardLayout() {
 
     if (!currentProject) {
       setSyncedProjectKey(null)
-      navigate('/projects')
+      if (!rotaSemProjetoObrigatorio) navigate('/projects')
       return
     }
 
@@ -114,7 +126,7 @@ export default function DashboardLayout() {
     )
   }
 
-  if (!isInsercaoPontual && !currentProject) return null
+  if (!isInsercaoPontual && !currentProject && !rotaSemProjetoObrigatorio) return null
 
   const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
   const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
@@ -151,6 +163,8 @@ export default function DashboardLayout() {
     papel: userProfile?.papel ?? undefined,
     modulos: userProfile?.modulos,
     podeGerenciarUsuarios: podeAcessarSistema,
+    podeVerPortfolio,
+    podeConfigurarApresentacao,
     projectName: currentProject?.nome,
     brandColor,
   }

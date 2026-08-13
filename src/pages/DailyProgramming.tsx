@@ -3,7 +3,7 @@ import { Calendar, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
-import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type WeekIndicators } from '@/lib/adherence'
+import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type SubEtapa, type WeekIndicators } from '@/lib/adherence'
 import {
   getWeek,
   lockWeekWithBaseline,
@@ -54,6 +54,7 @@ export default function DailyProgramming() {
   const { currentProject } = useProjects()
   const { userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? ''
+  const projetoId = currentProject?.id ?? ''
   const { podeEditar } = usePapelModulo('engenharia')
   const now = new Date()
   const cur = getISOWeekYearAndNumber(now)
@@ -87,10 +88,10 @@ export default function DailyProgramming() {
     // sem essa guarda, o primeiro disparo do efeito abaixo (no mount, antes do
     // perfil chegar) tentava buscar a semana sem organização, o que ou
     // vazava dados de outra empresa ou quebrava com um 400 (ver getWeek).
-    if (!organizacaoId) return
+    if (!organizacaoId || !projetoId) return
     if (showLoading) setLoading(true)
     try {
-      const data = await getWeek(organizacaoId, isoYear, isoWeek)
+      const data = await getWeek(organizacaoId, projetoId, isoYear, isoWeek)
       setWeekData(data)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao carregar semana'
@@ -98,11 +99,32 @@ export default function DailyProgramming() {
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [organizacaoId, isoYear, isoWeek])
+  }, [organizacaoId, projetoId, isoYear, isoWeek])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  /**
+   * Atualiza UMA atividade na lista já carregada, sem ir ao banco de novo.
+   *
+   * Antes, toda ação chamava fetchData(false), que rebusca a semana INTEIRA:
+   * atividades, sub-etapas (em lotes), plano comprometido e configurações — umas
+   * 7 requisições e ~450 KB numa semana de ~500 atividades. Como o apontamento é
+   * feito clique a clique, isso era de longe o maior consumo de banda do app.
+   *
+   * Estas ações mexem só no registro que acabou de ser gravado, e o valor
+   * gravado já é conhecido aqui — dá pra refletir na tela sem tráfego nenhum.
+   * O que muda o CONJUNTO (importar, mover, excluir, finalizar, comprometer,
+   * limpar) continua recarregando tudo, porque aí o efeito não é local.
+   */
+  const atualizarAtividadeLocal = useCallback((id: string, patch: Partial<ActivityLike>) => {
+    setWeekData((prev) =>
+      prev
+        ? { ...prev, activities: prev.activities.map((a) => (a.id === id ? { ...a, ...patch } : a)) }
+        : prev,
+    )
+  }, [])
 
   const activities = weekData?.activities ?? []
   const partialWeight = weekData?.partialWeight ?? 0.5
@@ -465,18 +487,39 @@ export default function DailyProgramming() {
   const handleSetStatus = async (id: string, status: ActivityStatus, observation: string | null) => {
     try {
       await setActivityStatus(organizacaoId, id, status, observation)
-      fetchData(false)
+      atualizarAtividadeLocal(id, { status, observation })
+      // Semana ainda em montagem: esse apontamento não entra em PPC nenhum
+      // ainda (não existe baseline pra medir contra) — oferece comprometer
+      // na hora, em vez de deixar quem aponta descobrir só depois, com o PPC
+      // sumido. `id` fixo faz sonner reaproveitar o mesmo toast em vez de
+      // empilhar um novo a cada clique.
+      if (weekData?.week.status === 'rascunho') {
+        toast.message('Esta semana ainda está em montagem — o PPC só existe depois de comprometida.', {
+          id: 'aviso-semana-em-montagem',
+          description: 'Comprometer agora congela o plano com o que já está no quadro.',
+          action: { label: 'Comprometer semana', onClick: () => handleComprometer() },
+          duration: 8000,
+        })
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar status'
       toast.error(msg)
     }
   }
 
+  // As sub-etapas já vêm relidas do banco por sincronizarStatus (ModalDetalheDia)
+  // — só falta guardá-las na semana carregada. Era o recarregamento completo que
+  // fazia isso antes.
+  const handleSubetapasAtualizadas = useCallback(
+    (id: string, subetapas: SubEtapa[]) => atualizarAtividadeLocal(id, { subetapas }),
+    [atualizarAtividadeLocal],
+  )
+
   const handleSetInativa = async (id: string, inativa: boolean, motivo: string | null) => {
     try {
       await setActivityInativa(organizacaoId, id, inativa, motivo)
+      atualizarAtividadeLocal(id, { inativa, motivoInativacao: inativa ? motivo : null })
       toast.success(inativa ? 'Atividade inativada' : 'Atividade reativada')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao inativar a atividade'
       toast.error(msg)
@@ -486,8 +529,8 @@ export default function DailyProgramming() {
   const handleSetForaDoPlano = async (id: string, fora: boolean, motivo: string | null) => {
     try {
       await setActivityForaDoPlano(organizacaoId, id, fora, motivo)
+      atualizarAtividadeLocal(id, { foraDoPlano: fora, motivoFora: fora ? motivo : null })
       toast.success(fora ? 'Atividade fora desta semana' : 'Atividade de volta ao plano')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar o plano da atividade'
       toast.error(msg)
@@ -497,8 +540,8 @@ export default function DailyProgramming() {
   const handleSetExtra = async (id: string, isExtra: boolean) => {
     try {
       await setActivityExtra(organizacaoId, id, isExtra)
+      atualizarAtividadeLocal(id, { is_extra: isExtra })
       toast.success(isExtra ? 'Marcada como extra' : 'Desmarcada como extra')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar a atividade'
       toast.error(msg)
@@ -570,7 +613,7 @@ export default function DailyProgramming() {
   }) => {
     if (!weekData?.week) return
     try {
-      await addExtraActivity({ organizacaoId, weekId: weekData.week.id, ...payload })
+      await addExtraActivity({ organizacaoId, projetoId, weekId: weekData.week.id, ...payload })
       toast.success('Atividade extra adicionada')
       fetchData(false)
     } catch (e: unknown) {
@@ -671,7 +714,7 @@ export default function DailyProgramming() {
         onReprogramar={handleReprogramar}
         onAdicionarNaoRealizadas={handleAdicionarNaoRealizadas}
         onDelete={handleDelete}
-        onRefresh={() => fetchData(false)}
+        onSubetapasAtualizadas={handleSubetapasAtualizadas}
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
@@ -689,6 +732,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         organizacaoId={organizacaoId}
+        projetoId={projetoId}
         weekDays={days}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}
@@ -715,6 +759,7 @@ export default function DailyProgramming() {
         sources={importSources}
         weekId={weekData.week.id}
         organizacaoId={organizacaoId}
+        projetoId={projetoId}
         weekDays={dayImportDate ? [dayImportDate] : []}
         engenheirosPorArea={engenheirosPorArea}
         areaIdPorArea={areaIdPorArea}

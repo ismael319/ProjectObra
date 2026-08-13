@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeStatusFromSubetapas, descreverMergeExcel } from "./programacao-db";
+import { computeStatusFromSubetapas, descreverMergeExcel, statusAoSincronizarSubetapas } from "./programacao-db";
 import type { SubEtapa, SubEtapaStatus } from "./adherence";
 
 function sub(status: SubEtapaStatus): SubEtapa {
@@ -42,6 +42,46 @@ describe("computeStatusFromSubetapas", () => {
 
   it("uma única sub-etapa não concluída -> nao_concluida", () => {
     expect(computeStatusFromSubetapas([sub("nao_concluida")])).toBe("nao_concluida");
+  });
+});
+
+describe("statusAoSincronizarSubetapas", () => {
+  it("atividade Concluída com sub-etapa pendente volta pra pendente", () => {
+    // O caso relatado na tela: card verde "Concluída" mostrando "Sub-etapas
+    // (0/1)". Antes, computeStatusFromSubetapas devolvia null e ninguém gravava
+    // nada — o status antigo ficava de pé e ainda creditava PPC.
+    expect(statusAoSincronizarSubetapas([sub("pendente")], "concluida")).toBe("pendente");
+  });
+
+  it("mesma coisa vindo de parcial ou não concluída", () => {
+    expect(statusAoSincronizarSubetapas([sub("pendente")], "parcial")).toBe("pendente");
+    expect(statusAoSincronizarSubetapas([sub("pendente")], "nao_concluida")).toBe("pendente");
+  });
+
+  it("já pendente não gera gravação à toa", () => {
+    expect(statusAoSincronizarSubetapas([sub("pendente")], "pendente")).toBeNull();
+  });
+
+  it("desmarcar uma sub-etapa concluída derruba o status da atividade", () => {
+    // Duas sub-etapas concluídas -> atividade concluída. Desmarcando uma, ela
+    // volta a "pendente" (aguardando), não fica presa em "concluida".
+    expect(statusAoSincronizarSubetapas([sub("concluida"), sub("pendente")], "concluida")).toBe("pendente");
+  });
+
+  it("todas resolvidas continua derivando normalmente", () => {
+    expect(statusAoSincronizarSubetapas([sub("concluida"), sub("concluida")], "pendente")).toBe("concluida");
+    expect(statusAoSincronizarSubetapas([sub("concluida"), sub("nao_concluida")], "pendente")).toBe("parcial");
+    expect(statusAoSincronizarSubetapas([sub("nao_concluida")], "pendente")).toBe("nao_concluida");
+  });
+
+  it("status derivado igual ao atual não gera gravação", () => {
+    expect(statusAoSincronizarSubetapas([sub("concluida")], "concluida")).toBeNull();
+  });
+
+  it("sem sub-etapas o status volta a ser manual e não é tocado", () => {
+    // Excluir a última sub-etapa não pode zerar um apontamento feito à mão.
+    expect(statusAoSincronizarSubetapas([], "concluida")).toBeNull();
+    expect(statusAoSincronizarSubetapas([], "nao_concluida")).toBeNull();
   });
 });
 

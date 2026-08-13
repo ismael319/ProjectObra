@@ -1,9 +1,16 @@
 import { useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { supabase } from '@/lib/supabase'
+import { idbGet, idbSet, idbDelete } from '@/lib/idb-kv'
 import type { MapaCelula, MapaStatus } from './calculo'
 
 const BUCKET = 'mapa-plantas'
+
+// Chave do blob da planta em IndexedDB (kv genérico, não o QUEUE_STORE) —
+// arquivo_path é conteúdo imutável (uma planta editada vira upload NOVO com
+// id novo, nunca sobrescreve o path existente — ver useCriarPlanta), então
+// cachear por ele pra sempre é seguro, sem risco de mostrar imagem velha.
+const chaveBlobPlanta = (arquivoPath: string) => `mapa_planta_blob:${arquivoPath}`
 
 export interface MapaPlanta {
   id: string
@@ -114,6 +121,13 @@ export function usePlantas(organizacaoId: string | undefined, projetoId: string 
  * captura EM BRANCO, sem erro nenhum — um blob: é mesma origem e sempre
  * captura. O segundo é a validade: signed URL expira em 1h e a tela de
  * apontamento fica aberta o dia todo na obra.
+ *
+ * O blob em si também é cacheado em IndexedDB (não só na memória do
+ * QueryClient) — sem isso, `staleTime: Infinity` só evita rebuscar enquanto
+ * a query segue montada; o `gcTime` padrão (5 min) descarta tudo assim que a
+ * tela fica sem observador, e fechar/reabrir ou recarregar a página baixava
+ * os 2-5MB de novo toda vez. Com o IndexedDB, o primeiro acesso baixa; os
+ * seguintes (mesmo depois de recarregar a página ou fechar a aba) leem local.
  */
 export function usePlantaUrl(arquivoPath: string | undefined) {
   const query = useQuery({
@@ -121,8 +135,13 @@ export function usePlantaUrl(arquivoPath: string | undefined) {
     enabled: !!arquivoPath,
     staleTime: Infinity,
     queryFn: async () => {
+      const cacheKey = chaveBlobPlanta(arquivoPath!)
+      const cached = await idbGet<Blob>(cacheKey)
+      if (cached) return URL.createObjectURL(cached)
+
       const { data, error } = await supabase.storage.from(BUCKET).download(arquivoPath!)
       if (error || !data) throw error ?? new Error('Não foi possível abrir a planta')
+      idbSet(cacheKey, data).catch(() => {})
       return URL.createObjectURL(data)
     },
   })
@@ -262,8 +281,15 @@ export function useExcluirPlanta(organizacaoId: string | undefined, projetoId: s
       const { error } = await supabase.from('mapa_plantas').delete().eq('id', planta.id)
       if (error) throw error
       // Best-effort: a linha já foi embora (com as grades em cascata), então
-      // falhar aqui só deixa um arquivo órfão, não corrompe nada.
-      await supabase.storage.from(BUCKET).remove([planta.arquivo_path]).catch(() => {})
+      // falhar aqui só deixa um arquivo órfão, não corrompe nada — mas loga
+      // pra não ficar 100% invisível. A limpeza de órfãos (UsoArmazenamentoBar/
+      // useArquivosOrfaosPlantas) pega o que escapar por aqui depois.
+      const { error: erroStorage } = await supabase.storage.from(BUCKET).remove([planta.arquivo_path])
+      if (erroStorage) console.error('Falha ao remover arquivo da planta no Storage — ficou órfão:', planta.arquivo_path, erroStorage)
+      // Cache local do blob (usePlantaUrl) não serve mais pra nada — sem
+      // isso ficaria um blob de 2-5MB parado no IndexedDB do navegador pra
+      // sempre, de uma planta que nem existe mais.
+      await idbDelete(chaveBlobPlanta(planta.arquivo_path)).catch(() => {})
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['mapa_plantas', organizacaoId, projetoId] })

@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2, Settings2 } from 'lucide-react'
+import { UserCog, Check, X, Send, Trash2, Pencil, Save, Loader2, Settings2, MapPin } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { enviarConviteEmail } from '@/lib/convite-email'
 import { useAuth, usePapelModulo, type PapelUsuario } from '@/lib/auth-context'
 import PapelPorModuloModal from '@/components/PapelPorModuloModal'
+import EscopoProjetosModal from '@/components/EscopoProjetosModal'
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -100,6 +101,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const [isExcluindo, setIsExcluindo] = useState(false)
 
   const [papelModuloAlvo, setPapelModuloAlvo] = useState<SolicitacaoRow | null>(null)
+  const [escopoProjetosAlvo, setEscopoProjetosAlvo] = useState<SolicitacaoRow | null>(null)
 
   const load = useCallback(async () => {
     if (!orgAlvo) return
@@ -556,6 +558,16 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
                             <Settings2 size={14} /> Papéis por módulo
                           </Button>
                         )}
+                        {row.status_solicitacao === 'aprovado' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            title="Restringir esta pessoa a projeto(s) específico(s)"
+                            onClick={() => setEscopoProjetosAlvo(row)}
+                          >
+                            <MapPin size={14} /> Escopo de projetos
+                          </Button>
+                        )}
                         <Button
                           size="sm"
                           variant="outline"
@@ -635,6 +647,16 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
           usuarioId={papelModuloAlvo.id}
           usuarioEmail={papelModuloAlvo.email}
           papelGlobal={papelModuloAlvo.papel}
+          organizacaoId={orgAlvo}
+        />
+      )}
+
+      {escopoProjetosAlvo && orgAlvo && (
+        <EscopoProjetosModal
+          open={!!escopoProjetosAlvo}
+          onOpenChange={(o) => !o && setEscopoProjetosAlvo(null)}
+          usuarioId={escopoProjetosAlvo.id}
+          usuarioEmail={escopoProjetosAlvo.email}
           organizacaoId={orgAlvo}
         />
       )}

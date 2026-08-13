@@ -18,6 +18,9 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import Assinatura from '@/components/Assinatura'
+import { formatarDataAssinatura } from '@/lib/assinatura'
+import { useAssinaturas } from '@/lib/assinatura-db'
 import { useAuth } from "@/lib/auth-context";
 import {
   useValidacaoEtapas, useValidacaoResponsaveis, useConfirmacoes, useDecidir, useDesfazerDecisao,
@@ -115,6 +118,7 @@ export default function ValidacaoPage() {
 
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const { data: assinaturas } = useAssinaturas(organizacaoId);
   const [etapaChave, setEtapaChave] = useState<string | null>(null);
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [motivo, setMotivo] = useState("");
@@ -908,15 +912,29 @@ export default function ValidacaoPage() {
                           <div className="mt-2 flex flex-wrap items-center gap-1">
                             {etapasApontamento.map((e) => {
                               const d = decisoes.find((x) => x.etapa_chave === e.chave);
+                              const quem = d ? assinaturas?.get(d.usuario_id) : undefined;
                               return (
-                                <Badge
-                                  key={e.chave}
-                                  variant={d ? (d.decisao === "confirmado" ? "secondary" : "destructive") : "outline"}
-                                  title={d?.observacao ?? e.nome}
-                                >
-                                  {e.nome}
-                                  {d && (d.decisao === "confirmado" ? " ✓" : " ✕")}
-                                </Badge>
+                                <span key={e.chave} className="flex items-center gap-1.5">
+                                  <Badge
+                                    variant={d ? (d.decisao === "confirmado" ? "secondary" : "destructive") : "outline"}
+                                    title={d?.observacao ?? e.nome}
+                                  >
+                                    {e.nome}
+                                    {d && (d.decisao === "confirmado" ? " ✓" : " ✕")}
+                                  </Badge>
+                                  {/* Assinatura de quem decidiu — o badge sozinho
+                                      diz a etapa, não a pessoa. */}
+                                  {quem && d && (
+                                    <Assinatura
+                                      nome={quem.nome}
+                                      estilo={quem.assinatura_estilo}
+                                      funcao={quem.funcao}
+                                      data={formatarDataAssinatura(d.criado_em)}
+                                      tamanho="sm"
+                                      className="max-w-[160px]"
+                                    />
+                                  )}
+                                </span>
                               );
                             })}
                             {minhaDecisao && (

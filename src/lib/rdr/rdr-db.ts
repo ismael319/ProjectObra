@@ -92,7 +92,12 @@ export function useRdrRecord(id: string | undefined) {
   })
 }
 
-export function useSalvarRecord(organizacaoId: string | undefined) {
+// projetoId só é usado na CRIAÇÃO — um RDR já existente mantém o projeto que
+// tinha quando foi aberto, editar não deve "mudar de obra" um registro.
+// Nullable de propósito (rdr_records.projeto_id aceita NULL): ocorrência sem
+// obra vinculada continua possível, é o projeto atual do usuário que só
+// preenche por conveniência quando existe.
+export function useSalvarRecord(organizacaoId: string | undefined, projetoId?: string | null) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async (input: RdrRecordInput & { id?: string }) => {
@@ -106,7 +111,7 @@ export function useSalvarRecord(organizacaoId: string | undefined) {
       } else {
         const { error } = await supabase
           .from("rdr_records")
-          .insert({ ...base, organizacao_id: organizacaoId })
+          .insert({ ...base, organizacao_id: organizacaoId, projeto_id: projetoId ?? null })
         if (error) throw error
       }
     },

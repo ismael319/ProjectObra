@@ -25,6 +25,7 @@ interface Props {
   sources: ImportSource[]
   weekId: string
   organizacaoId: string
+  projetoId: string
   weekDays: string[]
   /** Engenheiro sugerido por área (nível 2 da EDT), cadastrado em "Engenheiros por
    * Área" (menu Ações) — aplicado direto na importação, sem confirmação por
@@ -75,6 +76,7 @@ export default function ModalImportarAtividades({
   sources,
   weekId,
   organizacaoId,
+  projetoId,
   weekDays,
   engenheirosPorArea,
   areaIdPorArea,
@@ -174,6 +176,7 @@ export default function ModalImportarAtividades({
       const rows = toImport.flatMap((a) =>
         getOverlappingDays(a, weekDays).map((date) => ({
           organizacaoId,
+          projetoId,
           weekId,
           planned_date: date,
           name: a.taskName,

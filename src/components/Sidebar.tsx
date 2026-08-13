@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
-  ChevronDown, ChevronRight, LayoutDashboard,
+  ChevronDown, ChevronRight, LayoutDashboard, Tv,
   PanelLeftClose, PanelLeftOpen, Settings, ShieldCheck, UserCog,
 } from 'lucide-react'
 import { useTheme } from '@/lib/theme-context'
@@ -60,11 +60,12 @@ interface SidebarProps {
   // acesso a papelPorModulo) — não dá pra derivar aqui só do `papel` global,
   // já que alguém pode ter um override edicao só em "sistema".
   podeGerenciarUsuarios?: boolean
+  podeConfigurarApresentacao?: boolean
 }
 
 export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
-  modulos = [], podeGerenciarUsuarios = false,
+  modulos = [], podeGerenciarUsuarios = false, podeConfigurarApresentacao = false,
 }: SidebarProps) {
   const isInsercaoPontual = papel === 'insercao_pontual'
 
@@ -166,6 +167,33 @@ export default function Sidebar({
                 <LayoutDashboard size={18} />
                 {!collapsed && <span>Visão Geral</span>}
               </Link>
+
+              {/* O Portfólio NÃO fica aqui: a sidebar é a navegação de dentro de
+                  uma obra, e o Portfólio é a visão de todas elas. O caminho pra
+                  ele é "Meus Projetos" (ver ProjectSelection) — coerente com
+                  /dashboard/portfolio já estar na lista de rotas que dispensam
+                  projeto selecionado, em DashboardLayout. */}
+
+              {podeConfigurarApresentacao && (
+                <Link
+                  to="/dashboard/apresentacao"
+                  onClick={() => onMobileClose()}
+                  className={`flex items-center gap-3 rounded-lg text-sm font-semibold transition-colors duration-150 ${
+                    collapsed ? 'justify-center px-2 py-2.5' : 'px-3 py-2.5'
+                  } ${
+                    isActive('/dashboard/apresentacao')
+                      ? 'text-white'
+                      : 'text-white/80 hover:text-white'
+                  }`}
+                  style={activeStyle('/dashboard/apresentacao')}
+                  onMouseEnter={(e) => { if (!isActive('/dashboard/apresentacao')) e.currentTarget.style.backgroundColor = sidebarHover }}
+                  onMouseLeave={(e) => { if (!isActive('/dashboard/apresentacao')) e.currentTarget.style.backgroundColor = 'transparent' }}
+                  title="Modo Apresentação"
+                >
+                  <Tv size={18} />
+                  {!collapsed && <span>Apresentação</span>}
+                </Link>
+              )}
 
               {!collapsed && <div className="h-px" style={{ backgroundColor: 'rgba(255,255,255,0.15)' }} />}
             </>

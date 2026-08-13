@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
 import RequireModulo from '@/components/RequireModulo'
 import RequirePapel from '@/components/RequirePapel'
+import RequirePortfolio from '@/components/RequirePortfolio'
 
 const queryClient = new QueryClient()
 
@@ -20,6 +21,9 @@ const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'))
 const UpdatePassword = lazy(() => import('@/pages/UpdatePassword'))
 const DashboardLayout = lazy(() => import('@/pages/DashboardLayout'))
 const DashboardHome = lazy(() => import('@/pages/DashboardHome'))
+const DashboardPortfolio = lazy(() => import('@/pages/DashboardPortfolio'))
+const ApresentacaoConfig = lazy(() => import('@/pages/ApresentacaoConfig'))
+const ApresentacaoPublica = lazy(() => import('@/pages/ApresentacaoPublica'))
 const SCurve = lazy(() => import('@/pages/SCurve'))
 const GanttChart = lazy(() => import('@/pages/GanttChart'))
 const HistogramaMO = lazy(() => import('@/pages/histograma-mo/HistogramaMO'))
@@ -102,6 +106,10 @@ function App() {
                   <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    {/* Público, sem sessão — nunca dentro de ProtectedRoute/DashboardLayout
+                        (ver Fase 0 do plano: acesso anônimo só passa por RPC estreita,
+                        nunca por RLS aberta numa tabela real). */}
+                    <Route path="/apresentacao/:token" element={<ApresentacaoPublica />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/update-password" element={<UpdatePassword />} />
 
@@ -198,6 +206,8 @@ function App() {
                       }
                     >
                       <Route index element={<DashboardHome />} />
+                      <Route path="portfolio" element={<RequirePortfolio><DashboardPortfolio /></RequirePortfolio>} />
+                      <Route path="apresentacao" element={<ApresentacaoConfig />} />
                       <Route path="activities" element={<Activities />} />
                       <Route path="planning" element={<RequireModulo modulo="engenharia"><SCurve /></RequireModulo>} />
                       <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />

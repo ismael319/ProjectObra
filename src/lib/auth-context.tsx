@@ -2,9 +2,12 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import type { Session, User } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import { idbGet, idbSet } from '@/lib/idb-kv'
+import type { AssinaturaEstilo } from '@/lib/assinatura'
 
 export type PapelUsuario = 'edicao' | 'visualizacao' | 'insercao_pontual'
 export type StatusSolicitacao = 'pendente' | 'aprovado' | 'rejeitado'
+
+export type EscopoProjetos = 'todos' | 'vinculados'
 
 interface UserProfile {
   papel: PapelUsuario | null
@@ -12,12 +15,18 @@ interface UserProfile {
   organizacao_id: string | null
   is_super_admin: boolean
   organizacao_piloto: boolean
+  // 'todos' (padrão) = enxerga todo projeto da empresa, igual a hoje.
+  // 'vinculados' = só os projetos em projeto_usuarios — ver Dashboard Macro.
+  escopo_projetos: EscopoProjetos
   modulos: string[]
   // Overrides de papel por módulo (chave = modulo_key) — ausência de chave
   // pra um módulo = usa `papel` (o padrão global). Ver papelEfetivo().
   papelPorModulo: Record<string, PapelUsuario>
   nome: string | null
   funcao: string | null
+  /** Estilo da assinatura escolhido no primeiro acesso (ver lib/assinatura.ts).
+   * null em quem entrou antes dessa tela existir. */
+  assinatura_estilo: AssinaturaEstilo | null
   termos_aceitos_em: string | null
   versao_termos: string | null
 }
@@ -49,7 +58,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
   aceitarTermos: () => Promise<void>
-  completarPerfil: (nome: string, funcao: string) => Promise<{ error?: string }>
+  completarPerfil: (nome: string, funcao: string, assinaturaEstilo?: AssinaturaEstilo) => Promise<{ error?: string }>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -80,7 +89,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // fetch novo em vez de reusar um valor que não existe mais.
   // v3: bump depois de adicionar papelPorModulo — cache antigo não tem esse
   // campo (papelEfetivo() também tem optional chaining como segunda proteção).
-  const profileCacheKey = (userId: string) => `auth:profile:v3:${userId}`
+  // v4: bump depois de adicionar escopo_projetos (Dashboard Macro) — cache
+  // antigo cai no fallback 'todos' abaixo mesmo assim, é só por higiene.
+  const profileCacheKey = (userId: string) => `auth:profile:v4:${userId}`
 
   // O Supabase costuma disparar onAuthStateChange mais de uma vez logo no
   // boot (INITIAL_SESSION, depois outro evento) mesmo pro MESMO usuário —
@@ -105,9 +116,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // contrato da empresa) — ausência de linhas = sem restrição.
     // user_papel_modulos são os overrides de papel por módulo — ausência de
     // linhas = usa o papel global em todo módulo (comportamento de hoje).
-    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
-    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
-    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, nome, funcao, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
+    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
+    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
+    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
 
     let { data, error } = await supabase.from('user_profiles').select(SELECT_COMPLETO).eq('id', userId).single()
 
@@ -146,10 +157,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         organizacao_id: data.organizacao_id,
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
+        escopo_projetos: (data.escopo_projetos as EscopoProjetos | undefined) ?? 'todos',
         modulos,
         papelPorModulo,
         nome: data.nome,
         funcao: data.funcao,
+        assinatura_estilo: (data.assinatura_estilo ?? null) as AssinaturaEstilo | null,
         termos_aceitos_em: data.termos_aceitos_em,
         versao_termos: data.versao_termos,
       }
@@ -241,8 +254,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const completarPerfil = async (nome: string, funcao: string) => {
-    const { error } = await supabase.rpc('completar_perfil', { p_nome: nome, p_funcao: funcao })
+  const completarPerfil = async (nome: string, funcao: string, assinaturaEstilo?: AssinaturaEstilo) => {
+    const { error } = await supabase.rpc('completar_perfil', {
+      p_nome: nome,
+      p_funcao: funcao,
+      p_assinatura_estilo: assinaturaEstilo ?? null,
+    })
     if (!error) {
       setPerfilCompleto(true)
       await refetchProfile()

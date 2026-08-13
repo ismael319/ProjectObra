@@ -42,6 +42,7 @@ interface WeekRow {
 interface ActivityRow {
   id: string
   week_id: string
+  projeto_id?: string
   task_uid: string | null
   name: string
   company: string | null
@@ -77,14 +78,17 @@ export interface WeekData {
 }
 
 // Garante que a semana existe (Sex→Qui), criando ou corrigindo se necessário.
-// organizacaoId isola a semana por empresa (UNIQUE(organizacao_id, iso_year, iso_week)).
-async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekRow> {
+// organizacaoId + projetoId isolam a semana por empresa E por obra
+// (UNIQUE(organizacao_id, projeto_id, iso_year, iso_week)) — cada projeto tem
+// seu próprio calendário de semanas, mesmo na mesma empresa.
+async function ensureWeek(organizacaoId: string, projetoId: string, isoYear: number, isoWeek: number): Promise<WeekRow> {
   const friday = isoWeekFromParts(isoYear, isoWeek)
   const thursday = addDays(friday, 6)
   const startDate = toISODateStr(friday)
   const endDate = toISODateStr(thursday)
 
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  if (!projetoId) throw new Error('Nenhum projeto selecionado — escolha um projeto antes de abrir a Programação Semanal.')
 
   const { data: existing } = await supabase
     .from('weeks')
@@ -92,6 +96,7 @@ async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: numbe
     .eq('iso_year', isoYear)
     .eq('iso_week', isoWeek)
     .eq('organizacao_id', organizacaoId)
+    .eq('projeto_id', projetoId)
     .maybeSingle()
 
   if (existing) {
@@ -118,6 +123,7 @@ async function ensureWeek(organizacaoId: string, isoYear: number, isoWeek: numbe
     .from('weeks')
     .insert({
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       iso_year: isoYear,
       iso_week: isoWeek,
       start_date: startDate,
@@ -175,9 +181,10 @@ export async function getPartialWeight(): Promise<number> {
 }
 
 // Buscar semana + atividades
-export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
+export async function getWeek(organizacaoId: string, projetoId: string, isoYear: number, isoWeek: number): Promise<WeekData> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
-  const week = await ensureWeek(organizacaoId, isoYear, isoWeek)
+  if (!projetoId) throw new Error('Nenhum projeto selecionado — escolha um projeto antes de abrir a Programação Semanal.')
+  const week = await ensureWeek(organizacaoId, projetoId, isoYear, isoWeek)
 
   // Paginado pelo mesmo motivo de getActivitiesInDateRange: sem isso, o Supabase corta
   // na página default (1000 linhas), o que uma semana cheia de atividades pode passar.
@@ -189,6 +196,7 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
       .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, observation, source_cronograma, task_uid, inativa, motivo_inativacao, fora_do_plano, motivo_fora')
       .eq('week_id', week.id)
       .eq('organizacao_id', organizacaoId)
+      .eq('projeto_id', projetoId)
       .order('planned_date', { ascending: true })
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
@@ -254,8 +262,9 @@ export async function getWeek(organizacaoId: string, isoYear: number, isoWeek: n
 // computeIndicators (mesma regra: concluídas / planejadas, extras não contam no
 // denominador), só muda a query pra filtrar por intervalo de planned_date em vez de
 // week_id.
-export async function getActivitiesInDateRange(organizacaoId: string, startDate: string, endDate: string): Promise<ActivityLike[]> {
+export async function getActivitiesInDateRange(organizacaoId: string, projetoId: string, startDate: string, endDate: string): Promise<ActivityLike[]> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
+  if (!projetoId) throw new Error('Nenhum projeto selecionado — escolha um projeto antes de abrir a Programação Semanal.')
 
   // Sem paginar, o Supabase corta na página default (1000 linhas) — um intervalo de 7
   // dias com várias dezenas de tarefas por dia passa disso fácil (cada tarefa gera 1
@@ -270,6 +279,7 @@ export async function getActivitiesInDateRange(organizacaoId: string, startDate:
       .gte('planned_date', startDate)
       .lte('planned_date', endDate)
       .eq('organizacao_id', organizacaoId)
+      .eq('projeto_id', projetoId)
       .order('planned_date', { ascending: true })
     const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
 
@@ -655,9 +665,20 @@ export async function finalizarAtividade(organizacaoId: string, activityId: stri
 export async function addSubEtapa(organizacaoId: string, activityId: string, nome: string): Promise<SubEtapa> {
   if (!organizacaoId) throw new Error('Organização não carregada — recarregue a página.')
   await exigirEscritaPermitidaPorAtividade(organizacaoId, activityId, 'status')
+  // activity_subetapas.projeto_id é NOT NULL — puxa da atividade-mãe em vez de
+  // exigir o chamador (ModalDetalheDia) passar o projeto adiante, já que ele só
+  // tem o id da atividade à mão aqui.
+  const { data: activity, error: errActivity } = await supabase
+    .from('activities')
+    .select('projeto_id')
+    .eq('id', activityId)
+    .eq('organizacao_id', organizacaoId)
+    .single()
+  if (errActivity) throw new Error(errActivity.message)
+
   const { data, error } = await supabase
     .from('activity_subetapas')
-    .insert({ organizacao_id: organizacaoId, activity_id: activityId, nome })
+    .insert({ organizacao_id: organizacaoId, projeto_id: activity.projeto_id, activity_id: activityId, nome })
     .select('id,activity_id,nome,status')
     .single()
   if (error) throw new Error(error.message)
@@ -754,6 +775,37 @@ export function computeStatusFromSubetapas(subetapas: SubEtapa[]): ActivityStatu
   return 'nao_concluida'
 }
 
+/**
+ * Qual status gravar na atividade depois de mexer nas sub-etapas dela.
+ * Devolve `null` quando não há nada a gravar.
+ *
+ * Existe por causa de um status que ficava PARADO no valor antigo: com
+ * `computeStatusFromSubetapas` devolvendo null enquanto alguma sub-etapa está
+ * pendente, quem chamava simplesmente não gravava nada — e uma atividade que já
+ * estava "Concluída" (marcada à mão antes de ganhar sub-etapas, ou derivada
+ * antes de alguém desmarcar uma) continuava Concluída mostrando "Sub-etapas
+ * (0/1)". Pior que o visual: ela seguia contando como concluída no PPC, e os
+ * três botões de status ficam travados quando há sub-etapas (ver statusTravado
+ * em ModalDetalheDia), então não dava nem pra corrigir à mão.
+ *
+ * A regra de não julgar antes da hora continua: sub-etapa pendente não vira
+ * "não concluída" nem "parcial". Ela vira "pendente" — que é a verdade (o
+ * trabalho ainda não foi resolvido) e não credita nada no PPC.
+ *
+ * Sem nenhuma sub-etapa, o status volta a ser manual e não se mexe nele.
+ */
+export function statusAoSincronizarSubetapas(
+  subetapas: SubEtapa[],
+  statusAtual: ActivityStatus,
+): ActivityStatus | null {
+  const derivado = computeStatusFromSubetapas(subetapas)
+  if (derivado) return derivado === statusAtual ? null : derivado
+  // Sem sub-etapas: status manual, não é a sincronização que decide.
+  if (subetapas.length === 0) return null
+  // Com sub-etapas por resolver, qualquer julgamento anterior está vencido.
+  return statusAtual === 'pendente' ? null : 'pendente'
+}
+
 // Deletar atividade. Numa semana comprometida a linha some do quadro, mas NÃO do
 // denominador do PPC comprometido: ela continua no baseline e passa a contar como
 // não concluída (ver computeIndicatorsComprometido). Sem isso, apagar a linha
@@ -785,6 +837,7 @@ export async function clearDayActivities(organizacaoId: string, weekId: string, 
 
 export interface NewActivityPayload {
   organizacaoId: string
+  projetoId: string
   weekId: string
   planned_date: string
   name: string
@@ -828,6 +881,9 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
   if (payloads.some((p) => !p.organizacaoId)) {
     throw new Error('Organização não carregada — recarregue a página antes de importar atividades.')
   }
+  if (payloads.some((p) => !p.projetoId)) {
+    throw new Error('Nenhum projeto selecionado — escolha um projeto antes de importar atividades.')
+  }
 
   // Toda importação/inclusão cai numa única semana (a carregada na tela).
   await exigirEscritaPermitida(payloads[0].organizacaoId, payloads[0].weekId, 'conjunto')
@@ -846,6 +902,7 @@ export async function addActivitiesBulk(payloads: NewActivityPayload[]): Promise
     const isReal = !!payload.sourceCronograma
     return {
       organizacao_id: payload.organizacaoId,
+      projeto_id: payload.projetoId,
       week_id: payload.weekId,
       name: payload.name,
       planned_date: payload.planned_date,
@@ -1086,7 +1143,7 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
   for (let from = 0; ; from += PAGE_SIZE) {
     const { data, error } = await supabase
       .from('activities')
-      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, inativa, source_cronograma, task_uid')
+      .select('id, name, company, discipline, area, stage, foreman, planned_date, planned_pct, status, is_extra, is_extra_original, inativa, source_cronograma, task_uid, projeto_id')
       .eq('week_id', weekId)
       .eq('organizacao_id', organizacaoId)
       .eq('fora_do_plano', false)
@@ -1102,6 +1159,7 @@ export async function saveWeekBaseline(organizacaoId: string, weekId: string): P
   const rows = activities.map(a => ({
     week_id: weekId,
     organizacao_id: organizacaoId,
+    projeto_id: a.projeto_id,
     activity_id: a.id,
     name: a.name,
     company: a.company,

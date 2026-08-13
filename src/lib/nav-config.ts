@@ -165,6 +165,8 @@ const dashboardRouteTitles = [
   ['/dashboard/daily', 'Programação'],
   ['/dashboard/gantt', 'Gantt Livre'],
   ['/dashboard/people', 'Distribuição de Efetivo'],
+  ['/dashboard/portfolio', 'Portfólio de Projetos'],
+  ['/dashboard/apresentacao', 'Modo Apresentação'],
   ['/dashboard', 'Visão Geral'],
 ] as const
 
