@@ -14,6 +14,7 @@ import {
   FolderTree,
   GanttChart,
   LineChart,
+  Map,
   PackageSearch,
   PieChart,
   Search,
@@ -67,6 +68,7 @@ export function buildNavSections(modulos: string[]): NavSection[] {
         { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
       ],
     },
+    { icon: Map, label: 'Gestão à Vista', path: '/dashboard/gestao-vista' },
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
     { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
   ] : []
