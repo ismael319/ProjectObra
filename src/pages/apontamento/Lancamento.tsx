@@ -51,7 +51,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
 export default function LancamentoPage() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
-  const { currentProject } = useProjects();
+  const { currentProject, projects, isLoadingProjects, setCurrentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? null;
   const projetoId = currentProject?.id ?? null;
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -240,6 +240,38 @@ export default function LancamentoPage() {
     }
     insertMut.mutate(form);
   };
+
+  if (!projetoId) {
+    return (
+      <Card className="mx-auto max-w-lg">
+        <CardHeader>
+          <CardTitle className="text-xl">Selecione a obra</CardTitle>
+          <p className="text-sm text-muted-foreground">
+            A obra define as empresas, lideranças, setores e atividades disponíveis para o apontamento.
+          </p>
+        </CardHeader>
+        <CardContent>
+          {isLoadingProjects ? (
+            <p className="text-sm text-muted-foreground">Carregando obras...</p>
+          ) : projects.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nenhuma obra está vinculada ao seu usuário. Solicite o vínculo a um administrador.
+            </p>
+          ) : (
+            <Combobox
+              options={projects.map((project) => ({ value: project.id, label: project.nome }))}
+              value={null}
+              onChange={(projectId) => {
+                const project = projects.find((item) => item.id === projectId);
+                if (project) void setCurrentProject(project, { skipCronogramaHydration: true });
+              }}
+              placeholder="Selecione a obra"
+            />
+          )}
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="grid gap-6 lg:grid-cols-3">

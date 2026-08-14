@@ -90,7 +90,7 @@ interface ProjectContextType {
   isHydratingCurrentProject: boolean
   usingOfflineCache: boolean
   offlineDataUpdatedAt: number | null
-  setCurrentProject: (project: Project | null) => Promise<boolean>
+  setCurrentProject: (project: Project | null, options?: { skipCronogramaHydration?: boolean }) => Promise<boolean>
   createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>) => Project | null
   updateProject: (id: string, data: Partial<Project>) => void
   deleteProject: (id: string) => void
@@ -520,6 +520,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
   const { user, userProfile, isLoadingProfile } = useAuth()
   const userId = user?.id ?? null
   const organizacaoId = userProfile?.organizacao_id ?? null
+  const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
   const cacheScope = userId ? `${organizacaoId ?? 'all'}:${userId}` : null
 
   const [projects, setProjects] = useState<Project[]>([])
@@ -608,6 +609,17 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         recordOfflineResult(result)
         const loaded = result.data
         setProjects(loaded)
+
+        // Apontadores só precisam do id da obra para consultar os catálogos e
+        // lançar efetivo. Com uma única obra vinculada, seleciona-a sem baixar
+        // os dados pesados dos cronogramas.
+        if (isInsercaoPontual) {
+          const onlyProject = loaded.length === 1 ? loaded[0] : null
+          saveCurrentProjectId(cacheScope, onlyProject?.id ?? null)
+          setCurrentProjectState(onlyProject)
+          return
+        }
+
         const savedId = loadCurrentProjectId(cacheScope)
         const saved = savedId ? loaded.find((project) => project.id === savedId) ?? null : null
         if (!saved) {
@@ -634,14 +646,19 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
       cancelled = true
       if (loadGeneration.current === generation) loadGeneration.current += 1
     }
-  }, [userId, organizacaoId, isLoadingProfile, reloadVersion, cacheScope, hydrateProject, recordOfflineResult])
+  }, [userId, organizacaoId, isInsercaoPontual, isLoadingProfile, reloadVersion, cacheScope, hydrateProject, recordOfflineResult])
 
-  const setCurrentProject = async (project: Project | null) => {
+  const setCurrentProject = async (project: Project | null, options?: { skipCronogramaHydration?: boolean }) => {
     const generation = ++loadGeneration.current
     setIsLoadingProjects(false)
     saveCurrentProjectId(cacheScope, project?.id ?? null)
     if (!project) {
       setCurrentProjectState(null)
+      setIsHydratingCurrentProject(false)
+      return true
+    }
+    if (options?.skipCronogramaHydration) {
+      setCurrentProjectState(project)
       setIsHydratingCurrentProject(false)
       return true
     }
