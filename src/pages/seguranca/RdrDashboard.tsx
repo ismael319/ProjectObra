@@ -7,7 +7,7 @@ import {
 import { toast } from "sonner";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer,
-  AreaChart, Area, Line,
+  AreaChart, Area, Line, LabelList,
 } from "recharts";
 import { useAuth } from "@/lib/auth-context";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -780,21 +780,22 @@ export default function RdrDashboard() {
           <div>
             <div className="mb-2 text-sm font-semibold text-muted-foreground">Hoje</div>
             <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
-              <BarChart data={rankPeriodos.hoje} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
+              <BarChart data={rankPeriodos.hoje} margin={{ top: 20, right: 8, left: isMobile ? 0 : 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="nome" interval={0} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 9) : valor} />
+                <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Bar
                   dataKey="total"
                   name="Registros"
-                  radius={[0, 4, 4, 0]}
+                  radius={[4, 4, 0, 0]}
                   cursor="pointer"
                   onClick={(d: { payload?: { chave?: string } }) =>
                     d.payload?.chave && irParaRegistros({ busca: d.payload.chave })
                   }
                 >
                   {rankPeriodos.hoje.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  <LabelList dataKey="total" position="top" fontSize={12} className="fill-foreground" formatter={(v) => String(v)} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -805,21 +806,22 @@ export default function RdrDashboard() {
           <div>
             <div className="mb-2 text-sm font-semibold text-muted-foreground">Semana atual</div>
             <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
-              <BarChart data={rankPeriodos.semana} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis type="number" allowDecimals={false} />
-                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
+              <BarChart data={rankPeriodos.semana} margin={{ top: 20, right: 8, left: isMobile ? 0 : 8, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                <XAxis dataKey="nome" interval={0} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 9) : valor} />
+                <YAxis allowDecimals={false} />
                 <Tooltip />
                 <Bar
                   dataKey="total"
                   name="Registros"
-                  radius={[0, 4, 4, 0]}
+                  radius={[4, 4, 0, 0]}
                   cursor="pointer"
                   onClick={(d: { payload?: { chave?: string } }) =>
                     d.payload?.chave && irParaRegistros({ busca: d.payload.chave })
                   }
                 >
                   {rankPeriodos.semana.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  <LabelList dataKey="total" position="top" fontSize={12} className="fill-foreground" formatter={(v) => String(v)} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
