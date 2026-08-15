@@ -396,6 +396,37 @@ export default function RdrDashboard() {
 
   const ultimos = useMemo(() => filtrados.slice(0, 6), [filtrados]);
 
+  const rankPeriodos = useMemo(() => {
+    const agora = new Date();
+    const deltaSegunda = agora.getDay() === 0 ? -6 : 1 - agora.getDay();
+    const segunda = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate() + deltaSegunda);
+    const domingo = new Date(segunda.getFullYear(), segunda.getMonth(), segunda.getDate() + 6);
+    const inicioSemanaISO = segunda.toLocaleDateString("en-CA");
+    const fimSemanaISO = domingo.toLocaleDateString("en-CA");
+
+    const contar = (lista: RdrRecord[]) => {
+      const map = new Map<string, number>();
+      for (const r of lista) {
+        const nome = (r.autor_nome ?? "").trim();
+        if (!nome) continue;
+        map.set(nome, (map.get(nome) ?? 0) + 1);
+      }
+      return [...map.entries()]
+        .map(([chave, total]) => ({ chave, nome: nomeAmigavel(chave) || "—", total }))
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 5);
+    };
+
+    return {
+      hoje: contar(registros.filter((r) => r.data_ocorrido === hojeKey)),
+      semana: contar(
+        registros.filter(
+          (r) => !!r.data_ocorrido && r.data_ocorrido >= inicioSemanaISO && r.data_ocorrido <= fimSemanaISO,
+        ),
+      ),
+    };
+  }, [registros, hojeKey]);
+
   const dadosExport: DashboardDados = useMemo(
     () => ({
       registros: dadosFiltrados,
@@ -737,6 +768,67 @@ export default function RdrDashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Ranking de registros por usuário</CardTitle>
+          <p className="text-xs text-muted-foreground">
+            janela fixa: hoje e semana atual (seg a dom) · toque numa barra para filtrar
+          </p>
+        </CardHeader>
+        <CardContent className="grid gap-6 lg:grid-cols-2">
+          <div>
+            <div className="mb-2 text-sm font-semibold text-muted-foreground">Hoje</div>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={rankPeriodos.hoje} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
+                <Tooltip />
+                <Bar
+                  dataKey="total"
+                  name="Registros"
+                  radius={[0, 4, 4, 0]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { chave?: string } }) =>
+                    d.payload?.chave && irParaRegistros({ busca: d.payload.chave })
+                  }
+                >
+                  {rankPeriodos.hoje.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            {rankPeriodos.hoje.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-8">Sem registros hoje</p>
+            )}
+          </div>
+          <div>
+            <div className="mb-2 text-sm font-semibold text-muted-foreground">Semana atual</div>
+            <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
+              <BarChart data={rankPeriodos.semana} layout="vertical" margin={{ left: isMobile ? 0 : 24, right: isMobile ? 8 : 0 }}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis type="number" allowDecimals={false} />
+                <YAxis type="category" dataKey="nome" width={isMobile ? 74 : 130} tick={{ fontSize: isMobile ? 10 : 12 }} tickFormatter={(valor: string) => isMobile ? truncarLabel(valor, 11) : valor} />
+                <Tooltip />
+                <Bar
+                  dataKey="total"
+                  name="Registros"
+                  radius={[0, 4, 4, 0]}
+                  cursor="pointer"
+                  onClick={(d: { payload?: { chave?: string } }) =>
+                    d.payload?.chave && irParaRegistros({ busca: d.payload.chave })
+                  }
+                >
+                  {rankPeriodos.semana.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            {rankPeriodos.semana.length === 0 && (
+              <p className="text-center text-sm text-muted-foreground py-8">Sem registros na semana</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
