@@ -7,7 +7,7 @@ import {
 import { toast } from "sonner";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer,
-  AreaChart, Area, Line, LabelList,
+  AreaChart, Area, Line,
 } from "recharts";
 import { useAuth } from "@/lib/auth-context";
 import { useMediaQuery } from "@/lib/use-media-query";
@@ -776,7 +776,7 @@ export default function RdrDashboard() {
             janela fixa: hoje e semana atual (seg a dom) · toque numa barra para filtrar
           </p>
         </CardHeader>
-        <CardContent className="flex flex-col gap-6">
+        <CardContent className="grid gap-6 lg:grid-cols-2">
           <div>
             <div className="mb-2 text-sm font-semibold text-muted-foreground">Hoje</div>
             <ResponsiveContainer width="100%" height={alturaGraficoBarras}>
@@ -795,7 +795,6 @@ export default function RdrDashboard() {
                   }
                 >
                   {rankPeriodos.hoje.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  <LabelList dataKey="total" position="right" fontSize={12} className="fill-foreground" formatter={(v) => String(v)} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -821,7 +820,6 @@ export default function RdrDashboard() {
                   }
                 >
                   {rankPeriodos.semana.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
-                  <LabelList dataKey="total" position="right" fontSize={12} className="fill-foreground" formatter={(v) => String(v)} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
