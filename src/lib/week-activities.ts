@@ -1,5 +1,21 @@
 import type { CronogramaInfo } from '@/lib/project-store'
-import type { BaselineData } from '@/lib/xml-parser'
+import type { BaselineData, WBSActivity } from '@/lib/xml-parser'
+
+/** Monta um resolvedor de "área (EDT nível 2 / nível 3)" a partir das atividades de UM
+ * cronograma — mesma definição usada pela janela de importação semanal (nível 2 = nome
+ * da tarefa-resumo cujo `wbs` tem 2 segmentos, nível 3 = 3 segmentos). Reaproveitado pelo
+ * Mapa de Setores pra achar a área de uma atividade vinculada a um marcador. */
+export function buildAreaPathResolver(activities: WBSActivity[]): (wbs: string) => string {
+  const wbsToName = new Map<string, string>()
+  for (const a of activities) wbsToName.set(a.wbs, a.name)
+
+  return (wbs: string): string => {
+    const parts = wbs.split('.')
+    const level2 = parts.length >= 2 ? wbsToName.get(parts.slice(0, 2).join('.')) : undefined
+    const level3 = parts.length >= 3 ? wbsToName.get(parts.slice(0, 3).join('.')) : undefined
+    return [level2, level3].filter(Boolean).join(' / ')
+  }
+}
 
 export interface WeekActivity {
   cronogramaId: string
@@ -38,18 +54,7 @@ export function findActivitiesWithWorkInWeek(
     const weekStartMs = weekStart.getTime()
     const weekEndMs = weekEnd.getTime()
 
-    // WBS → nome, pra resolver os ancestrais de nível 2/3 de cada tarefa (a EDT em si
-    // já identifica os ancestrais pelo prefixo — "1.2.13.3" tem nível 2 = "1.2" e
-    // nível 3 = "1.2.13").
-    const wbsToName = new Map<string, string>()
-    for (const a of activities) wbsToName.set(a.wbs, a.name)
-
-    const getAreaPath = (wbs: string): string => {
-      const parts = wbs.split('.')
-      const level2 = parts.length >= 2 ? wbsToName.get(parts.slice(0, 2).join('.')) : undefined
-      const level3 = parts.length >= 3 ? wbsToName.get(parts.slice(0, 3).join('.')) : undefined
-      return [level2, level3].filter(Boolean).join(' / ')
-    }
+    const getAreaPath = buildAreaPathResolver(activities)
 
     for (const act of activities) {
       if (act.isSummary || act.isMilestone) continue

@@ -21,6 +21,10 @@ export type ItemRelatorio = {
    * abaixo dela, usado no PDF do dia e no texto de WhatsApp (ver
    * relatorio-dia-pdf.ts e relatorio-texto.ts). */
   subarea: string;
+  /** EDT (Estrutura Analítica do Projeto) da tarefa — mesmo campo mostrado como
+   * "EDT: ..." em ModalDetalheDia. Exibida no PDF do dia; null em extras
+   * manuais e em atividades importadas sem esse nível preenchido. */
+  edt: string | null;
 };
 
 export type AreaRelatorio = {
@@ -74,6 +78,7 @@ export function buildRelatorioVisual(activities: ActivityLike[], partialWeight =
       isExtra: a.is_extra,
       subetapas: (a.subetapas ?? []).map((s) => ({ nome: s.nome, status: s.status })),
       subarea: subareaDe(a),
+      edt: a.stage,
     });
   }
   // Primeiro por subárea (nível 3 da EDT), depois por nome da atividade — sem

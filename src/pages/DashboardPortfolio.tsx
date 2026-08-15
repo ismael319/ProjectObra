@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import { LayoutGrid, RefreshCw, Loader2, Building2, Users, TrendingUp, ShieldAlert } from 'lucide-react'
+import { LayoutGrid, RefreshCw, Loader2, Building2, Users, TrendingUp, ShieldAlert, Tv } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { useProjects } from '@/lib/project-store'
 import { usePortfolioProjetos, useRefreshPortfolioKpis, type PortfolioProjeto, type StatusSemaforo, type StatusGeralProjeto } from '@/lib/portfolio-db'
@@ -166,14 +166,32 @@ export default function DashboardPortfolio() {
           <LayoutGrid className="text-blue-600 dark:text-blue-400" size={22} />
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Portfólio de Projetos</h1>
         </div>
-        <button
-          onClick={() => refreshMut.mutate()}
-          disabled={refreshMut.isPending}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
-        >
-          {refreshMut.isPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          Atualizar agora
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              // Mesma lógica do botão em ProjectSelection.tsx: limpa o
+              // projeto atual antes de navegar, pra ApresentacaoConfig
+              // reconhecer o contexto "empresa toda" (sem isso, um projeto
+              // aberto de antes continuaria "lembrado" e a tela mostraria
+              // só as playlists dele, não as de portfólio).
+              await setCurrentProject(null)
+              navigate('/dashboard/apresentacao')
+            }}
+            title="Configurar ou abrir a apresentação com o resumo de todas as obras, para um telão fora do canteiro"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition"
+          >
+            <Tv size={14} />
+            Modo Apresentação
+          </button>
+          <button
+            onClick={() => refreshMut.mutate()}
+            disabled={refreshMut.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition disabled:opacity-50"
+          >
+            {refreshMut.isPending ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            Atualizar agora
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">

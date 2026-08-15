@@ -44,6 +44,8 @@ const ValidacaoConfig = lazy(() => import('@/pages/admin/ValidacaoConfig'))
 const MinhasValidacoes = lazy(() => import('@/pages/MinhasValidacoes'))
 const GestaoVista = lazy(() => import('@/pages/gestao-vista/GestaoVista'))
 const GestaoVistaPlanta = lazy(() => import('@/pages/gestao-vista/PlantaDetalhe'))
+const MapaSetores = lazy(() => import('@/pages/mapa-setores/MapaSetores'))
+const PlantaSetores = lazy(() => import('@/pages/mapa-setores/PlantaSetores'))
 
 // Legal pages
 const Privacy = lazy(() => import('@/pages/legal/Privacy'))
@@ -229,6 +231,8 @@ function App() {
                       <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
                       <Route path="gestao-vista" element={<RequireModulo modulo="engenharia"><GestaoVista /></RequireModulo>} />
                       <Route path="gestao-vista/:plantaId" element={<RequireModulo modulo="engenharia"><GestaoVistaPlanta /></RequireModulo>} />
+                      <Route path="mapa-setores" element={<RequireModulo modulo="engenharia"><MapaSetores /></RequireModulo>} />
+                      <Route path="mapa-setores/:plantaId" element={<RequireModulo modulo="engenharia"><PlantaSetores /></RequireModulo>} />
                       <Route path="suprimentos" element={<RequireModulo modulo="suprimentos"><SiengeAlertas /></RequireModulo>} />
                       <Route path="administracao" element={<RequireModulo modulo="administracao"><AdministracaoHome /></RequireModulo>} />
                       <Route path="administracao/importar-efetivo" element={<RequireModulo modulo="administracao"><ImportarEfetivo /></RequireModulo>} />

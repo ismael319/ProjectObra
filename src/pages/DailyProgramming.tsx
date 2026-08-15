@@ -240,6 +240,22 @@ export default function DailyProgramming() {
     return map
   }, [currentProject])
 
+  // Chaves DIA A DIA (cronogramaId::taskUid::planned_date) de tudo que já está
+  // no board da semana — usada pelo ModalImportarAtividades (semana e dia) pra
+  // não recriar, na importação, uma linha que já existe naquele dia exato.
+  // Computada uma vez, a partir do estado real de `activities` (não por
+  // modal), porque cada linha já carrega o próprio planned_date — serve pros
+  // dois modais igual, sem precisar de uma versão "só deste dia" separada.
+  const diasJaProgramados = useMemo(() => {
+    const set = new Set<string>()
+    for (const a of activities) {
+      if (!a.source || !a.taskUid) continue
+      const cronogramaId = cronogramaNomeToId.get(a.source)
+      if (cronogramaId) set.add(`${cronogramaId}::${a.taskUid}::${a.planned_date}`)
+    }
+    return set
+  }, [activities, cronogramaNomeToId])
+
   const getActivityDetail = useCallback(
     (a: ActivityLike): WBSActivity | null => {
       if (!a.source || !a.taskUid) return null
@@ -649,6 +665,7 @@ export default function DailyProgramming() {
         startDate={weekData.week.start_date}
         endDate={weekData.week.end_date}
         status={weekData.week.status}
+        analiseConcluida={weekData.week.analise_concluida ?? false}
         podeEditar={podeEditar}
         aderenciaCronograma={indicatorsCronograma.aderencia}
         aderenciaAjustada={indicators.aderencia}
@@ -749,6 +766,7 @@ export default function DailyProgramming() {
               .filter((k): k is string => k !== null)
           )
         }
+        diasJaProgramados={diasJaProgramados}
       />
 
       <ModalImportarAtividades
@@ -778,6 +796,7 @@ export default function DailyProgramming() {
               )
             : undefined
         }
+        diasJaProgramados={diasJaProgramados}
       />
 
       <ModalEngenheirosArea
@@ -803,7 +822,10 @@ export default function DailyProgramming() {
           organizacaoId={organizacaoId}
           weekId={weekData.week.id}
           weekLabel={`${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`}
+          weekStatus={weekData.week.status}
           analiseAtual={weekData.week.analise_semanal ?? null}
+          analiseConcluida={weekData.week.analise_concluida ?? false}
+          analiseConcluidaEm={weekData.week.analise_concluida_em ?? null}
           partialWeight={partialWeight}
           atividades={activities}
           onSaved={() => fetchData(false)}

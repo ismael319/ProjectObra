@@ -37,6 +37,13 @@ interface WeekRow {
   consolidated_at: string | null
   created_at: string
   analise_semanal?: string | null
+  /** true = alguém já revisou o resumo da Análise Semanal e confirmou (ver
+   * concluirAnaliseSemanal). Fechar a semana NÃO marca isso sozinho — ficam
+   * dois passos distintos de propósito: fechar trava status/PPC, concluir a
+   * análise é uma revisão humana em cima do resultado já congelado. */
+  analise_concluida?: boolean
+  analise_concluida_por?: string | null
+  analise_concluida_em?: string | null
 }
 
 interface ActivityRow {
@@ -352,13 +359,51 @@ export async function lockWeek(organizacaoId: string, weekId: string): Promise<v
 export async function unlockWeek(organizacaoId: string, weekId: string): Promise<void> {
   const { data, error } = await supabase
     .from('weeks')
-    .update({ status: 'comprometida', consolidated_at: null })
+    // Reabrir também desmarca a análise concluída (se houver): o resultado
+    // que foi revisado pode mudar antes do próximo fechamento, então a
+    // confirmação anterior deixou de valer — precisa de uma revisão nova.
+    .update({ status: 'comprometida', consolidated_at: null, analise_concluida: false, analise_concluida_por: null, analise_concluida_em: null })
     .eq('id', weekId)
     .eq('organizacao_id', organizacaoId)
     .select('id')
 
   if (error) throw new Error(error.message)
   if (!data || data.length === 0) throw new Error('Não foi possível desbloquear a semana — verifique se seu nível de acesso é Edição')
+}
+
+/**
+ * Marca (ou desmarca) a Análise Semanal como revisada/concluída — passo
+ * distinto de fechar a semana (lockWeekWithBaseline). Fechar trava
+ * status/PPC; concluir aqui é a confirmação humana de que alguém já leu o
+ * resumo (ModalAnaliseSemana) e não tem mais pendência. Só faz sentido numa
+ * semana fechada — chamado de dentro do modal, que já esconde a ação fora
+ * disso.
+ */
+export async function concluirAnaliseSemanal(organizacaoId: string, weekId: string, userId: string | undefined): Promise<void> {
+  const status = await getWeekStatus(organizacaoId, weekId)
+  if (status !== 'consolidado') {
+    throw new Error('Feche a semana antes de concluir a análise — o resumo ainda pode mudar enquanto ela está aberta.')
+  }
+  const { data, error } = await supabase
+    .from('weeks')
+    .update({ analise_concluida: true, analise_concluida_por: userId ?? null, analise_concluida_em: new Date().toISOString() })
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível concluir a análise — verifique se seu nível de acesso é Edição')
+}
+
+/** Desfaz a marcação acima — corrigir uma conclusão feita por engano. */
+export async function reabrirAnaliseSemanal(organizacaoId: string, weekId: string): Promise<void> {
+  const { data, error } = await supabase
+    .from('weeks')
+    .update({ analise_concluida: false, analise_concluida_por: null, analise_concluida_em: null })
+    .eq('id', weekId)
+    .eq('organizacao_id', organizacaoId)
+    .select('id')
+  if (error) throw new Error(error.message)
+  if (!data || data.length === 0) throw new Error('Não foi possível reabrir a análise — verifique se seu nível de acesso é Edição')
 }
 
 /** Lê só o estado da semana — as funções de escrita precisam dele pra recusar
