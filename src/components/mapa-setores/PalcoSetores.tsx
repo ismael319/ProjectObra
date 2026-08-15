@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize, Minus, Plus, Settings2 } from 'lucide-react'
+import { Maximize, Minus, Plus, ScanSearch, Settings2 } from 'lucide-react'
 import type { MapaSetoresMarcador, MapaSetoresPlanta } from '@/lib/mapa-setores/mapa-setores-db'
 import { CAMPO_LABEL, formatarValorCampo, type CampoCard, type EngenheiroDoSetor, type ValorCampo } from '@/lib/mapa-setores/progresso'
 import { STATUS_SETORES, type SetorVisual } from '@/lib/mapa-setores/status'
+import {
+  cameraParaEnquadrarMapaSetores,
+  cameraParaPontoMapaSetores,
+  limitarCameraMapaSetores,
+} from '@/lib/mapa-setores/camera'
 
 // Interação de arraste inteira (marcador ponto/área, card solto, criação por clique ou
 // retângulo) é mouse events manuais, sem lib de drag — o projeto não tem nenhuma
@@ -96,6 +101,10 @@ export default function PalcoSetores({
   const cameraDragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null)
   const toquesRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ distancia: number; zoom: number; mundoX: number; mundoY: number } | null>(null)
+  const [zoomAreaAtivo, setZoomAreaAtivo] = useState(false)
+  const [caixaZoom, setCaixaZoom] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const caixaZoomRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
+  const inicioZoomRef = useRef<{ x: number; y: number } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -110,23 +119,30 @@ export default function PalcoSetores({
   const cropVisivel = modo === 'recorte' ? { x: 0, y: 0, w: planta.largura_natural, h: planta.altura_natural } : crop
   const escala = largura > 0 && cropVisivel.w > 0 ? largura / cropVisivel.w : 0
   const alturaViewport = cropVisivel.h * escala
+  const viewport = { largura, altura: alturaViewport }
   const setorVisualPorId = useMemo(() => new Map(setoresVisuais.map((setor) => [setor.id, setor])), [setoresVisuais])
 
   function ajustarZoom(novoZoom: number, ponto?: { x: number; y: number }) {
     const el = containerRef.current
     if (!el) return
-    const zoom = clamp(novoZoom, 0.6, 3)
     setCamera((atual) => {
-      if (!ponto) return { zoom, x: 0, y: 0 }
+      if (!ponto) return limitarCameraMapaSetores({ zoom: novoZoom, x: 0, y: 0 }, viewport)
       const mundoX = (ponto.x - atual.x) / atual.zoom
       const mundoY = (ponto.y - atual.y) / atual.zoom
-      return { zoom, x: ponto.x - mundoX * zoom, y: ponto.y - mundoY * zoom }
+      return limitarCameraMapaSetores(
+        { zoom: novoZoom, x: ponto.x - mundoX * novoZoom, y: ponto.y - mundoY * novoZoom },
+        viewport,
+      )
     })
   }
 
   function ajustarAoQuadro() {
     setCamera({ zoom: 1, x: 0, y: 0 })
   }
+
+  useEffect(() => {
+    setCamera((atual) => limitarCameraMapaSetores(atual, { largura, altura: alturaViewport }))
+  }, [largura, alturaViewport])
 
   // --- overrides locais durante o arraste — some sozinho quando o dado do servidor
   // (vindo da query, depois de invalidada pela mutação) já bate com o valor arrastado.
@@ -155,22 +171,42 @@ export default function PalcoSetores({
     [marcadores, overrides],
   )
 
+  const cropAtual = `${planta.crop_x}:${planta.crop_y}:${planta.crop_w}:${planta.crop_h}`
+  const cropAnteriorRef = useRef(cropAtual)
+  useEffect(() => {
+    if (cropAnteriorRef.current === cropAtual) return
+    cropAnteriorRef.current = cropAtual
+    setCamera({ zoom: 1, x: 0, y: 0 })
+  }, [cropAtual])
+
+  useEffect(() => {
+    if (modo === 'nenhum') return
+    setZoomAreaAtivo(false)
+    setCaixaZoom(null)
+    caixaZoomRef.current = null
+    inicioZoomRef.current = null
+    if (modo === 'recorte') setCamera({ zoom: 1, x: 0, y: 0 })
+  }, [modo])
+
   useEffect(() => {
     if (!setorSelecionadoId || versaoFoco === 0 || !containerRef.current) return
     const marcador = marcadoresView.find((item) => item.id === setorSelecionadoId)
     if (!marcador) return
-    const xPct = marcador.tipo === 'area'
-      ? (marcador.area_x_pct ?? 0) + (marcador.area_w_pct ?? 0) / 2
-      : marcador.pos_x_pct ?? 0
-    const yPct = marcador.tipo === 'area'
-      ? (marcador.area_y_pct ?? 0) + (marcador.area_h_pct ?? 0) / 2
-      : marcador.pos_y_pct ?? 0
     const rect = containerRef.current.getBoundingClientRect()
-    setCamera((atual) => ({
-      ...atual,
-      x: rect.width / 2 - (rect.width * xPct / 100) * atual.zoom,
-      y: rect.height / 2 - (rect.height * yPct / 100) * atual.zoom,
-    }))
+    const dimensoes = { largura: rect.width, altura: rect.height }
+    if (marcador.tipo === 'area') {
+      setCamera(cameraParaEnquadrarMapaSetores({
+        x: rect.width * (marcador.area_x_pct ?? 0) / 100,
+        y: rect.height * (marcador.area_y_pct ?? 0) / 100,
+        w: rect.width * (marcador.area_w_pct ?? 0) / 100,
+        h: rect.height * (marcador.area_h_pct ?? 0) / 100,
+      }, dimensoes))
+      return
+    }
+    setCamera(cameraParaPontoMapaSetores({
+      x: rect.width * (marcador.pos_x_pct ?? 0) / 100,
+      y: rect.height * (marcador.pos_y_pct ?? 0) / 100,
+    }, dimensoes))
   }, [setorSelecionadoId, versaoFoco, marcadoresView])
 
   // --- arraste de marcador/card existente ------------------------------------------
@@ -266,11 +302,11 @@ export default function PalcoSetores({
     function onMove(e: PointerEvent) {
       const drag = cameraDragRef.current
       if (!drag || drag.pointerId !== e.pointerId) return
-      setCamera((atual) => ({
+      setCamera((atual) => limitarCameraMapaSetores({
         ...atual,
         x: drag.cameraX + e.clientX - drag.startX,
         y: drag.cameraY + e.clientY - drag.startY,
-      }))
+      }, { largura, altura: alturaViewport }))
     }
     function encerrar(e: PointerEvent) {
       if (cameraDragRef.current?.pointerId === e.pointerId) cameraDragRef.current = null
@@ -283,19 +319,30 @@ export default function PalcoSetores({
       window.removeEventListener('pointerup', encerrar)
       window.removeEventListener('pointercancel', encerrar)
     }
-  }, [])
+  }, [largura, alturaViewport])
 
   // --- criação de novo marcador (clique = ponto, arraste = área) -------------------
   const [addDrag, setAddDrag] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const addStartRef = useRef<{ x: number; y: number } | null>(null)
 
   function pctDoEvento(e: React.PointerEvent): { x: number; y: number } | null {
+    const ponto = pontoMundoDoEvento(e)
+    const el = containerRef.current
+    if (!ponto || !el) return null
+    const rect = el.getBoundingClientRect()
+    return {
+      x: clamp((ponto.x / rect.width) * 100, 0, 100),
+      y: clamp((ponto.y / rect.height) * 100, 0, 100),
+    }
+  }
+
+  function pontoMundoDoEvento(e: React.PointerEvent): { x: number; y: number } | null {
     const el = containerRef.current
     if (!el) return null
     const rect = el.getBoundingClientRect()
     return {
-      x: clamp((((e.clientX - rect.left - camera.x) / camera.zoom) / rect.width) * 100, 0, 100),
-      y: clamp((((e.clientY - rect.top - camera.y) / camera.zoom) / rect.height) * 100, 0, 100),
+      x: clamp((e.clientX - rect.left - camera.x) / camera.zoom, 0, rect.width),
+      y: clamp((e.clientY - rect.top - camera.y) / camera.zoom, 0, rect.height),
     }
   }
 
@@ -305,6 +352,18 @@ export default function PalcoSetores({
 
   function onStagePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (dragRef.current) return
+    if (zoomAreaAtivo) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      inicioZoomRef.current = {
+        x: clamp(e.clientX - rect.left, 0, rect.width),
+        y: clamp(e.clientY - rect.top, 0, rect.height),
+      }
+      const caixa = { ...inicioZoomRef.current, w: 0, h: 0 }
+      caixaZoomRef.current = caixa
+      setCaixaZoom(caixa)
+      e.currentTarget.setPointerCapture?.(e.pointerId)
+      return
+    }
     if (modo === 'nenhum' && e.pointerType === 'touch') {
       const rect = e.currentTarget.getBoundingClientRect()
       toquesRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top })
@@ -337,8 +396,9 @@ export default function PalcoSetores({
       return
     }
     if (modo === 'recorte') {
-      const rect = containerRef.current!.getBoundingClientRect()
-      inicioRecorteRef.current = { x: (e.clientX - rect.left - camera.x) / camera.zoom, y: (e.clientY - rect.top - camera.y) / camera.zoom }
+      const ponto = pontoMundoDoEvento(e)
+      if (!ponto) return
+      inicioRecorteRef.current = ponto
       setCaixaRecorte({ x: inicioRecorteRef.current.x, y: inicioRecorteRef.current.y, w: 0, h: 0 })
       return
     }
@@ -354,6 +414,20 @@ export default function PalcoSetores({
   }
 
   function onStagePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (zoomAreaAtivo && inicioZoomRef.current) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      const x = clamp(e.clientX - rect.left, 0, rect.width)
+      const y = clamp(e.clientY - rect.top, 0, rect.height)
+      const caixa = {
+        x: Math.min(inicioZoomRef.current.x, x),
+        y: Math.min(inicioZoomRef.current.y, y),
+        w: Math.abs(x - inicioZoomRef.current.x),
+        h: Math.abs(y - inicioZoomRef.current.y),
+      }
+      caixaZoomRef.current = caixa
+      setCaixaZoom(caixa)
+      return
+    }
     if (e.pointerType === 'touch' && toquesRef.current.has(e.pointerId)) {
       const rect = e.currentTarget.getBoundingClientRect()
       toquesRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top })
@@ -362,20 +436,19 @@ export default function PalcoSetores({
       if (pinch && pontos.length === 2 && pinch.distancia > 0) {
         const [a, b] = pontos
         const meio = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-        const zoom = clamp(pinch.zoom * (Math.hypot(b.x - a.x, b.y - a.y) / pinch.distancia), 0.6, 3)
-        setCamera({ zoom, x: meio.x - pinch.mundoX * zoom, y: meio.y - pinch.mundoY * zoom })
+        const zoom = pinch.zoom * (Math.hypot(b.x - a.x, b.y - a.y) / pinch.distancia)
+        setCamera(limitarCameraMapaSetores({ zoom, x: meio.x - pinch.mundoX * zoom, y: meio.y - pinch.mundoY * zoom }, viewport))
         return
       }
     }
     if (modo === 'recorte' && inicioRecorteRef.current) {
-      const rect = containerRef.current!.getBoundingClientRect()
-      const x = (e.clientX - rect.left - camera.x) / camera.zoom
-      const y = (e.clientY - rect.top - camera.y) / camera.zoom
+      const ponto = pontoMundoDoEvento(e)
+      if (!ponto) return
       setCaixaRecorte({
-        x: Math.min(inicioRecorteRef.current.x, x),
-        y: Math.min(inicioRecorteRef.current.y, y),
-        w: Math.abs(x - inicioRecorteRef.current.x),
-        h: Math.abs(y - inicioRecorteRef.current.y),
+        x: Math.min(inicioRecorteRef.current.x, ponto.x),
+        y: Math.min(inicioRecorteRef.current.y, ponto.y),
+        w: Math.abs(ponto.x - inicioRecorteRef.current.x),
+        h: Math.abs(ponto.y - inicioRecorteRef.current.y),
       })
       return
     }
@@ -393,6 +466,21 @@ export default function PalcoSetores({
   }
 
   function onStagePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (zoomAreaAtivo) {
+      const caixa = caixaZoomRef.current
+      inicioZoomRef.current = null
+      caixaZoomRef.current = null
+      setCaixaZoom(null)
+      setZoomAreaAtivo(false)
+      if (!caixa || caixa.w < 24 || caixa.h < 24) return
+      setCamera(cameraParaEnquadrarMapaSetores({
+        x: (caixa.x - camera.x) / camera.zoom,
+        y: (caixa.y - camera.y) / camera.zoom,
+        w: caixa.w / camera.zoom,
+        h: caixa.h / camera.zoom,
+      }, viewport))
+      return
+    }
     if (e.pointerType === 'touch') {
       toquesRef.current.delete(e.pointerId)
       if (toquesRef.current.size < 2) pinchRef.current = null
@@ -424,11 +512,32 @@ export default function PalcoSetores({
       e.preventDefault()
       const rect = el.getBoundingClientRect()
       const fator = e.deltaY > 0 ? 0.9 : 1.1
-      ajustarZoom(camera.zoom * fator, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+      const ponto = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      setCamera((atual) => {
+        const zoom = atual.zoom * fator
+        const mundoX = (ponto.x - atual.x) / atual.zoom
+        const mundoY = (ponto.y - atual.y) / atual.zoom
+        return limitarCameraMapaSetores(
+          { zoom, x: ponto.x - mundoX * zoom, y: ponto.y - mundoY * zoom },
+          { largura, altura: alturaViewport },
+        )
+      })
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [camera.zoom])
+  }, [largura, alturaViewport])
+
+  useEffect(() => {
+    const cancelarZoomArea = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !zoomAreaAtivo) return
+      setZoomAreaAtivo(false)
+      setCaixaZoom(null)
+      caixaZoomRef.current = null
+      inicioZoomRef.current = null
+    }
+    window.addEventListener('keydown', cancelarZoomArea)
+    return () => window.removeEventListener('keydown', cancelarZoomArea)
+  }, [zoomAreaAtivo])
 
   return (
     <div
@@ -443,6 +552,30 @@ export default function PalcoSetores({
       onPointerCancel={onStagePointerUp}
     >
       <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm" data-setor-interativo>
+        <button
+          type="button"
+          aria-label="Selecionar área para aproximar"
+          aria-pressed={zoomAreaAtivo}
+          title={modo === 'nenhum' ? 'Zoom por área' : 'Finalize o modo atual antes de ampliar'}
+          disabled={modo !== 'nenhum'}
+          className={`rounded p-1.5 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40 ${zoomAreaAtivo ? 'bg-primary text-primary-foreground hover:bg-primary/90' : ''}`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => {
+            if (modo !== 'nenhum') return
+            setZoomAreaAtivo((atual) => {
+              const proximo = !atual
+              if (!proximo) {
+                setCaixaZoom(null)
+                caixaZoomRef.current = null
+                inicioZoomRef.current = null
+              }
+              return proximo
+            })
+          }}
+        >
+          <ScanSearch size={15} />
+        </button>
+        <span className="mx-0.5 h-5 w-px bg-border" />
         <button
           type="button"
           aria-label="Reduzir zoom"
@@ -472,6 +605,19 @@ export default function PalcoSetores({
           <Maximize size={15} />
         </button>
       </div>
+
+      {zoomAreaAtivo && <div className="absolute inset-0 z-30 cursor-crosshair" aria-label="Arraste para definir o zoom" />}
+      {zoomAreaAtivo && (
+        <div className="pointer-events-none absolute left-2 top-2 z-30 rounded bg-background/95 px-2 py-1 text-xs font-medium shadow-sm">
+          Arraste uma área para ampliar. Esc cancela.
+        </div>
+      )}
+      {caixaZoom && (
+        <div
+          className="pointer-events-none absolute z-30 border-2 border-dashed border-primary bg-primary/10"
+          style={{ left: caixaZoom.x, top: caixaZoom.y, width: caixaZoom.w, height: caixaZoom.h }}
+        />
+      )}
 
       <div
         className="absolute inset-0"
