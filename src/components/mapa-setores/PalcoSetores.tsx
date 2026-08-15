@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { Maximize, Minus, Plus, Settings2 } from 'lucide-react'
 import type { MapaSetoresMarcador, MapaSetoresPlanta } from '@/lib/mapa-setores/mapa-setores-db'
 import { CAMPO_LABEL, formatarValorCampo, type CampoCard, type EngenheiroDoSetor, type ValorCampo } from '@/lib/mapa-setores/progresso'
+import { STATUS_SETORES, type SetorVisual } from '@/lib/mapa-setores/status'
 
 // Interação de arraste inteira (marcador ponto/área, card solto, criação por clique ou
 // retângulo) é mouse events manuais, sem lib de drag — o projeto não tem nenhuma
@@ -35,8 +37,13 @@ interface Props {
   camposPorMarcador: Map<string, Partial<Record<CampoCard, ValorCampo>>>
   engenheiroPorMarcador: Map<string, EngenheiroDoSetor>
   orfaoPorMarcador: Map<string, boolean>
+  setoresVisuais: SetorVisual[]
+  idsVisiveis: Set<string>
+  setorSelecionadoId: string | null
+  versaoFoco: number
   modo: ModoEdicao
   podeEditar: boolean
+  onSelecionarSetor: (id: string | null) => void
   onCriarPendente: (geometria: NovaGeometria, cardPos: { x: number; y: number }) => void
   onMoverMarcador: (id: string, campos: Partial<MapaSetoresMarcador>) => void
   onRecortar: (crop: { x: number; y: number; w: number; h: number }) => void
@@ -54,8 +61,13 @@ export default function PalcoSetores({
   camposPorMarcador,
   engenheiroPorMarcador,
   orfaoPorMarcador,
+  setoresVisuais,
+  idsVisiveis,
+  setorSelecionadoId,
+  versaoFoco,
   modo,
   podeEditar,
+  onSelecionarSetor,
   onCriarPendente,
   onMoverMarcador,
   onRecortar,
@@ -80,6 +92,10 @@ export default function PalcoSetores({
   }, [menuContexto])
   const containerRef = useRef<HTMLDivElement>(null)
   const [largura, setLargura] = useState(0)
+  const [camera, setCamera] = useState({ zoom: 1, x: 0, y: 0 })
+  const cameraDragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null)
+  const toquesRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ distancia: number; zoom: number; mundoX: number; mundoY: number } | null>(null)
 
   useEffect(() => {
     const el = containerRef.current
@@ -94,6 +110,23 @@ export default function PalcoSetores({
   const cropVisivel = modo === 'recorte' ? { x: 0, y: 0, w: planta.largura_natural, h: planta.altura_natural } : crop
   const escala = largura > 0 && cropVisivel.w > 0 ? largura / cropVisivel.w : 0
   const alturaViewport = cropVisivel.h * escala
+  const setorVisualPorId = useMemo(() => new Map(setoresVisuais.map((setor) => [setor.id, setor])), [setoresVisuais])
+
+  function ajustarZoom(novoZoom: number, ponto?: { x: number; y: number }) {
+    const el = containerRef.current
+    if (!el) return
+    const zoom = clamp(novoZoom, 0.6, 3)
+    setCamera((atual) => {
+      if (!ponto) return { zoom, x: 0, y: 0 }
+      const mundoX = (ponto.x - atual.x) / atual.zoom
+      const mundoY = (ponto.y - atual.y) / atual.zoom
+      return { zoom, x: ponto.x - mundoX * zoom, y: ponto.y - mundoY * zoom }
+    })
+  }
+
+  function ajustarAoQuadro() {
+    setCamera({ zoom: 1, x: 0, y: 0 })
+  }
 
   // --- overrides locais durante o arraste — some sozinho quando o dado do servidor
   // (vindo da query, depois de invalidada pela mutação) já bate com o valor arrastado.
@@ -122,10 +155,29 @@ export default function PalcoSetores({
     [marcadores, overrides],
   )
 
+  useEffect(() => {
+    if (!setorSelecionadoId || versaoFoco === 0 || !containerRef.current) return
+    const marcador = marcadoresView.find((item) => item.id === setorSelecionadoId)
+    if (!marcador) return
+    const xPct = marcador.tipo === 'area'
+      ? (marcador.area_x_pct ?? 0) + (marcador.area_w_pct ?? 0) / 2
+      : marcador.pos_x_pct ?? 0
+    const yPct = marcador.tipo === 'area'
+      ? (marcador.area_y_pct ?? 0) + (marcador.area_h_pct ?? 0) / 2
+      : marcador.pos_y_pct ?? 0
+    const rect = containerRef.current.getBoundingClientRect()
+    setCamera((atual) => ({
+      ...atual,
+      x: rect.width / 2 - (rect.width * xPct / 100) * atual.zoom,
+      y: rect.height / 2 - (rect.height * yPct / 100) * atual.zoom,
+    }))
+  }, [setorSelecionadoId, versaoFoco, marcadoresView])
+
   // --- arraste de marcador/card existente ------------------------------------------
   const dragRef = useRef<{
     id: string
     modo: ModoDrag
+    pointerId: number
     startClientX: number
     startClientY: number
     start: MapaSetoresMarcador
@@ -144,12 +196,12 @@ export default function PalcoSetores({
   }
 
   useEffect(() => {
-    function onMove(e: MouseEvent) {
+    function onMove(e: PointerEvent) {
       const d = dragRef.current
-      if (!d) return
+      if (!d || d.pointerId !== e.pointerId) return
       const rect = containerRef.current!.getBoundingClientRect()
-      const dxPct = ((e.clientX - d.startClientX) / rect.width) * 100
-      const dyPct = ((e.clientY - d.startClientY) / rect.height) * 100
+      const dxPct = ((e.clientX - d.startClientX) / rect.width / camera.zoom) * 100
+      const dyPct = ((e.clientY - d.startClientY) / rect.height / camera.zoom) * 100
 
       if (d.modo === 'move-point') {
         setOverrides((prev) => ({
@@ -187,37 +239,63 @@ export default function PalcoSetores({
         }))
       }
     }
-    function onUp() {
-      finalizarDragMarcador()
+    function onUp(e: PointerEvent) {
+      if (dragRef.current?.pointerId === e.pointerId) finalizarDragMarcador()
     }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    window.addEventListener('pointercancel', onUp)
     return () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('pointercancel', onUp)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marcadoresView])
+  }, [marcadoresView, camera.zoom])
 
-  function iniciarDragMarcador(id: string, modoDrag: ModoDrag, e: React.MouseEvent) {
+  function iniciarDragMarcador(id: string, modoDrag: ModoDrag, e: React.PointerEvent) {
     if (!podeEditar || modo !== 'nenhum') return
     e.stopPropagation()
     const atual = marcadoresView.find((m) => m.id === id)
     if (!atual) return
-    dragRef.current = { id, modo: modoDrag, startClientX: e.clientX, startClientY: e.clientY, start: atual }
+    dragRef.current = { id, modo: modoDrag, pointerId: e.pointerId, startClientX: e.clientX, startClientY: e.clientY, start: atual }
+    e.currentTarget.setPointerCapture?.(e.pointerId)
   }
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      const drag = cameraDragRef.current
+      if (!drag || drag.pointerId !== e.pointerId) return
+      setCamera((atual) => ({
+        ...atual,
+        x: drag.cameraX + e.clientX - drag.startX,
+        y: drag.cameraY + e.clientY - drag.startY,
+      }))
+    }
+    function encerrar(e: PointerEvent) {
+      if (cameraDragRef.current?.pointerId === e.pointerId) cameraDragRef.current = null
+    }
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', encerrar)
+    window.addEventListener('pointercancel', encerrar)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', encerrar)
+      window.removeEventListener('pointercancel', encerrar)
+    }
+  }, [])
 
   // --- criação de novo marcador (clique = ponto, arraste = área) -------------------
   const [addDrag, setAddDrag] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const addStartRef = useRef<{ x: number; y: number } | null>(null)
 
-  function pctDoEvento(e: React.MouseEvent): { x: number; y: number } | null {
+  function pctDoEvento(e: React.PointerEvent): { x: number; y: number } | null {
     const el = containerRef.current
     if (!el) return null
     const rect = el.getBoundingClientRect()
     return {
-      x: clamp(((e.clientX - rect.left) / rect.width) * 100, 0, 100),
-      y: clamp(((e.clientY - rect.top) / rect.height) * 100, 0, 100),
+      x: clamp((((e.clientX - rect.left - camera.x) / camera.zoom) / rect.width) * 100, 0, 100),
+      y: clamp((((e.clientY - rect.top - camera.y) / camera.zoom) / rect.height) * 100, 0, 100),
     }
   }
 
@@ -225,11 +303,42 @@ export default function PalcoSetores({
   const [caixaRecorte, setCaixaRecorte] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const inicioRecorteRef = useRef<{ x: number; y: number } | null>(null)
 
-  function onStageMouseDown(e: React.MouseEvent) {
+  function onStagePointerDown(e: React.PointerEvent<HTMLDivElement>) {
     if (dragRef.current) return
+    if (modo === 'nenhum' && e.pointerType === 'touch') {
+      const rect = e.currentTarget.getBoundingClientRect()
+      toquesRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+      const pontos = [...toquesRef.current.values()]
+      if (pontos.length === 2) {
+        const [a, b] = pontos
+        const meio = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        pinchRef.current = {
+          distancia: Math.hypot(b.x - a.x, b.y - a.y),
+          zoom: camera.zoom,
+          mundoX: (meio.x - camera.x) / camera.zoom,
+          mundoY: (meio.y - camera.y) / camera.zoom,
+        }
+        cameraDragRef.current = null
+        return
+      }
+    }
+    if (modo === 'nenhum' && !((e.target as HTMLElement).closest('[data-setor-interativo]'))) {
+      if (camera.zoom > 1 || camera.x !== 0 || camera.y !== 0) {
+        cameraDragRef.current = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          cameraX: camera.x,
+          cameraY: camera.y,
+        }
+        e.currentTarget.setPointerCapture?.(e.pointerId)
+      }
+      onSelecionarSetor(null)
+      return
+    }
     if (modo === 'recorte') {
       const rect = containerRef.current!.getBoundingClientRect()
-      inicioRecorteRef.current = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      inicioRecorteRef.current = { x: (e.clientX - rect.left - camera.x) / camera.zoom, y: (e.clientY - rect.top - camera.y) / camera.zoom }
       setCaixaRecorte({ x: inicioRecorteRef.current.x, y: inicioRecorteRef.current.y, w: 0, h: 0 })
       return
     }
@@ -244,11 +353,24 @@ export default function PalcoSetores({
     setAddDrag({ x: p.x, y: p.y, w: 0, h: 0 })
   }
 
-  function onStageMouseMove(e: React.MouseEvent) {
+  function onStagePointerMove(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === 'touch' && toquesRef.current.has(e.pointerId)) {
+      const rect = e.currentTarget.getBoundingClientRect()
+      toquesRef.current.set(e.pointerId, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+      const pontos = [...toquesRef.current.values()]
+      const pinch = pinchRef.current
+      if (pinch && pontos.length === 2 && pinch.distancia > 0) {
+        const [a, b] = pontos
+        const meio = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
+        const zoom = clamp(pinch.zoom * (Math.hypot(b.x - a.x, b.y - a.y) / pinch.distancia), 0.6, 3)
+        setCamera({ zoom, x: meio.x - pinch.mundoX * zoom, y: meio.y - pinch.mundoY * zoom })
+        return
+      }
+    }
     if (modo === 'recorte' && inicioRecorteRef.current) {
       const rect = containerRef.current!.getBoundingClientRect()
-      const x = e.clientX - rect.left
-      const y = e.clientY - rect.top
+      const x = (e.clientX - rect.left - camera.x) / camera.zoom
+      const y = (e.clientY - rect.top - camera.y) / camera.zoom
       setCaixaRecorte({
         x: Math.min(inicioRecorteRef.current.x, x),
         y: Math.min(inicioRecorteRef.current.y, y),
@@ -270,7 +392,11 @@ export default function PalcoSetores({
     }
   }
 
-  function onStageMouseUp() {
+  function onStagePointerUp(e: React.PointerEvent<HTMLDivElement>) {
+    if (e.pointerType === 'touch') {
+      toquesRef.current.delete(e.pointerId)
+      if (toquesRef.current.size < 2) pinchRef.current = null
+    }
     if (modo === 'recorte') {
       const caixa = caixaRecorte
       inicioRecorteRef.current = null
@@ -291,19 +417,63 @@ export default function PalcoSetores({
     }
   }
 
+  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
+    e.preventDefault()
+    const rect = e.currentTarget.getBoundingClientRect()
+    const fator = e.deltaY > 0 ? 0.9 : 1.1
+    ajustarZoom(camera.zoom * fator, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+  }
+
   return (
     <div
       ref={containerRef}
       className={`relative overflow-hidden border rounded-md select-none bg-muted/30 ${
         modo === 'recorte' ? 'cursor-crosshair' : modo === 'ponto' || modo === 'area' ? 'cursor-crosshair' : ''
       }`}
-      style={{ height: alturaViewport || 400 }}
-      onMouseDown={onStageMouseDown}
-      onMouseMove={onStageMouseMove}
-      onMouseUp={onStageMouseUp}
+      style={{ height: alturaViewport || 400, touchAction: 'none' }}
+      onPointerDown={onStagePointerDown}
+      onPointerMove={onStagePointerMove}
+      onPointerUp={onStagePointerUp}
+      onPointerCancel={onStagePointerUp}
+      onWheel={onWheel}
     >
+      <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm" data-setor-interativo>
+        <button
+          type="button"
+          aria-label="Reduzir zoom"
+          className="rounded p-1.5 hover:bg-muted"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })}
+        >
+          <Minus size={15} />
+        </button>
+        <span className="min-w-10 text-center text-xs tabular-nums">{Math.round(camera.zoom * 100)}%</span>
+        <button
+          type="button"
+          aria-label="Aumentar zoom"
+          className="rounded p-1.5 hover:bg-muted"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })}
+        >
+          <Plus size={15} />
+        </button>
+        <button
+          type="button"
+          aria-label="Ajustar planta à tela"
+          className="rounded p-1.5 hover:bg-muted"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={ajustarAoQuadro}
+        >
+          <Maximize size={15} />
+        </button>
+      </div>
+
       <div
-        className="absolute"
+        className="absolute inset-0"
+        style={{ transform: `translate(${camera.x}px, ${camera.y}px) scale(${camera.zoom})`, transformOrigin: 'top left' }}
+      >
+        <div
+          className="absolute"
         style={{
           width: planta.largura_natural * escala,
           height: planta.altura_natural * escala,
@@ -317,7 +487,7 @@ export default function PalcoSetores({
       {modo !== 'recorte' && (
         <>
           <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-            {marcadoresView.map((m) => {
+            {marcadoresView.filter((m) => m.id === setorSelecionadoId && idsVisiveis.has(m.id)).map((m) => {
               const anchor = m.tipo === 'area' ? { x: m.area_x_pct ?? 0, y: m.area_y_pct ?? 0 } : { x: m.pos_x_pct ?? 0, y: m.pos_y_pct ?? 0 }
               return (
                 <line
@@ -335,22 +505,30 @@ export default function PalcoSetores({
             })}
           </svg>
 
-          {marcadoresView.map((m) => {
-            const campos = camposPorMarcador.get(m.id)
-            const eng = engenheiroPorMarcador.get(m.id)
-            const cor = eng?.cor ?? '#64748b'
-            const orfao = orfaoPorMarcador.get(m.id) ?? false
+            {marcadoresView.filter((m) => idsVisiveis.has(m.id)).map((m) => {
+              const campos = camposPorMarcador.get(m.id)
+              const eng = engenheiroPorMarcador.get(m.id)
+              const visual = setorVisualPorId.get(m.id)
+              const cor = visual ? STATUS_SETORES[visual.status].cor : eng?.cor ?? '#64748b'
+              const orfao = orfaoPorMarcador.get(m.id) ?? false
+              const selecionado = setorSelecionadoId === m.id
+              const atenuado = setorSelecionadoId !== null && !selecionado
 
-            return (
-              <div key={m.id}>
+              return (
+                <div key={m.id} className={`transition-opacity ${atenuado ? 'opacity-30' : 'opacity-100'}`}>
                 {m.tipo === 'ponto' ? (
                   <div
                     className="absolute z-10"
                     style={{ left: `${m.pos_x_pct}%`, top: `${m.pos_y_pct}%`, transform: 'translate(-50%, -100%)' }}
                   >
                     <div
-                      onMouseDown={(e) => iniciarDragMarcador(m.id, 'move-point', e)}
-                      className="w-4 h-4 rounded-full border-2 border-white shadow cursor-grab active:cursor-grabbing"
+                      data-setor-interativo
+                      onPointerDown={(e) => {
+                        onSelecionarSetor(m.id)
+                        iniciarDragMarcador(m.id, 'move-point', e)
+                      }}
+                      onClick={() => onSelecionarSetor(m.id)}
+                      className={`w-4 h-4 rounded-full border-2 border-white shadow cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/35' : ''}`}
                       style={{ backgroundColor: cor }}
                     />
                   </div>
@@ -360,8 +538,13 @@ export default function PalcoSetores({
                     style={{ left: `${m.area_x_pct}%`, top: `${m.area_y_pct}%`, width: `${m.area_w_pct}%`, height: `${m.area_h_pct}%` }}
                   >
                     <div
-                      onMouseDown={(e) => iniciarDragMarcador(m.id, 'move-area', e)}
-                      className="absolute inset-0 rounded-sm border-2 cursor-grab active:cursor-grabbing"
+                      data-setor-interativo
+                      onPointerDown={(e) => {
+                        onSelecionarSetor(m.id)
+                        iniciarDragMarcador(m.id, 'move-area', e)
+                      }}
+                      onClick={() => onSelecionarSetor(m.id)}
+                      className={`absolute inset-0 rounded-sm border-2 cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/25' : ''}`}
                       style={{ borderColor: cor, backgroundColor: `${cor}22` }}
                     />
                     <div
@@ -370,7 +553,11 @@ export default function PalcoSetores({
                     />
                     {podeEditar && (
                       <div
-                        onMouseDown={(e) => iniciarDragMarcador(m.id, 'resize-area', e)}
+                        data-setor-interativo
+                        onPointerDown={(e) => {
+                          onSelecionarSetor(m.id)
+                          iniciarDragMarcador(m.id, 'resize-area', e)
+                        }}
                         className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-white border-2 rounded-sm cursor-nwse-resize"
                         style={{ borderColor: cor }}
                       />
@@ -379,30 +566,82 @@ export default function PalcoSetores({
                 )}
 
                 <div
-                  className="absolute z-20 min-w-[150px] bg-white dark:bg-neutral-900 border-2 rounded px-2.5 py-1.5 text-[11px] leading-relaxed shadow-lg cursor-grab active:cursor-grabbing"
+                  data-setor-interativo
+                  role="button"
+                  tabIndex={0}
+                  aria-selected={selecionado}
+                  className={`absolute z-20 min-w-[172px] max-w-[220px] rounded-md border-2 bg-white px-2.5 py-2 text-[11px] leading-relaxed shadow-lg cursor-grab active:cursor-grabbing dark:bg-neutral-900 ${
+                    selecionado ? 'ring-4 ring-primary/20' : ''
+                  }`}
                   style={{ left: `${m.card_x_pct}%`, top: `${m.card_y_pct}%`, borderColor: cor }}
-                  onMouseDown={(e) => iniciarDragMarcador(m.id, 'move-card', e)}
+                  onPointerDown={(e) => {
+                    onSelecionarSetor(m.id)
+                    iniciarDragMarcador(m.id, 'move-card', e)
+                  }}
+                  onClick={() => onSelecionarSetor(m.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault()
+                      onSelecionarSetor(m.id)
+                    }
+                  }}
                   onContextMenu={(e) => {
                     e.preventDefault()
                     e.stopPropagation()
                     if (podeEditar) setMenuContexto({ marcadorId: m.id, x: e.clientX, y: e.clientY })
                   }}
                 >
-                  <div className="font-semibold uppercase tracking-wide mb-1 flex items-center gap-1" style={{ color: cor }}>
-                    {m.nome}
+                  <div className="mb-1 flex items-start justify-between gap-2">
+                    <div className="min-w-0 font-semibold uppercase tracking-wide" style={{ color: cor }}>
+                      <span className="block truncate">{m.nome}</span>
+                    </div>
+                    {podeEditar && <button
+                      type="button"
+                      data-setor-interativo
+                      aria-label={`Configurar ${m.nome}`}
+                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onPropriedadesCard(m.id)
+                      }}
+                    >
+                      <Settings2 size={13} />
+                    </button>}
+                  </div>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <span className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
+                      {visual ? STATUS_SETORES[visual.status].label : 'Sem dados'}
+                    </span>
                     {orfao && <span title="Alguma atividade vinculada não foi encontrada no cronograma atual">⚠️</span>}
                   </div>
-                  {eng?.nome && <div className="text-muted-foreground mb-1">{eng.nome}</div>}
-                  {campos && Object.keys(campos).length > 0 ? (
+                  {visual && (
+                    <>
+                      <div className="mb-1.5 flex justify-between gap-2 text-[10px]">
+                        <span className="text-muted-foreground">Concl. <b className="text-foreground">{visual.concluido != null ? `${visual.concluido.toFixed(0)}%` : '—'}</b></span>
+                        <span className="text-muted-foreground">Prev. <b className="text-foreground">{visual.previsto != null ? `${visual.previsto.toFixed(0)}%` : '—'}</b></span>
+                      </div>
+                      <div className="mb-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div className="h-full rounded-full" style={{ width: `${clamp(visual.concluido ?? 0, 0, 100)}%`, backgroundColor: cor }} />
+                      </div>
+                    </>
+                  )}
+                  {eng?.nome && (
+                    <div className="mb-1 flex items-center gap-1 text-muted-foreground">
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: eng.cor }} />
+                      {selecionado ? eng.nome : eng.nome.split(' ').slice(0, 2).join(' ')}
+                    </div>
+                  )}
+                  {selecionado && campos && Object.keys(campos).length > 0 ? (
                     ORDEM_CAMPOS.filter((c) => campos[c]).map((c) => (
                       <div key={c} className="flex justify-between gap-2">
                         <span className="text-muted-foreground">{CAMPO_LABEL[c]}</span>
                         <b>{formatarValorCampo(campos[c])}</b>
                       </div>
                     ))
-                  ) : (
+                  ) : !visual ? (
                     <div className="text-muted-foreground">Botão direito → Propriedades do card</div>
-                  )}
+                  ) : null}
                 </div>
               </div>
             )
@@ -423,6 +662,7 @@ export default function PalcoSetores({
           style={{ left: caixaRecorte.x, top: caixaRecorte.y, width: caixaRecorte.w, height: caixaRecorte.h }}
         />
       )}
+      </div>
 
       {menuContexto && (
         <div
