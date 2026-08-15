@@ -11,6 +11,8 @@ interface NavigationProps {
   papel?: PapelUsuario
   modulos?: string[]
   podeGerenciarUsuarios: boolean
+  podeVerPortfolio?: boolean
+  podeConfigurarApresentacao?: boolean
   projectName?: string
   brandColor: string
 }

@@ -77,12 +77,12 @@ export async function downloadRelatorioDiaPdf(params: {
 
   const body: RowInput[] = [];
   for (const area of relatorio.areas) {
-    body.push([{ content: area.nome, colSpan: 2, styles: { fillColor: COR.gray100, textColor: COR.gray800, fontStyle: "bold", fontSize: 8 } }]);
+    body.push([{ content: area.nome, colSpan: 3, styles: { fillColor: COR.gray100, textColor: COR.gray800, fontStyle: "bold", fontSize: 8 } }]);
     for (const item of area.itens) {
       const nomeComSubarea = item.subarea ? `${item.nome} — ${item.subarea}` : item.nome;
-      body.push([item.isExtra ? "extra" : item.status, `${nomeComSubarea}${item.isExtra ? "  (extra)" : ""}`]);
+      body.push([item.isExtra ? "extra" : item.status, item.edt ?? "", `${nomeComSubarea}${item.isExtra ? "  (extra)" : ""}`]);
       for (const sub of item.subetapas) {
-        body.push([sub.status, `    • ${sub.nome}`]);
+        body.push([sub.status, "", `    • ${sub.nome}`]);
       }
     }
   }
@@ -95,7 +95,8 @@ export async function downloadRelatorioDiaPdf(params: {
     styles: { fontSize: 8, cellPadding: 4, valign: "middle", overflow: "linebreak", lineColor: COR.gray100, lineWidth: 0.5 },
     columnStyles: {
       0: { cellWidth: 22 },
-      1: { cellWidth: "auto" },
+      1: { cellWidth: 34, fontSize: 6.5, textColor: COR.gray500 },
+      2: { cellWidth: "auto" },
     },
     // Sem texto na célula de status — a cor vira um "chip" arredondado desenhado à
     // mão em didDrawCell, mais visual que o preenchimento quadrado padrão. Só quando

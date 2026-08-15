@@ -17,6 +17,7 @@ import {
 } from '@/lib/mapa-avanco/mapa-db'
 import { calcularAvanco, calcularAvancoGrupo, formatarPct, formatarQuantidade } from '@/lib/mapa-avanco/calculo'
 import { ehPdf, contarPaginasPdf, pdfPaginaParaPng, medirImagem } from '@/lib/mapa-avanco/pdf-para-imagem'
+import UsoArmazenamentoBar from '@/components/UsoArmazenamentoBar'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -111,6 +112,8 @@ export default function GestaoVista() {
         </div>
         {podeEditar && <NovaPlantaDialog organizacaoId={organizacaoId} projetoId={projetoId} />}
       </header>
+
+      <UsoArmazenamentoBar organizacaoId={organizacaoId} podeLimpar={podeEditar} />
 
       {(cardsGrupo.length > 0 || gradesIsoladas.length > 0) && (
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

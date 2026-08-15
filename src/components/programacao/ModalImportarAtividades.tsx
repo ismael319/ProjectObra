@@ -38,6 +38,14 @@ interface Props {
   /** Chaves de atividades já programadas (cronogramaId::taskUid) que devem
    * aparecer pré-selecionadas quando o modal abrir. */
   preSelectedKeys?: Set<string>
+  /** Chaves DIA A DIA (cronogramaId::taskUid::planned_date) de atividades que já
+   * existem no board — usada só na hora de importar, pra não duplicar a mesma
+   * tarefa no mesmo dia quando ela vem pré-selecionada (ver handleImport). Mais
+   * fina que preSelectedKeys (que é só por tarefa, sem dia) porque uma
+   * importação de semana inteira pode legitimamente precisar adicionar a MESMA
+   * tarefa em dias novos, mesmo já existindo em algum dia — só o dia que já
+   * tem a linha deve ser pulado, não a tarefa inteira. */
+  diasJaProgramados?: Set<string>
 }
 
 function rowKey(a: WeekActivity): string {
@@ -82,6 +90,7 @@ export default function ModalImportarAtividades({
   areaIdPorArea,
   onImported,
   preSelectedKeys,
+  diasJaProgramados,
 }: Props) {
   const [expandedCronogramas, setExpandedCronogramas] = useState<Set<string>>(new Set())
   const [searchTerm, setSearchTerm] = useState('')
@@ -173,26 +182,51 @@ export default function ModalImportarAtividades({
     if (toImport.length === 0) return
     setImporting(true)
     try {
+      // Uma tarefa marcada como "já programada" (pré-selecionada) pode já
+      // existir só em ALGUNS dias que ela sobrepõe — pula só esses dias
+      // específicos, não a tarefa inteira, senão uma importação de semana
+      // não conseguiria completar os dias que ainda faltam pra uma tarefa já
+      // presente em outro dia. É o pulo por dia (não por tarefa) que evita a
+      // duplicata: sem isso, reimportar com a pré-seleção intacta recriava a
+      // linha do dia que já existia.
+      let puladas = 0
       const rows = toImport.flatMap((a) =>
-        getOverlappingDays(a, weekDays).map((date) => ({
-          organizacaoId,
-          projetoId,
-          weekId,
-          planned_date: date,
-          name: a.taskName,
-          discipline: a.discipline || null,
-          area: a.area || null,
-          stage: null,
-          foreman: engenheirosPorArea.get(getAreaNivel2(a.areaPath)) || null,
-          areaId: areaIdPorArea.get(getAreaNivel2(a.areaPath)) || null,
-          isExtra: false,
-          sourceCronograma: a.cronogramaNome,
-          areaPath: a.areaPath || null,
-          taskUid: a.taskUid,
-        })),
+        getOverlappingDays(a, weekDays)
+          .filter((date) => {
+            const jaExiste = diasJaProgramados?.has(`${a.cronogramaId}::${a.taskUid}::${date}`)
+            if (jaExiste) puladas += 1
+            return !jaExiste
+          })
+          .map((date) => ({
+            organizacaoId,
+            projetoId,
+            weekId,
+            planned_date: date,
+            name: a.taskName,
+            discipline: a.discipline || null,
+            area: a.area || null,
+            // Código EDT (WBS) de verdade, vindo do cronograma — antes ia null
+            // sempre, então toda atividade importada (a maioria do total) saía
+            // sem EDT nenhum, mesmo tendo um código real no MS Project.
+            stage: a.wbs || null,
+            foreman: engenheirosPorArea.get(getAreaNivel2(a.areaPath)) || null,
+            areaId: areaIdPorArea.get(getAreaNivel2(a.areaPath)) || null,
+            isExtra: false,
+            sourceCronograma: a.cronogramaNome,
+            areaPath: a.areaPath || null,
+            taskUid: a.taskUid,
+          })),
       )
+
+      if (rows.length === 0) {
+        toast.info('Essas atividades já estavam programadas nos dias selecionados — nada novo pra importar.')
+        setSelected(new Set())
+        onOpenChange(false)
+        return
+      }
+
       await addActivitiesBulk(rows)
-      toast.success(`${toImport.length} atividade(s) importada(s)`)
+      toast.success(`${rows.length} atividade(s) importada(s)${puladas > 0 ? ` — ${puladas} já estava(m) programada(s) e não foi(ram) duplicada(s)` : ''}`)
       setSelected(new Set())
       onImported()
       onOpenChange(false)

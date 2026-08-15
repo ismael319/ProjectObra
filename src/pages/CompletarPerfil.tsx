@@ -1,7 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { User, ArrowRight, Loader2 } from 'lucide-react'
+import { User, ArrowRight, Loader2, Check } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { ESTILOS_ASSINATURA, type AssinaturaEstilo } from '@/lib/assinatura'
+import Assinatura from '@/components/Assinatura'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const FUNCOES = [
@@ -20,6 +22,9 @@ const FUNCOES = [
 export default function CompletarPerfil() {
   const [nome, setNome] = useState('')
   const [funcao, setFuncao] = useState('')
+  // Já vem com o primeiro estilo marcado: assinatura é obrigatória na prática
+  // (quem valida precisa de uma), e obrigar a escolher só adiciona um passo.
+  const [assinatura, setAssinatura] = useState<AssinaturaEstilo>(ESTILOS_ASSINATURA[0].id)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -52,7 +57,7 @@ export default function CompletarPerfil() {
 
     setIsSubmitting(true)
     setError('')
-    const { error: submitError } = await completarPerfil(nome.trim(), funcao.trim())
+    const { error: submitError } = await completarPerfil(nome.trim(), funcao.trim(), assinatura)
     if (submitError) {
       setError('Erro ao salvar perfil. Tente novamente.')
       setIsSubmitting(false)
@@ -138,6 +143,50 @@ export default function CompletarPerfil() {
                       {f}
                     </button>
                   ))}
+                </div>
+              )}
+            </div>
+
+            {/* Assinatura: aparece onde a pessoa valida um lançamento e nos
+                relatórios que saem da plataforma. Só é oferecida depois que há
+                um nome digitado — não há o que desenhar antes disso. */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Assinatura
+              </label>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                Escolha como seu nome vai aparecer quando você validar algo. Dá pra trocar depois.
+              </p>
+
+              {nomeInvalido ? (
+                <p className="text-xs text-gray-400 dark:text-gray-500 border border-dashed border-gray-300 dark:border-gray-600 rounded-lg px-3 py-4 text-center">
+                  Digite seu nome acima para ver os modelos
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {ESTILOS_ASSINATURA.map((e) => {
+                    const escolhido = assinatura === e.id
+                    return (
+                      <button
+                        key={e.id}
+                        type="button"
+                        onClick={() => setAssinatura(e.id)}
+                        className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-lg border text-left transition ${
+                          escolhido
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-500'
+                            : 'border-gray-300 dark:border-gray-600 hover:border-blue-400 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <Assinatura nome={nome} estilo={e.id} soTraco tamanho="md" />
+                        <span className="shrink-0 flex items-center gap-2">
+                          <span className="text-[11px] text-gray-400 dark:text-gray-500 hidden sm:inline">
+                            {e.rotulo}
+                          </span>
+                          {escolhido && <Check size={16} className="text-blue-600" />}
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               )}
             </div>

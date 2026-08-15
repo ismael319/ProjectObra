@@ -14,6 +14,8 @@ import {
   FolderTree,
   GanttChart,
   LineChart,
+  Map,
+  MapPin,
   PackageSearch,
   PieChart,
   Search,
@@ -67,6 +69,8 @@ export function buildNavSections(modulos: string[]): NavSection[] {
         { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
       ],
     },
+    { icon: Map, label: 'Gestão à Vista', path: '/dashboard/gestao-vista' },
+    { icon: MapPin, label: 'Mapa de Setores', path: '/dashboard/mapa-setores' },
     { icon: AlertTriangle, label: 'Ocorrências', path: '/dashboard/occurrences' },
     { icon: CloudRain, label: 'Mapa de Chuvas', path: '/dashboard/mapa-chuvas' },
   ] : []
@@ -155,6 +159,7 @@ const dashboardRouteTitles = [
   ['/dashboard/admin/users', 'Gestão de Usuários'],
   ['/dashboard/histograma-mo', 'Histograma de Mão de Obra'],
   ['/dashboard/mapa-chuvas', 'Mapa de Chuvas'],
+  ['/dashboard/mapa-setores', 'Mapa de Setores'],
   ['/dashboard/administracao', 'Administração'],
   ['/dashboard/suprimentos', 'Alertas Sienge'],
   ['/dashboard/occurrences', 'Ocorrências'],
@@ -163,6 +168,8 @@ const dashboardRouteTitles = [
   ['/dashboard/daily', 'Programação'],
   ['/dashboard/gantt', 'Gantt Livre'],
   ['/dashboard/people', 'Distribuição de Efetivo'],
+  ['/dashboard/portfolio', 'Portfólio de Projetos'],
+  ['/dashboard/apresentacao', 'Modo Apresentação'],
   ['/dashboard', 'Visão Geral'],
 ] as const
 

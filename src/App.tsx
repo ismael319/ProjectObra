@@ -10,6 +10,7 @@ import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
 import RequireModulo from '@/components/RequireModulo'
 import RequirePapel from '@/components/RequirePapel'
+import RequirePortfolio from '@/components/RequirePortfolio'
 
 const queryClient = new QueryClient()
 
@@ -20,6 +21,9 @@ const ForgotPassword = lazy(() => import('@/pages/ForgotPassword'))
 const UpdatePassword = lazy(() => import('@/pages/UpdatePassword'))
 const DashboardLayout = lazy(() => import('@/pages/DashboardLayout'))
 const DashboardHome = lazy(() => import('@/pages/DashboardHome'))
+const DashboardPortfolio = lazy(() => import('@/pages/DashboardPortfolio'))
+const ApresentacaoConfig = lazy(() => import('@/pages/ApresentacaoConfig'))
+const ApresentacaoPublica = lazy(() => import('@/pages/ApresentacaoPublica'))
 const SCurve = lazy(() => import('@/pages/SCurve'))
 const GanttChart = lazy(() => import('@/pages/GanttChart'))
 const HistogramaMO = lazy(() => import('@/pages/histograma-mo/HistogramaMO'))
@@ -40,6 +44,8 @@ const ValidacaoConfig = lazy(() => import('@/pages/admin/ValidacaoConfig'))
 const MinhasValidacoes = lazy(() => import('@/pages/MinhasValidacoes'))
 const GestaoVista = lazy(() => import('@/pages/gestao-vista/GestaoVista'))
 const GestaoVistaPlanta = lazy(() => import('@/pages/gestao-vista/PlantaDetalhe'))
+const MapaSetores = lazy(() => import('@/pages/mapa-setores/MapaSetores'))
+const PlantaSetores = lazy(() => import('@/pages/mapa-setores/PlantaSetores'))
 
 // Legal pages
 const Privacy = lazy(() => import('@/pages/legal/Privacy'))
@@ -102,6 +108,10 @@ function App() {
                   <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    {/* Público, sem sessão — nunca dentro de ProtectedRoute/DashboardLayout
+                        (ver Fase 0 do plano: acesso anônimo só passa por RPC estreita,
+                        nunca por RLS aberta numa tabela real). */}
+                    <Route path="/apresentacao/:token" element={<ApresentacaoPublica />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/update-password" element={<UpdatePassword />} />
 
@@ -198,6 +208,8 @@ function App() {
                       }
                     >
                       <Route index element={<DashboardHome />} />
+                      <Route path="portfolio" element={<RequirePortfolio><DashboardPortfolio /></RequirePortfolio>} />
+                      <Route path="apresentacao" element={<ApresentacaoConfig />} />
                       <Route path="activities" element={<Activities />} />
                       <Route path="planning" element={<RequireModulo modulo="engenharia"><SCurve /></RequireModulo>} />
                       <Route path="gantt" element={<RequireModulo modulo="engenharia"><GanttChart /></RequireModulo>} />
@@ -219,6 +231,8 @@ function App() {
                       <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
                       <Route path="gestao-vista" element={<RequireModulo modulo="engenharia"><GestaoVista /></RequireModulo>} />
                       <Route path="gestao-vista/:plantaId" element={<RequireModulo modulo="engenharia"><GestaoVistaPlanta /></RequireModulo>} />
+                      <Route path="mapa-setores" element={<RequireModulo modulo="engenharia"><MapaSetores /></RequireModulo>} />
+                      <Route path="mapa-setores/:plantaId" element={<RequireModulo modulo="engenharia"><PlantaSetores /></RequireModulo>} />
                       <Route path="suprimentos" element={<RequireModulo modulo="suprimentos"><SiengeAlertas /></RequireModulo>} />
                       <Route path="administracao" element={<RequireModulo modulo="administracao"><AdministracaoHome /></RequireModulo>} />
                       <Route path="administracao/importar-efetivo" element={<RequireModulo modulo="administracao"><ImportarEfetivo /></RequireModulo>} />

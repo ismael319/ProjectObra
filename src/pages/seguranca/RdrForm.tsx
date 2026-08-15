@@ -7,6 +7,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import {
   useRdrRecord, useSalvarRecord, fazerUploadFotos, excluirFotos, obterFotoUrl,
   type FotoUpload,
@@ -103,9 +104,10 @@ export default function RdrForm() {
   const navigate = useNavigate();
   const { user, userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const { currentProject } = useProjects();
 
   const { data: record, isLoading: carregandoRecord } = useRdrRecord(isEdit ? id : undefined);
-  const salvarMut = useSalvarRecord(organizacaoId);
+  const salvarMut = useSalvarRecord(organizacaoId, currentProject?.id ?? null);
 
   const nomePadrao = userProfile?.nome ?? user?.user_metadata?.nome ?? user?.email ?? "";
 

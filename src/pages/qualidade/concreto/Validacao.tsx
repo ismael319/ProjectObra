@@ -31,6 +31,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 import { formatBR } from '@/lib/utils'
+import Assinatura from '@/components/Assinatura'
+import { formatarDataAssinatura } from '@/lib/assinatura'
+import { useAssinaturas } from '@/lib/assinatura-db'
 
 interface CargaRow {
   id: string
@@ -59,6 +62,7 @@ const CORES_STATUS: Record<ValidacaoStatus, string> = {
 export default function ConcretoValidacao() {
   const { user, userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
+  const { data: assinaturas } = useAssinaturas(organizacaoId)
 
   const { data: etapas = [] } = useValidacaoEtapas(organizacaoId)
   const { data: responsaveis = [] } = useValidacaoResponsaveis(organizacaoId)
@@ -324,15 +328,29 @@ export default function ConcretoValidacao() {
                       <div className="flex flex-wrap items-center gap-1">
                         {etapasConcreto.map((e) => {
                           const d = decisoes.find((x) => x.etapa_chave === e.chave)
+                          const quem = d ? assinaturas?.get(d.usuario_id) : undefined
                           return (
-                            <Badge
-                              key={e.chave}
-                              variant={d ? (d.decisao === 'confirmado' ? 'secondary' : 'destructive') : 'outline'}
-                              title={d?.observacao ?? e.nome}
-                            >
-                              {e.nome}
-                              {d && (d.decisao === 'confirmado' ? ' ✓' : ' ✕')}
-                            </Badge>
+                            <span key={e.chave} className="flex items-center gap-1.5">
+                              <Badge
+                                variant={d ? (d.decisao === 'confirmado' ? 'secondary' : 'destructive') : 'outline'}
+                                title={d?.observacao ?? e.nome}
+                              >
+                                {e.nome}
+                                {d && (d.decisao === 'confirmado' ? ' ✓' : ' ✕')}
+                              </Badge>
+                              {/* Assinatura de quem decidiu — o badge diz a etapa,
+                                  não a pessoa. */}
+                              {quem && d && (
+                                <Assinatura
+                                  nome={quem.nome}
+                                  estilo={quem.assinatura_estilo}
+                                  funcao={quem.funcao}
+                                  data={formatarDataAssinatura(d.criado_em)}
+                                  tamanho="sm"
+                                  className="max-w-[160px]"
+                                />
+                              )}
+                            </span>
                           )
                         })}
                         {minhaDecisao && (

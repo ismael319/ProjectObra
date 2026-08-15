@@ -73,8 +73,21 @@ export interface Project {
   atualizadoEm: string
   cronogramas: CronogramaInfo[]
   percentualAvanco: number
+  /** Avanço planejado (EVM, ponderado por custo) — fonte do KPI `avanco_planejado_pct`
+   * do Dashboard Macro. Calculado junto com percentualAvanco, nunca separado. */
+  percentualPlanejado: number
+  /** Snapshot de percentualAvanco capturado antes da ÚLTIMA mudança de cronograma —
+   * usado só pelo Mapa de Setores pra "Avanço do dia" (ver capturarAvancoAnterior). */
+  avancoRealAnterior: number | null
+  avancoCapturadoEm: string | null
   imagemCapa?: string
   cronogramaPadraoId?: string
+  // Campos do Dashboard Macro/Portfólio (ver plano cheerful-tinkering-cosmos).
+  latitude?: number
+  longitude?: number
+  cliente?: string
+  tipoObra?: string
+  statusGeral: 'planejamento' | 'em_andamento' | 'paralisado' | 'concluido'
 }
 
 export type ConsolidationMethod = 'soma' | 'media_ponderada' | 'critico'
@@ -91,7 +104,7 @@ interface ProjectContextType {
   usingOfflineCache: boolean
   offlineDataUpdatedAt: number | null
   setCurrentProject: (project: Project | null, options?: { skipCronogramaHydration?: boolean }) => Promise<boolean>
-  createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>) => Project | null
+  createProject: (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco' | 'percentualPlanejado' | 'avancoRealAnterior' | 'avancoCapturadoEm'>) => Project | null
   updateProject: (id: string, data: Partial<Project>) => void
   deleteProject: (id: string) => void
   duplicateProject: (id: string) => Promise<Project | null>
@@ -173,10 +186,18 @@ interface ProjetoRow<C = CronogramaRow> {
   equipe: string[] | null
   observacoes: string | null
   percentual_avanco: number | string
+  percentual_planejado: number | string | null
+  avanco_real_anterior: number | string | null
+  avanco_capturado_em: string | null
   imagem_capa: string | null
   cronograma_padrao_id: string | null
   criado_em: string
   atualizado_em: string
+  latitude: number | string | null
+  longitude: number | string | null
+  cliente: string | null
+  tipo_obra: string | null
+  status_geral: string | null
   projeto_cronogramas: C[] | null
 }
 
@@ -307,8 +328,16 @@ async function mapProjetoRow<C>(row: ProjetoRow<C>, mapCronograma: (c: C) => Pro
     atualizadoEm: row.atualizado_em,
     cronogramas: await Promise.all((row.projeto_cronogramas ?? []).map(mapCronograma)),
     percentualAvanco: Number(row.percentual_avanco ?? 0),
+    percentualPlanejado: Number(row.percentual_planejado ?? 0),
+    avancoRealAnterior: row.avanco_real_anterior != null ? Number(row.avanco_real_anterior) : null,
+    avancoCapturadoEm: row.avanco_capturado_em ?? null,
     imagemCapa: row.imagem_capa ?? undefined,
     cronogramaPadraoId: row.cronograma_padrao_id ?? undefined,
+    latitude: row.latitude != null ? Number(row.latitude) : undefined,
+    longitude: row.longitude != null ? Number(row.longitude) : undefined,
+    cliente: row.cliente ?? undefined,
+    tipoObra: row.tipo_obra ?? undefined,
+    statusGeral: (row.status_geral as Project['statusGeral']) ?? 'em_andamento',
   }
 }
 
@@ -330,9 +359,17 @@ function projectToRow(project: Project) {
     equipe: project.equipe,
     observacoes: project.observacoes,
     percentual_avanco: project.percentualAvanco,
+    percentual_planejado: project.percentualPlanejado,
+    avanco_real_anterior: project.avancoRealAnterior ?? null,
+    avanco_capturado_em: project.avancoCapturadoEm ?? null,
     imagem_capa: project.imagemCapa ?? null,
     cronograma_padrao_id: project.cronogramaPadraoId ?? null,
     atualizado_em: project.atualizadoEm,
+    latitude: project.latitude ?? null,
+    longitude: project.longitude ?? null,
+    cliente: project.cliente ?? null,
+    tipo_obra: project.tipoObra ?? null,
+    status_geral: project.statusGeral,
   }
 }
 
@@ -497,6 +534,47 @@ function calcAvancoFromCronogramas(cronogramas: CronogramaInfo[]): number {
   const allNonSummary = active.flatMap((c) => c.dados.activities.filter((a) => !a.isSummary))
   if (allNonSummary.length === 0) return 0
   return Math.round(allNonSummary.reduce((sum, a) => sum + a.percentComplete, 0) / allNonSummary.length)
+}
+
+// Avanço FÍSICO (acima) é a média simples de percentComplete — não pondera por
+// custo, então não dá pra comparar direto com "quanto já deveria ter sido feito
+// hoje" (o avanço PLANEJADO precisa ponderar por custo/duração, senão uma tarefa
+// de 2 dias e outra de 2 meses pesam igual). Mesma fórmula de Valor Planejado já
+// usada em EVMIndicators.tsx (PV = custo × fração decorrida do prazo de cada
+// atividade, até hoje) — reaproveitada aqui só pra ter o % agregado, sem os
+// outros índices (SPI/CPI/EAC) que esse card mostra.
+//
+// Persistido em projetos.percentual_planejado (Fase C do Dashboard Macro) pelo
+// mesmo motivo de percentual_avanco: o servidor não tem como recalcular isso a
+// partir do `dados` comprimido de cada cronograma — o valor precisa nascer no
+// navegador e ser gravado como um número simples.
+function calcPlanejadoFromCronogramas(cronogramas: CronogramaInfo[]): number {
+  const active = cronogramas.filter((c) => c.ativo)
+  if (active.length === 0) return 0
+  const allNonSummary = active.flatMap((c) => c.dados.activities.filter((a) => !a.isSummary))
+  if (allNonSummary.length === 0) return 0
+  const bac = allNonSummary.reduce((sum, a) => sum + (a.cost || 0), 0)
+  if (bac <= 0) return 0
+  const now = new Date().getTime()
+  const pv = allNonSummary.reduce((sum, a) => {
+    const start = new Date(a.start).getTime()
+    const finish = new Date(a.finish).getTime()
+    const totalDuration = finish - start
+    const elapsed = Math.min(now - start, totalDuration)
+    const progress = totalDuration > 0 ? Math.max(0, elapsed / totalDuration) : 0
+    return sum + (a.cost || 0) * progress
+  }, 0)
+  return Math.round((pv / bac) * 100)
+}
+
+// Captura, ANTES de recalcular percentualAvanco, o valor que ele tinha até agora —
+// usado só pelo Mapa de Setores pra "Avanço do dia" (avancoTotal de hoje menos este
+// valor). Sem tabela de snapshot: o servidor não decodifica o `dados` comprimido do
+// cronograma, então esse número (como percentualAvanco/percentualPlanejado) só pode
+// nascer aqui, no navegador, no instante em que o valor antigo ainda está disponível em
+// `p` (o estado ANTES desta mutação).
+function capturarAvancoAnterior(p: Project): { avancoRealAnterior: number; avancoCapturadoEm: string } {
+  return { avancoRealAnterior: p.percentualAvanco, avancoCapturadoEm: new Date().toISOString() }
 }
 
 /** Calcula a data de início mais antiga e a data de término mais distante entre todos os cronogramas que possuem dados. */
@@ -678,7 +756,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const createProject = (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco'>): Project | null => {
+  const createProject = (data: Omit<Project, 'id' | 'criadoEm' | 'atualizadoEm' | 'cronogramas' | 'percentualAvanco' | 'percentualPlanejado' | 'avancoRealAnterior' | 'avancoCapturadoEm'>): Project | null => {
     if (!ensureProjectWriteOnline(usingOfflineCache || isLoadingProjects)) return null
     const newProject: Project = {
       ...data,
@@ -687,6 +765,9 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
       atualizadoEm: new Date().toISOString(),
       cronogramas: [],
       percentualAvanco: 0,
+      percentualPlanejado: 0,
+      avancoRealAnterior: null,
+      avancoCapturadoEm: null,
     }
     setProjects((prev) => [...prev, newProject])
     if (organizacaoId) {
@@ -775,7 +856,9 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         updated = {
           ...p,
           cronogramas: novosCronogramas,
+          ...capturarAvancoAnterior(p),
           percentualAvanco: calcAvancoFromCronogramas(novosCronogramas),
+          percentualPlanejado: calcPlanejadoFromCronogramas(novosCronogramas),
           ...dates,
           atualizadoEm: new Date().toISOString(),
         }
@@ -802,7 +885,9 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         updated = {
           ...p,
           cronogramas: novosCronogramas,
+          ...capturarAvancoAnterior(p),
           percentualAvanco: calcAvancoFromCronogramas(novosCronogramas),
+          percentualPlanejado: calcPlanejadoFromCronogramas(novosCronogramas),
           ...dates,
           atualizadoEm: new Date().toISOString(),
         }
@@ -826,7 +911,9 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         updated = {
           ...p,
           cronogramas: novosCronogramas,
+          ...capturarAvancoAnterior(p),
           percentualAvanco: calcAvancoFromCronogramas(novosCronogramas),
+          percentualPlanejado: calcPlanejadoFromCronogramas(novosCronogramas),
           ...dates,
           atualizadoEm: new Date().toISOString(),
         }
@@ -846,7 +933,7 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
       prev.map((p) => {
         if (p.id !== projectId) return p
         const dates = calcDatesFromCronogramas(p.cronogramas)
-        updated = { ...p, percentualAvanco: calcAvancoFromCronogramas(p.cronogramas), ...dates, atualizadoEm: new Date().toISOString() }
+        updated = { ...p, ...capturarAvancoAnterior(p), percentualAvanco: calcAvancoFromCronogramas(p.cronogramas), percentualPlanejado: calcPlanejadoFromCronogramas(p.cronogramas), ...dates, atualizadoEm: new Date().toISOString() }
         return updated
       })
     )
@@ -867,7 +954,9 @@ export function ProjectStoreProvider({ children }: { children: ReactNode }) {
         updated = {
           ...p,
           cronogramas: novosCronogramas,
+          ...capturarAvancoAnterior(p),
           percentualAvanco: calcAvancoFromCronogramas(novosCronogramas),
+          percentualPlanejado: calcPlanejadoFromCronogramas(novosCronogramas),
           ...dates,
           atualizadoEm: new Date().toISOString(),
         }

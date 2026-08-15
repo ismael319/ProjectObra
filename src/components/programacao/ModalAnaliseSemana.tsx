@@ -3,9 +3,14 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
-import { Loader2, Save, ArrowRight, Plus, Minus, RotateCcw } from 'lucide-react'
-import { getWeekAnalysis, getWeekBaseline, updateWeekAnalise, type WeekAnalysisItem } from '@/lib/programacao-db'
+import { toast } from 'sonner'
+import { Loader2, Save, ArrowRight, Plus, Minus, RotateCcw, CircleCheck, Undo2 } from 'lucide-react'
+import {
+  getWeekAnalysis, getWeekBaseline, updateWeekAnalise, concluirAnaliseSemanal, reabrirAnaliseSemanal,
+  type WeekAnalysisItem, type WeekStatus,
+} from '@/lib/programacao-db'
 import { computeWeekAnalysisSummary, type ActivityLike, type WeekAnalysisSummary } from '@/lib/adherence'
+import { useAuth } from '@/lib/auth-context'
 import { formatBR } from '@/lib/utils'
 
 interface Props {
@@ -15,7 +20,12 @@ interface Props {
   projetoId: string
   weekId: string
   weekLabel: string
+  weekStatus: WeekStatus
   analiseAtual: string | null
+  /** Concluir só é permitido com a semana fechada (ver concluirAnaliseSemanal) —
+   * antes disso o resumo ainda pode mudar. */
+  analiseConcluida: boolean
+  analiseConcluidaEm?: string | null
   /** Peso da atividade parcial (app_settings) — sem isto o resumo usava 0.5 fixo
    * e divergia dos indicadores da semana. */
   partialWeight?: number
@@ -34,13 +44,18 @@ export default function ModalAnaliseSemana({
   projetoId,
   weekId,
   weekLabel,
+  weekStatus,
   analiseAtual,
+  analiseConcluida,
+  analiseConcluidaEm,
   onSaved,
   partialWeight = 0.5,
   atividades,
 }: Props) {
+  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [concluindo, setConcluindo] = useState(false)
   const [error, setError] = useState('')
   const [itens, setItens] = useState<WeekAnalysisItem[]>([])
   const [resumo, setResumo] = useState<WeekAnalysisSummary | null>(null)
@@ -78,6 +93,34 @@ export default function ModalAnaliseSemana({
       setError(e instanceof Error ? e.message : String(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Concluir/reabrir não fecha o modal (diferente de Salvar) — quem está
+  // revisando normalmente quer continuar vendo o resumo depois de confirmar.
+  async function handleConcluir() {
+    setConcluindo(true)
+    try {
+      await concluirAnaliseSemanal(organizacaoId, projetoId, weekId, user?.id)
+      toast.success('Análise Semanal concluída')
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setConcluindo(false)
+    }
+  }
+
+  async function handleReabrirAnalise() {
+    setConcluindo(true)
+    try {
+      await reabrirAnaliseSemanal(organizacaoId, projetoId, weekId)
+      toast.success('Análise reaberta')
+      onSaved()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e))
+    } finally {
+      setConcluindo(false)
     }
   }
 
@@ -228,6 +271,35 @@ export default function ModalAnaliseSemana({
                 rows={4}
               />
             </div>
+
+            {/* Concluir a análise é um passo à parte de fechar a semana —
+                fechar trava status/PPC, isto aqui é a confirmação humana de
+                que o resumo foi revisado. Só oferece o botão com a semana
+                fechada: antes disso o resumo ainda pode mudar. */}
+            {weekStatus === 'consolidado' && (
+              <div className={`rounded-lg border p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 ${
+                analiseConcluida
+                  ? 'border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/10'
+                  : 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/10'
+              }`}>
+                <p className={`text-sm ${analiseConcluida ? 'text-green-700 dark:text-green-400' : 'text-amber-700 dark:text-amber-400'}`}>
+                  {analiseConcluida
+                    ? `Análise concluída${analiseConcluidaEm ? ` em ${new Date(analiseConcluidaEm).toLocaleString('pt-BR')}` : ''}.`
+                    : 'Semana fechada — falta confirmar que o resumo acima foi revisado.'}
+                </p>
+                {analiseConcluida ? (
+                  <Button variant="outline" size="sm" onClick={handleReabrirAnalise} disabled={concluindo}>
+                    {concluindo ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <Undo2 className="h-4 w-4 mr-1.5" />}
+                    Reabrir análise
+                  </Button>
+                ) : (
+                  <Button size="sm" onClick={handleConcluir} disabled={concluindo}>
+                    {concluindo ? <Loader2 className="h-4 w-4 animate-spin mr-1.5" /> : <CircleCheck className="h-4 w-4 mr-1.5" />}
+                    Concluir análise
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
 

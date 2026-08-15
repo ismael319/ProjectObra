@@ -6,7 +6,7 @@ import { z } from 'zod'
 import {
   Plus, Search, FolderOpen, Calendar, User, Building2,
   MoreVertical, Edit3, Copy, Archive, Trash2, Layers,
-  Camera, X, ArrowLeft, Loader2,
+  Camera, X, ArrowLeft, Loader2, Tv, LayoutGrid,
 } from 'lucide-react'
 import { useProjects, type Project, type CronogramaInfo } from '@/lib/project-store'
 import { useAuth } from '@/lib/auth-context'
@@ -36,6 +36,16 @@ export default function ProjectSelection() {
   // a Edição — isso aqui só espelha na tela pra não oferecer um botão que
   // vai falhar (ou pior, funcionar por engano num ambiente sem a RLS nova).
   const podeGerenciarProjetos = online && !usingOfflineCache && !isLoadingProjects && (!!userProfile?.is_super_admin || userProfile?.papel === 'edicao')
+  // Sem a checagem de online/cache de podeGerenciarProjetos: abrir a
+  // apresentação da empresa não escreve nada em `projetos`, só precisa do
+  // mesmo nível de acesso.
+  const podeConfigurarApresentacao = !!userProfile?.is_super_admin || userProfile?.papel === 'edicao'
+  // Mesma regra do gate de rota RequirePortfolio: quem enxerga TODOS os projetos
+  // da empresa. Espelhada aqui só pra não oferecer um botão que cairia de volta
+  // em /dashboard na hora do clique.
+  const podeVerPortfolio =
+    !!userProfile?.is_super_admin ||
+    (userProfile?.escopo_projetos === 'todos' && userProfile?.papel !== 'insercao_pontual')
   const [showForm, setShowForm] = useState(false)
   const [editingProject, setEditingProject] = useState<Project | null>(null)
   const [search, setSearch] = useState('')
@@ -69,6 +79,7 @@ export default function ProjectSelection() {
       codigo: `PRJ-${String(projects.length + 1).padStart(3, '0')}`,
       descricao: '',
       status: 'ativo' as const,
+      statusGeral: 'em_andamento' as const,
       gestor: data.gestor,
       dataInicio: new Date().toISOString(),
       dataFimPrevista: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
@@ -238,15 +249,53 @@ export default function ProjectSelection() {
               {projects.length} projeto{projects.length !== 1 ? 's' : ''} cadastrado{projects.length !== 1 ? 's' : ''}
             </p>
           </div>
-          {podeGerenciarProjetos && (
-            <button
-              onClick={() => { setEditingProject(null); reset(); setCoverImage(''); setShowForm(true) }}
-              className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-xl transition shadow-lg shadow-blue-600/20"
-            >
-              <Plus size={20} />
-              Novo Projeto
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {podeVerPortfolio && (
+              <button
+                onClick={async () => {
+                  // Mesmo motivo do botão de Apresentação: o Portfólio é a visão
+                  // de TODAS as obras, então sai do projeto atual antes de ir.
+                  // Sem isso a sidebar continuaria mostrando a navegação de uma
+                  // obra específica por trás de uma tela que não é de obra
+                  // nenhuma.
+                  await setCurrentProject(null)
+                  navigate('/dashboard/portfolio')
+                }}
+                title="Visão consolidada de todas as obras — prazo, avanço e desvios lado a lado"
+                className="inline-flex items-center gap-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-medium px-4 py-3 rounded-xl transition hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                <LayoutGrid size={18} />
+                <span className="hidden sm:inline">Portfólio</span>
+              </button>
+            )}
+            {podeConfigurarApresentacao && (
+              <button
+                onClick={async () => {
+                  // Sai explicitamente do projeto atual (se houver um aberto
+                  // de uma sessão anterior) — é essa ausência de projeto
+                  // atual que a tela de Apresentação usa pra saber que deve
+                  // mostrar/criar playlist de TODA a empresa, não de uma obra
+                  // só. Ver ApresentacaoConfig.tsx.
+                  await setCurrentProject(null)
+                  navigate('/dashboard/apresentacao')
+                }}
+                title="Configurar apresentação com o resumo de todas as obras, para um telão fora do canteiro"
+                className="inline-flex items-center gap-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-medium px-4 py-3 rounded-xl transition hover:bg-gray-50 dark:hover:bg-gray-700"
+              >
+                <Tv size={18} />
+                <span className="hidden sm:inline">Apresentação de Todas as Obras</span>
+              </button>
+            )}
+            {podeGerenciarProjetos && (
+              <button
+                onClick={() => { setEditingProject(null); reset(); setCoverImage(''); setShowForm(true) }}
+                className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-3 rounded-xl transition shadow-lg shadow-blue-600/20"
+              >
+                <Plus size={20} />
+                Novo Projeto
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search + Filters */}

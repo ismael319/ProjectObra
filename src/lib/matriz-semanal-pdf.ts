@@ -15,7 +15,7 @@ import { COR } from "@/components/relatorio/paleta";
 
 const MARGIN = 18;
 const HEADER_HEIGHT = 64;
-const DAY_COL_START = 5; // Área, Subárea, Atividade, Início, Término, depois os 7 dias
+const DAY_COL_START = 6; // Área, Subárea, ID, Atividade, Início, Término, depois os 7 dias
 
 function formatDataCurta(d: Date): string {
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
@@ -130,6 +130,7 @@ export async function downloadMatrizSemanalPdf(params: {
     [
       "Área",
       "Subárea",
+      "EDT",
       "Atividade",
       "Início",
       "Término",
@@ -148,6 +149,7 @@ export async function downloadMatrizSemanalPdf(params: {
       body.push([
         linha.area,
         linha.subarea || "",
+        linha.edt || "",
         linha.nome,
         detalhe ? formatDataCurta(detalhe.start) : "—",
         detalhe ? formatDataCurta(detalhe.finish) : "—",
@@ -175,9 +177,10 @@ export async function downloadMatrizSemanalPdf(params: {
       // estourar a coluna quando mesmo assim não coube.
       0: { cellWidth: 82, fontSize: 6.5, cellPadding: { top: 2, bottom: 2, left: 5, right: 5 } },
       1: { cellWidth: 82, fontSize: 6.5, cellPadding: { top: 2, bottom: 2, left: 5, right: 5 } },
-      2: { cellWidth: "auto", fontSize: 6.5 },
-      3: { cellWidth: 32, halign: "center" },
+      2: { cellWidth: 30, fontSize: 6.5, textColor: COR.gray500, halign: "center" },
+      3: { cellWidth: "auto", fontSize: 6.5 },
       4: { cellWidth: 32, halign: "center" },
+      5: { cellWidth: 32, halign: "center" },
       ...Object.fromEntries(weekDays.map((_, i) => [DAY_COL_START + i, { cellWidth: 27, halign: "center" as const }])),
     },
     // Sem texto nas células de dia — a cor vira um "chip" arredondado desenhado à

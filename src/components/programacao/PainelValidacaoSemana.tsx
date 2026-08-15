@@ -2,6 +2,9 @@ import { useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { CheckCircle2, XCircle, Undo2, ShieldCheck } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import { useAssinaturas } from '@/lib/assinatura-db'
+import Assinatura from '@/components/Assinatura'
+import { formatarDataAssinatura } from '@/lib/assinatura'
 import { useSubmissoesSemana } from '@/lib/validacao/programacao'
 import {
   useValidacaoEtapas,
@@ -41,6 +44,7 @@ const CORES_STATUS: Record<ValidacaoStatus, string> = {
 export default function PainelValidacaoSemana({ weekId }: { weekId: string }) {
   const { user, userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
+  const { data: assinaturas } = useAssinaturas(organizacaoId)
 
   const { data: submissoes = [] } = useSubmissoesSemana(weekId)
   const { data: etapas = [] } = useValidacaoEtapas(organizacaoId)
@@ -144,14 +148,28 @@ export default function PainelValidacaoSemana({ weekId }: { weekId: string }) {
                   const minha = d?.usuario_id === user?.id
 
                   if (d) {
+                    const quem = assinaturas?.get(d.usuario_id)
                     return (
-                      <span key={e.chave} className="flex items-center gap-1">
+                      <span key={e.chave} className="flex items-center gap-1.5">
                         <Badge
                           variant={d.decisao === 'confirmado' ? 'secondary' : 'destructive'}
                           title={d.observacao ?? e.nome}
                         >
                           {e.nome} {d.decisao === 'confirmado' ? '✓' : '✕'}
                         </Badge>
+                        {/* Assinatura de quem decidiu. Antes só aparecia a etapa
+                            ("RH ✓") e o responsável ficava invisível na tela —
+                            estava no banco (usuario_id), mas ninguém via. */}
+                        {quem && (
+                          <Assinatura
+                            nome={quem.nome}
+                            estilo={quem.assinatura_estilo}
+                            funcao={quem.funcao}
+                            data={formatarDataAssinatura(d.criado_em)}
+                            tamanho="sm"
+                            className="max-w-[160px]"
+                          />
+                        )}
                         {minha && (
                           <Button
                             size="sm"

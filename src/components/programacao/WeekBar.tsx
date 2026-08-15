@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck, Undo2 } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck, Undo2, CircleAlert } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { WeekStatus } from '@/lib/programacao-db'
@@ -10,6 +10,9 @@ interface Props {
   startDate: string
   endDate: string
   status: WeekStatus
+  /** Só vale enquanto `status === 'consolidado'` — fechar a semana não marca
+   * isso sozinho, é uma confirmação à parte (ver concluirAnaliseSemanal). */
+  analiseConcluida: boolean
   /** Papel efetivo do usuário no módulo Engenharia — só quem tem Edição pode
    * bloquear/desbloquear a semana (a RLS já barra no banco; isso só evita
    * oferecer a ação pra quem não pode usá-la). */
@@ -44,6 +47,7 @@ export default function WeekBar({
   startDate,
   endDate,
   status,
+  analiseConcluida,
   podeEditar,
   aderenciaCronograma,
   aderenciaAjustada,
@@ -142,6 +146,32 @@ export default function WeekBar({
           {badge.ajuda}
         </TooltipContent>
       </Tooltip>
+
+      {/* Fechar a semana e concluir a Análise Semanal são passos distintos
+          de propósito (ver concluirAnaliseSemanal) — este selo é o que deixa
+          visível que ainda falta alguém revisar o resumo, mesmo com o
+          status/PPC já travados. */}
+      {locked && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={`inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-full ${
+                analiseConcluida
+                  ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
+                  : 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
+              }`}
+            >
+              {analiseConcluida ? <ClipboardCheck size={11} /> : <CircleAlert size={11} />}
+              {analiseConcluida ? 'Análise concluída' : 'Análise pendente'}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-xs">
+            {analiseConcluida
+              ? 'Alguém já revisou o resumo da Análise Semanal e confirmou.'
+              : 'A semana está fechada, mas ainda falta revisar o resumo em Análise Semanal e confirmar.'}
+          </TooltipContent>
+        </Tooltip>
+      )}
 
       <div className="ml-auto flex items-center gap-4 text-sm">
         <Tooltip>

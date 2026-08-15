@@ -37,6 +37,12 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
+    watch: {
+      // Evita observar a pasta de build: dentro do OneDrive, a sincronização
+      // trava arquivos ali (EBUSY) enquanto o Vite tenta reagir a mudanças,
+      // derrubando o servidor de dev sem motivo (dist não é código-fonte).
+      ignored: ['**/dist/**'],
+    },
   },
   test: {
     setupFiles: ['./src/test/setup.ts'],

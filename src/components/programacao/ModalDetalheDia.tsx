@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa, type SubEtapaStatus, type WeekIndicators } from '@/lib/adherence'
 import { parseISODateStr, formatShortDate, WEEKDAY_LABELS } from '@/lib/iso-week'
 import { getAreaNivel2 } from '@/lib/week-activities'
-import { addSubEtapa, setSubEtapaStatus, deleteSubEtapa, listSubEtapas, computeStatusFromSubetapas, type WeekStatus } from '@/lib/programacao-db'
+import { addSubEtapa, setSubEtapaStatus, deleteSubEtapa, listSubEtapas, statusAoSincronizarSubetapas, type WeekStatus } from '@/lib/programacao-db'
 import type { WBSActivity } from '@/lib/xml-parser'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
@@ -59,11 +59,9 @@ interface Props {
    * semana (sai do dia original). Funciona mesmo com a semana bloqueada. */
   onAdicionarNaoRealizadas: (activityIds: string[], data: string) => Promise<void>
   onDelete: (id: string) => Promise<void>
-  /** Atualiza a lista de atividades sem mudar status de nenhuma — usado quando a
-   * última sub-etapa de um item é excluída (computeStatusFromSubetapas volta a
-   * null, então onSetStatus não é chamado, e sem isso a lista não refletia a
-   * exclusão). */
-  onRefresh: () => void
+  /** Sub-etapas recém-lidas do banco de UMA atividade. Deixa a tela refletir a
+   * mudança sem recarregar a semana inteira — ver sincronizarStatus. */
+  onSubetapasAtualizadas: (activityId: string, subetapas: SubEtapa[]) => void
   onAddExtra: (payload: {
     planned_date: string
     name: string
@@ -180,7 +178,7 @@ export default function ModalDetalheDia({
   onReprogramar,
   onAdicionarNaoRealizadas,
   onDelete,
-  onRefresh,
+  onSubetapasAtualizadas,
   onAddExtra,
   onClearDay,
   onAddFromCronograma,
@@ -419,7 +417,7 @@ export default function ModalDetalheDia({
                               onFinalizar={onFinalizar}
                               onReprogramar={onReprogramar}
                               onDelete={onDelete}
-                              onRefresh={onRefresh}
+                              onSubetapasAtualizadas={onSubetapasAtualizadas}
                               detail={getActivityDetail(a)}
                               diaComprometido={diaComprometido.get(a.id) ?? null}
                             />
@@ -515,7 +513,7 @@ function ActivityRow({
   onFinalizar,
   onReprogramar,
   onDelete,
-  onRefresh,
+  onSubetapasAtualizadas,
   detail,
   diaComprometido,
 }: {
@@ -533,7 +531,7 @@ function ActivityRow({
   onFinalizar: Props['onFinalizar']
   onReprogramar: Props['onReprogramar']
   onDelete: Props['onDelete']
-  onRefresh: Props['onRefresh']
+  onSubetapasAtualizadas: Props['onSubetapasAtualizadas']
   detail: WBSActivity | null
   /** Dia pro qual esta atividade foi comprometida no início da semana. Diferente
    * do dia aberto = ela foi arrastada pra cá depois. null = não estava no plano
@@ -657,9 +655,13 @@ function ActivityRow({
   // chegado a tempo pra dar certo.
   async function sincronizarStatus() {
     const lista = await listSubEtapas(organizacaoId, projetoId, activity.id)
-    const status = computeStatusFromSubetapas(lista)
+    // Propaga a lista nova SEMPRE, mesmo quando não há status a gravar: são
+    // esses dados que desenham os checkboxes aqui, e quem os trazia de volta era
+    // o recarregamento da semana inteira, que saiu de cena por custo de tráfego
+    // (ver atualizarAtividadeLocal em DailyProgramming).
+    onSubetapasAtualizadas(activity.id, lista)
+    const status = statusAoSincronizarSubetapas(lista, activity.status)
     if (status) await onSetStatus(activity.id, status, obs || null)
-    else onRefresh()
   }
 
   async function handleAddSubetapa() {

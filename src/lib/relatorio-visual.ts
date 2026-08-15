@@ -21,6 +21,10 @@ export type ItemRelatorio = {
    * abaixo dela, usado no PDF do dia e no texto de WhatsApp (ver
    * relatorio-dia-pdf.ts e relatorio-texto.ts). */
   subarea: string;
+  /** EDT (Estrutura Analítica do Projeto) da tarefa — mesmo campo mostrado como
+   * "EDT: ..." em ModalDetalheDia. Exibida no PDF do dia; null em extras
+   * manuais e em atividades importadas sem esse nível preenchido. */
+  edt: string | null;
 };
 
 export type AreaRelatorio = {
@@ -59,8 +63,10 @@ function subareaDe(a: ActivityLike): string {
 
 export function buildRelatorioVisual(activities: ActivityLike[], partialWeight = 0.5): RelatorioVisual {
   // Itens inativados (em análise) não entram no relatório compartilhado — nem nos
-  // cards nem nas estatísticas, mesmo critério de computeIndicators.
-  const ativas = activities.filter((a) => !a.inativa);
+  // cards nem nas estatísticas, mesmo critério de computeIndicators. Os marcados
+  // "fora desta semana" também: nunca fizeram parte do plano, e mandar pro
+  // WhatsApp uma atividade que a obra já sabe que está parada só gera ruído.
+  const ativas = activities.filter((a) => !a.inativa && !a.foraDoPlano);
   const map = new Map<string, ItemRelatorio[]>();
   for (const a of ativas) {
     const key = areaDe(a);
@@ -72,6 +78,7 @@ export function buildRelatorioVisual(activities: ActivityLike[], partialWeight =
       isExtra: a.is_extra,
       subetapas: (a.subetapas ?? []).map((s) => ({ nome: s.nome, status: s.status })),
       subarea: subareaDe(a),
+      edt: a.stage,
     });
   }
   // Primeiro por subárea (nível 3 da EDT), depois por nome da atividade — sem
@@ -196,9 +203,9 @@ function statsDeAtividades(atividades: ActivityLike[], partialWeight: number) {
 }
 
 export function buildMatrizSemanal(activities: ActivityLike[], weekDays: string[], partialWeight = 0.5): MatrizSemanal {
-  // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) somem da
-  // matriz e das estatísticas.
-  const ativas = activities.filter((a) => !a.inativa);
+  // Mesmo critério de buildRelatorioVisual: itens inativados (em análise) e
+  // marcados "fora desta semana" somem da matriz e das estatísticas.
+  const ativas = activities.filter((a) => !a.inativa && !a.foraDoPlano);
   const porEngenheiro = new Map<string, Map<string, LinhaMatriz>>();
   const atividadesPorEngenheiro = new Map<string, ActivityLike[]>();
   for (const a of ativas) {

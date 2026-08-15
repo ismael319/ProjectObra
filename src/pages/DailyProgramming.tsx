@@ -3,7 +3,7 @@ import { Calendar, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
-import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type WeekIndicators } from '@/lib/adherence'
+import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type SubEtapa, type WeekIndicators } from '@/lib/adherence'
 import {
   getWeek,
   lockWeekWithBaseline,
@@ -104,6 +104,27 @@ export default function DailyProgramming() {
   useEffect(() => {
     fetchData()
   }, [fetchData])
+
+  /**
+   * Atualiza UMA atividade na lista já carregada, sem ir ao banco de novo.
+   *
+   * Antes, toda ação chamava fetchData(false), que rebusca a semana INTEIRA:
+   * atividades, sub-etapas (em lotes), plano comprometido e configurações — umas
+   * 7 requisições e ~450 KB numa semana de ~500 atividades. Como o apontamento é
+   * feito clique a clique, isso era de longe o maior consumo de banda do app.
+   *
+   * Estas ações mexem só no registro que acabou de ser gravado, e o valor
+   * gravado já é conhecido aqui — dá pra refletir na tela sem tráfego nenhum.
+   * O que muda o CONJUNTO (importar, mover, excluir, finalizar, comprometer,
+   * limpar) continua recarregando tudo, porque aí o efeito não é local.
+   */
+  const atualizarAtividadeLocal = useCallback((id: string, patch: Partial<ActivityLike>) => {
+    setWeekData((prev) =>
+      prev
+        ? { ...prev, activities: prev.activities.map((a) => (a.id === id ? { ...a, ...patch } : a)) }
+        : prev,
+    )
+  }, [])
 
   const activities = weekData?.activities ?? []
   const partialWeight = weekData?.partialWeight ?? 0.5
@@ -218,6 +239,22 @@ export default function DailyProgramming() {
     }
     return map
   }, [currentProject])
+
+  // Chaves DIA A DIA (cronogramaId::taskUid::planned_date) de tudo que já está
+  // no board da semana — usada pelo ModalImportarAtividades (semana e dia) pra
+  // não recriar, na importação, uma linha que já existe naquele dia exato.
+  // Computada uma vez, a partir do estado real de `activities` (não por
+  // modal), porque cada linha já carrega o próprio planned_date — serve pros
+  // dois modais igual, sem precisar de uma versão "só deste dia" separada.
+  const diasJaProgramados = useMemo(() => {
+    const set = new Set<string>()
+    for (const a of activities) {
+      if (!a.source || !a.taskUid) continue
+      const cronogramaId = cronogramaNomeToId.get(a.source)
+      if (cronogramaId) set.add(`${cronogramaId}::${a.taskUid}::${a.planned_date}`)
+    }
+    return set
+  }, [activities, cronogramaNomeToId])
 
   const getActivityDetail = useCallback(
     (a: ActivityLike): WBSActivity | null => {
@@ -466,18 +503,39 @@ export default function DailyProgramming() {
   const handleSetStatus = async (id: string, status: ActivityStatus, observation: string | null) => {
     try {
       await setActivityStatus(organizacaoId, projetoId, id, status, observation)
-      fetchData(false)
+      atualizarAtividadeLocal(id, { status, observation })
+      // Semana ainda em montagem: esse apontamento não entra em PPC nenhum
+      // ainda (não existe baseline pra medir contra) — oferece comprometer
+      // na hora, em vez de deixar quem aponta descobrir só depois, com o PPC
+      // sumido. `id` fixo faz sonner reaproveitar o mesmo toast em vez de
+      // empilhar um novo a cada clique.
+      if (weekData?.week.status === 'rascunho') {
+        toast.message('Esta semana ainda está em montagem — o PPC só existe depois de comprometida.', {
+          id: 'aviso-semana-em-montagem',
+          description: 'Comprometer agora congela o plano com o que já está no quadro.',
+          action: { label: 'Comprometer semana', onClick: () => handleComprometer() },
+          duration: 8000,
+        })
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar status'
       toast.error(msg)
     }
   }
 
+  // As sub-etapas já vêm relidas do banco por sincronizarStatus (ModalDetalheDia)
+  // — só falta guardá-las na semana carregada. Era o recarregamento completo que
+  // fazia isso antes.
+  const handleSubetapasAtualizadas = useCallback(
+    (id: string, subetapas: SubEtapa[]) => atualizarAtividadeLocal(id, { subetapas }),
+    [atualizarAtividadeLocal],
+  )
+
   const handleSetInativa = async (id: string, inativa: boolean, motivo: string | null) => {
     try {
       await setActivityInativa(organizacaoId, projetoId, id, inativa, motivo)
+      atualizarAtividadeLocal(id, { inativa, motivoInativacao: inativa ? motivo : null })
       toast.success(inativa ? 'Atividade inativada' : 'Atividade reativada')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao inativar a atividade'
       toast.error(msg)
@@ -487,8 +545,8 @@ export default function DailyProgramming() {
   const handleSetForaDoPlano = async (id: string, fora: boolean, motivo: string | null) => {
     try {
       await setActivityForaDoPlano(organizacaoId, projetoId, id, fora, motivo)
+      atualizarAtividadeLocal(id, { foraDoPlano: fora, motivoFora: fora ? motivo : null })
       toast.success(fora ? 'Atividade fora desta semana' : 'Atividade de volta ao plano')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar o plano da atividade'
       toast.error(msg)
@@ -498,8 +556,8 @@ export default function DailyProgramming() {
   const handleSetExtra = async (id: string, isExtra: boolean) => {
     try {
       await setActivityExtra(organizacaoId, projetoId, id, isExtra)
+      atualizarAtividadeLocal(id, { is_extra: isExtra })
       toast.success(isExtra ? 'Marcada como extra' : 'Desmarcada como extra')
-      fetchData(false)
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Erro ao atualizar a atividade'
       toast.error(msg)
@@ -607,6 +665,7 @@ export default function DailyProgramming() {
         startDate={weekData.week.start_date}
         endDate={weekData.week.end_date}
         status={weekData.week.status}
+        analiseConcluida={weekData.week.analise_concluida ?? false}
         podeEditar={podeEditar}
         aderenciaCronograma={indicatorsCronograma.aderencia}
         aderenciaAjustada={indicators.aderencia}
@@ -673,7 +732,7 @@ export default function DailyProgramming() {
         onReprogramar={handleReprogramar}
         onAdicionarNaoRealizadas={handleAdicionarNaoRealizadas}
         onDelete={handleDelete}
-        onRefresh={() => fetchData(false)}
+        onSubetapasAtualizadas={handleSubetapasAtualizadas}
         onAddExtra={handleAddExtra}
         onClearDay={() => openDate && handleClearDay(openDate)}
         onAddFromCronograma={() => openDate && handleSearchDayActivities(openDate)}
@@ -708,6 +767,7 @@ export default function DailyProgramming() {
               .filter((k): k is string => k !== null)
           )
         }
+        diasJaProgramados={diasJaProgramados}
       />
 
       <ModalImportarAtividades
@@ -737,6 +797,7 @@ export default function DailyProgramming() {
               )
             : undefined
         }
+        diasJaProgramados={diasJaProgramados}
       />
 
       <ModalEngenheirosArea
@@ -763,7 +824,10 @@ export default function DailyProgramming() {
           projetoId={projetoId}
           weekId={weekData.week.id}
           weekLabel={`${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`}
+          weekStatus={weekData.week.status}
           analiseAtual={weekData.week.analise_semanal ?? null}
+          analiseConcluida={weekData.week.analise_concluida ?? false}
+          analiseConcluidaEm={weekData.week.analise_concluida_em ?? null}
           partialWeight={partialWeight}
           atividades={activities}
           onSaved={() => fetchData(false)}
