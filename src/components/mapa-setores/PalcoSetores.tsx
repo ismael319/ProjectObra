@@ -534,7 +534,11 @@ export default function PalcoSetores({
                       }}
                       onClick={() => onSelecionarSetor(m.id)}
                       className={`w-4 h-4 rounded-full border-2 border-white shadow cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/35' : ''}`}
-                      style={{ backgroundColor: cor }}
+                      style={{
+                        backgroundColor: cor,
+                        transform: `scale(${1 / camera.zoom})`,
+                        transformOrigin: '50% 100%',
+                      }}
                     />
                   </div>
                 ) : (
@@ -554,7 +558,11 @@ export default function PalcoSetores({
                     />
                     <div
                       className="absolute -left-2 -top-2 w-3.5 h-3.5 rounded-full border-2 border-white shadow pointer-events-none"
-                      style={{ backgroundColor: cor }}
+                      style={{
+                        backgroundColor: cor,
+                        transform: `scale(${1 / camera.zoom})`,
+                        transformOrigin: 'center',
+                      }}
                     />
                     {podeEditar && (
                       <div
@@ -564,7 +572,11 @@ export default function PalcoSetores({
                           iniciarDragMarcador(m.id, 'resize-area', e)
                         }}
                         className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-white border-2 rounded-sm cursor-nwse-resize"
-                        style={{ borderColor: cor }}
+                        style={{
+                          borderColor: cor,
+                          transform: `scale(${1 / camera.zoom})`,
+                          transformOrigin: 'center',
+                        }}
                       />
                     )}
                   </div>
@@ -578,7 +590,13 @@ export default function PalcoSetores({
                   className={`absolute z-20 min-w-[172px] max-w-[220px] rounded-md border-2 bg-white px-2.5 py-2 text-[11px] leading-relaxed shadow-lg cursor-grab active:cursor-grabbing dark:bg-neutral-900 ${
                     selecionado ? 'ring-4 ring-primary/20' : ''
                   }`}
-                  style={{ left: `${m.card_x_pct}%`, top: `${m.card_y_pct}%`, borderColor: cor }}
+                  style={{
+                    left: `${m.card_x_pct}%`,
+                    top: `${m.card_y_pct}%`,
+                    borderColor: cor,
+                    transform: `scale(${1 / camera.zoom})`,
+                    transformOrigin: 'top left',
+                  }}
                   onPointerDown={(e) => {
                     onSelecionarSetor(m.id)
                     iniciarDragMarcador(m.id, 'move-card', e)
