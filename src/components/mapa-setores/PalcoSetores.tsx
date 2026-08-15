@@ -417,12 +417,18 @@ export default function PalcoSetores({
     }
   }
 
-  function onWheel(e: React.WheelEvent<HTMLDivElement>) {
-    e.preventDefault()
-    const rect = e.currentTarget.getBoundingClientRect()
-    const fator = e.deltaY > 0 ? 0.9 : 1.1
-    ajustarZoom(camera.zoom * fator, { x: e.clientX - rect.left, y: e.clientY - rect.top })
-  }
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const rect = el.getBoundingClientRect()
+      const fator = e.deltaY > 0 ? 0.9 : 1.1
+      ajustarZoom(camera.zoom * fator, { x: e.clientX - rect.left, y: e.clientY - rect.top })
+    }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [camera.zoom])
 
   return (
     <div
@@ -435,7 +441,6 @@ export default function PalcoSetores({
       onPointerMove={onStagePointerMove}
       onPointerUp={onStagePointerUp}
       onPointerCancel={onStagePointerUp}
-      onWheel={onWheel}
     >
       <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm" data-setor-interativo>
         <button
