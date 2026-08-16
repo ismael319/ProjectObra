@@ -115,7 +115,7 @@ export default function PalcoSetores({
   function ajustarZoom(novoZoom: number, ponto?: { x: number; y: number }) {
     const el = containerRef.current
     if (!el) return
-    const zoom = clamp(novoZoom, 0.6, 3)
+    const zoom = clamp(novoZoom, 1, 5)
     setCamera((atual) => {
       if (!ponto) return { zoom, x: 0, y: 0 }
       const mundoX = (ponto.x - atual.x) / atual.zoom
@@ -362,7 +362,7 @@ export default function PalcoSetores({
       if (pinch && pontos.length === 2 && pinch.distancia > 0) {
         const [a, b] = pontos
         const meio = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }
-        const zoom = clamp(pinch.zoom * (Math.hypot(b.x - a.x, b.y - a.y) / pinch.distancia), 0.6, 3)
+        const zoom = clamp(pinch.zoom * (Math.hypot(b.x - a.x, b.y - a.y) / pinch.distancia), 1, 5)
         setCamera({ zoom, x: meio.x - pinch.mundoX * zoom, y: meio.y - pinch.mundoY * zoom })
         return
       }
