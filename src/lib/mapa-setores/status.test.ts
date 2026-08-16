@@ -3,8 +3,10 @@ import {
   calcularDesvioSetor,
   classificarStatusSetor,
   filtrarSetores,
+  ordenarSetores,
   type FiltrosSetores,
   type SetorFiltravel,
+  type SetorVisual,
 } from './status'
 
 describe('classificarStatusSetor', () => {
@@ -28,6 +30,24 @@ describe('classificarStatusSetor', () => {
   it('marca sem dados quando previsto ou realizado não existem', () => {
     expect(classificarStatusSetor(null, 10)).toBe('sem_dados')
     expect(classificarStatusSetor(10, null)).toBe('sem_dados')
+  })
+})
+
+describe('ordenarSetores', () => {
+  const setores: SetorVisual[] = [
+    { id: '1', nome: 'Concluído', engenheiro: 'Ana', status: 'concluido', orfao: false, previsto: 100, concluido: 100, desvio: 0, inicio: '—', termino: '—', corEngenheiro: '#000', atualizadoEm: '' },
+    { id: '2', nome: 'Atrasado maior', engenheiro: 'Bruno', status: 'atrasado', orfao: false, previsto: 80, concluido: 50, desvio: -30, inicio: '—', termino: '—', corEngenheiro: '#000', atualizadoEm: '' },
+    { id: '3', nome: 'Atenção', engenheiro: 'Carlos', status: 'atencao', orfao: false, previsto: 80, concluido: 77, desvio: -3, inicio: '—', termino: '—', corEngenheiro: '#000', atualizadoEm: '' },
+  ]
+
+  it('prioriza atraso e preserva a lista original', () => {
+    const ordenados = ordenarSetores(setores, 'criticidade')
+    expect(ordenados.map((setor) => setor.id)).toEqual(['2', '3', '1'])
+    expect(setores.map((setor) => setor.id)).toEqual(['1', '2', '3'])
+  })
+
+  it('ordena por realizado sem colocar dados ausentes no topo', () => {
+    expect(ordenarSetores(setores, 'concluido').map((setor) => setor.id)).toEqual(['1', '3', '2'])
   })
 })
 

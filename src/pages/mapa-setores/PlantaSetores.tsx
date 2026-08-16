@@ -30,12 +30,15 @@ import {
   classificarStatusSetor,
   FILTROS_SETORES_INICIAIS,
   filtrarSetores,
+  ordenarSetores,
   STATUS_SETORES,
   type FiltrosSetores,
+  type OrdenacaoSetores,
   type SetorVisual,
   type StatusSetor,
 } from '@/lib/mapa-setores/status'
 import PalcoSetores, { type NovaGeometria } from '@/components/mapa-setores/PalcoSetores'
+import ComparacaoAvanco from '@/components/mapa-setores/ComparacaoAvanco'
 import NovoSetorDialog from '@/components/mapa-setores/NovoSetorDialog'
 import ConfigurarCaixaDialog from '@/components/mapa-setores/ConfigurarCaixaDialog'
 import PropriedadesCardDialog from '@/components/mapa-setores/PropriedadesCardDialog'
@@ -55,6 +58,8 @@ import {
 } from '@/components/ui/alert-dialog'
 
 type ModoEdicao = 'nenhum' | 'ponto' | 'area' | 'recorte'
+
+const RESUMO_STATUS = ['todos', 'atrasado', 'atencao', 'em_dia', 'concluido', 'sem_dados'] as const
 
 export default function PlantaSetores() {
   const { plantaId } = useParams<{ plantaId: string }>()
@@ -141,14 +146,17 @@ export default function PlantaSetores() {
         orfao,
         inicio: formatarValorCampo(campos.inicio),
         termino: formatarValorCampo(campos.termino),
+        atualizadoEm: marcador.atualizado_em,
       }
     })
   }, [marcadores, camposPorMarcador, engenheiroPorMarcador, orfaoPorMarcador])
 
   const [filtros, setFiltros] = useState<FiltrosSetores>(FILTROS_SETORES_INICIAIS)
+  const [ordenacao, setOrdenacao] = useState<OrdenacaoSetores>('criticidade')
   const [setorSelecionadoId, setSetorSelecionadoId] = useState<string | null>(null)
   const [versaoFoco, setVersaoFoco] = useState(0)
   const setoresFiltrados = useMemo(() => filtrarSetores(setoresVisuais, filtros), [setoresVisuais, filtros])
+  const setoresOrdenados = useMemo(() => ordenarSetores(setoresFiltrados, ordenacao), [setoresFiltrados, ordenacao])
   const idsVisiveis = useMemo(() => new Set(setoresFiltrados.map((setor) => setor.id)), [setoresFiltrados])
   const setorSelecionado = useMemo(
     () => setoresVisuais.find((setor) => setor.id === setorSelecionadoId) ?? null,
@@ -213,6 +221,11 @@ export default function PlantaSetores() {
 
   function alternarModo(alvo: 'ponto' | 'area' | 'recorte') {
     setModo((atual) => (atual === alvo ? 'nenhum' : alvo))
+  }
+
+  function selecionarELocalizar(id: string) {
+    setSetorSelecionadoId(id)
+    setVersaoFoco((atual) => atual + 1)
   }
 
   async function aplicarRecortePermanente() {
@@ -335,18 +348,30 @@ export default function PlantaSetores() {
               placeholder="Buscar setor ou responsável..."
             />
           </div>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <SlidersHorizontal size={15} />
-            {setoresFiltrados.length} de {setoresVisuais.length} setores
-          </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <SlidersHorizontal size={15} />
+              {setoresFiltrados.length} de {setoresVisuais.length} setores
+            </div>
+            <select
+              aria-label="Ordenar setores"
+              value={ordenacao}
+              onChange={(e) => setOrdenacao(e.target.value as OrdenacaoSetores)}
+              className="h-9 rounded-md border bg-background px-2 text-sm"
+            >
+              <option value="criticidade">Mais críticos</option>
+              <option value="nome">Nome</option>
+              <option value="concluido">Maior realizado</option>
+              <option value="desvio">Pior desvio</option>
+              <option value="engenheiro">Responsável</option>
+            </select>
           {(filtros.busca || filtros.status !== 'todos' || filtros.engenheiro !== 'todos' || filtros.somenteOrfaos) && (
             <Button size="sm" variant="ghost" onClick={() => setFiltros(FILTROS_SETORES_INICIAIS)}>
               Limpar filtros
             </Button>
           )}
         </div>
-        <div className="flex flex-wrap gap-1.5">
-          {(['todos', 'concluido', 'em_dia', 'atencao', 'atrasado', 'sem_dados'] as const).map((status) => {
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+          {RESUMO_STATUS.map((status) => {
             const ativo = filtros.status === status
             const info = status === 'todos' ? null : STATUS_SETORES[status]
             const quantidade = status === 'todos' ? setoresVisuais.length : contagemStatus.get(status) ?? 0
@@ -356,14 +381,20 @@ export default function PlantaSetores() {
                 type="button"
                 aria-pressed={ativo}
                 onClick={() => setFiltros((atual) => ({ ...atual, status }))}
-                className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                  ativo ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'
+                className={`rounded-md border p-2 text-left transition-colors ${
+                  ativo ? 'border-primary bg-primary/10 ring-1 ring-primary/30' : 'border-border hover:bg-muted'
                 }`}
               >
-                {info?.label ?? 'Todos'} ({quantidade})
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-xs text-muted-foreground">{info?.label ?? 'Total'}</span>
+                  {info && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: info.cor }} />}
+                </span>
+                <b className="mt-1 block text-lg leading-none">{quantidade}</b>
               </button>
             )
           })}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
           {engenheiros.map((engenheiro) => (
             <button
               key={engenheiro}
@@ -390,9 +421,9 @@ export default function PlantaSetores() {
         </div>
         <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           {Object.values(STATUS_SETORES).map((status) => (
-            <span key={status.id} className="inline-flex items-center gap-1.5">
-              <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: status.cor }} />
-              {status.label}
+              <span key={status.id} className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: status.cor }} />
+                {status.label}
             </span>
           ))}
         </div>
@@ -405,7 +436,6 @@ export default function PlantaSetores() {
               planta={planta}
               imagemUrl={imagemUrl}
               marcadores={marcadores}
-              camposPorMarcador={camposPorMarcador}
               engenheiroPorMarcador={engenheiroPorMarcador}
               orfaoPorMarcador={orfaoPorMarcador}
               setoresVisuais={setoresVisuais}
@@ -429,7 +459,7 @@ export default function PlantaSetores() {
           )}
         </div>
 
-        <aside className="space-y-4 print:break-inside-avoid">
+        <aside className="space-y-4 print:break-inside-avoid lg:sticky lg:top-4 lg:self-start">
           {emTelaCheia && (
             <Button variant="outline" size="sm" className="w-full" onClick={() => void alternarTelaCheia()}>
               <Minimize2 size={15} className="mr-1" /> Sair da tela cheia
@@ -446,21 +476,43 @@ export default function PlantaSetores() {
                   {STATUS_SETORES[setorSelecionado.status].label}
                 </Badge>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Atualizado em {new Date(setorSelecionado.atualizadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+              </p>
               {setorSelecionado.engenheiro && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: setorSelecionado.corEngenheiro }} />
                   {setorSelecionado.engenheiro}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2 text-sm">
+              <div className="grid grid-cols-3 gap-2 text-sm">
                 <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Previsto</p>
+                  <p className="text-xs text-muted-foreground">Realizado</p>
+                  <b>{setorSelecionado.concluido != null ? `${setorSelecionado.concluido.toFixed(0)}%` : '—'}</b>
+                </div>
+                <div className="rounded bg-muted/60 p-2">
+                  <p className="text-xs text-muted-foreground">Planejado</p>
                   <b>{setorSelecionado.previsto != null ? `${setorSelecionado.previsto.toFixed(0)}%` : '—'}</b>
                 </div>
                 <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Concluído</p>
-                  <b>{setorSelecionado.concluido != null ? `${setorSelecionado.concluido.toFixed(0)}%` : '—'}</b>
+                  <p className="text-xs text-muted-foreground">Desvio</p>
+                  <b className={setorSelecionado.desvio != null && setorSelecionado.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}>
+                    {setorSelecionado.desvio != null ? `${setorSelecionado.desvio >= 0 ? '+' : ''}${setorSelecionado.desvio.toFixed(1)} p.p.` : '—'}
+                  </b>
                 </div>
+              </div>
+              <div>
+                <div className="mb-1 flex justify-between text-xs text-muted-foreground">
+                  <span>Realizado</span>
+                  <span>Marcador: planejado</span>
+                </div>
+                <ComparacaoAvanco
+                  previsto={setorSelecionado.previsto}
+                  concluido={setorSelecionado.concluido}
+                  cor={STATUS_SETORES[setorSelecionado.status].cor}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="rounded bg-muted/60 p-2">
                   <p className="text-xs text-muted-foreground">Início</p>
                   <b>{setorSelecionado.inicio}</b>
@@ -468,20 +520,6 @@ export default function PlantaSetores() {
                 <div className="rounded bg-muted/60 p-2">
                   <p className="text-xs text-muted-foreground">Término</p>
                   <b>{setorSelecionado.termino}</b>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between text-xs">
-                  <span className="text-muted-foreground">Desvio</span>
-                  <b className={setorSelecionado.desvio != null && setorSelecionado.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}>
-                    {setorSelecionado.desvio != null ? `${setorSelecionado.desvio >= 0 ? '+' : ''}${setorSelecionado.desvio.toFixed(1)} p.p.` : '—'}
-                  </b>
-                </div>
-                <div className="h-2 overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full"
-                    style={{ width: `${Math.max(0, Math.min(100, setorSelecionado.concluido ?? 0))}%`, backgroundColor: STATUS_SETORES[setorSelecionado.status].cor }}
-                  />
                 </div>
               </div>
               {setorSelecionado.orfao && <p className="text-xs text-amber-700">Há atividade vinculada que não existe mais no cronograma atual.</p>}
@@ -496,14 +534,14 @@ export default function PlantaSetores() {
                     <Settings2 size={14} className="mr-1" /> Caixa
                   </Button>
                 )}
-                <Button size="sm" variant="outline" onClick={() => setVersaoFoco((atual) => atual + 1)}>
+                <Button size="sm" variant="outline" onClick={() => selecionarELocalizar(setorSelecionado.id)}>
                   <LocateFixed size={14} className="mr-1" /> Localizar
                 </Button>
               </div>
             </Card>
           )}
           <Card className="p-4 space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Resumo geral</h3>
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Resumo da obra</h3>
             {resumo ? (
               <div className="space-y-1.5 text-sm">
                 <div className="flex justify-between">
@@ -532,10 +570,10 @@ export default function PlantaSetores() {
           </Card>
 
           <Card className="p-4 space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Destaques</h3>
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Destaques da obra</h3>
             <div className="space-y-1.5 text-sm">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Avanço do dia</span>
+                  <span className="text-muted-foreground">Variação desde a atualização</span>
                 <b>{resumo?.avancoDoDia != null ? `${resumo.avancoDoDia >= 0 ? '+' : ''}${resumo.avancoDoDia.toFixed(1)}%` : '—'}</b>
               </div>
               <div>
@@ -548,22 +586,31 @@ export default function PlantaSetores() {
           </Card>
 
           <Card className="p-4 space-y-2 print:hidden">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Setores cadastrados</h3>
+            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Setores visíveis</h3>
             {marcadores.length === 0 ? (
               <p className="text-sm text-muted-foreground">Nenhum setor ainda.</p>
             ) : (
               <div className="space-y-1">
-                {setoresFiltrados.map((setor) => (
+                {setoresOrdenados.map((setor) => (
                   <button
                     key={setor.id}
-                    onClick={() => setSetorSelecionadoId(setor.id)}
-                    className={`w-full text-left text-sm px-2 py-1.5 rounded border transition-colors ${
+                    onClick={() => selecionarELocalizar(setor.id)}
+                    className={`w-full rounded border px-2 py-2 text-left transition-colors ${
                       setorSelecionadoId === setor.id ? 'border-primary bg-primary/10' : 'hover:border-primary/50'
                     }`}
                   >
-                    <span className="flex items-center gap-2 truncate">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className="flex min-w-0 items-center gap-2 truncate">
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STATUS_SETORES[setor.status].cor }} />
                       <span className="truncate">{setor.nome}</span>
+                      </span>
+                      <b className="shrink-0 text-sm">{setor.concluido != null ? `${setor.concluido.toFixed(0)}%` : '—'}</b>
+                    </span>
+                    <span className="mt-1 flex justify-between gap-2 text-xs text-muted-foreground">
+                      <span className="truncate">{setor.engenheiro ?? STATUS_SETORES[setor.status].label}</span>
+                      <span className={setor.desvio != null && setor.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}>
+                        {setor.desvio != null ? `${setor.desvio >= 0 ? '+' : ''}${setor.desvio.toFixed(1)} p.p.` : '—'}
+                      </span>
                     </span>
                   </button>
                 ))}

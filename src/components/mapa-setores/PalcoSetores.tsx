@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Maximize, Minus, Plus, Settings2 } from 'lucide-react'
 import type { MapaSetoresMarcador, MapaSetoresPlanta } from '@/lib/mapa-setores/mapa-setores-db'
-import { CAMPO_LABEL, formatarValorCampo, type CampoCard, type EngenheiroDoSetor, type ValorCampo } from '@/lib/mapa-setores/progresso'
+import type { EngenheiroDoSetor } from '@/lib/mapa-setores/progresso'
 import { STATUS_SETORES, type SetorVisual } from '@/lib/mapa-setores/status'
+import ComparacaoAvanco from './ComparacaoAvanco'
 
 // Interação de arraste inteira (marcador ponto/área, card solto, criação por clique ou
 // retângulo) é mouse events manuais, sem lib de drag — o projeto não tem nenhuma
@@ -34,7 +35,6 @@ interface Props {
   planta: MapaSetoresPlanta
   imagemUrl: string
   marcadores: MapaSetoresMarcador[]
-  camposPorMarcador: Map<string, Partial<Record<CampoCard, ValorCampo>>>
   engenheiroPorMarcador: Map<string, EngenheiroDoSetor>
   orfaoPorMarcador: Map<string, boolean>
   setoresVisuais: SetorVisual[]
@@ -52,13 +52,11 @@ interface Props {
 }
 
 type ModoDrag = 'move-point' | 'move-area' | 'resize-area' | 'move-card'
-const ORDEM_CAMPOS: CampoCard[] = ['inicio', 'termino', 'avanco_prev', 'avanco_concl']
 
 export default function PalcoSetores({
   planta,
   imagemUrl,
   marcadores,
-  camposPorMarcador,
   engenheiroPorMarcador,
   orfaoPorMarcador,
   setoresVisuais,
@@ -93,6 +91,7 @@ export default function PalcoSetores({
   const containerRef = useRef<HTMLDivElement>(null)
   const [largura, setLargura] = useState(0)
   const [camera, setCamera] = useState({ zoom: 1, x: 0, y: 0 })
+  const versaoFocoAplicadaRef = useRef(0)
   const cameraDragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null)
   const toquesRef = useRef(new Map<number, { x: number; y: number }>())
   const pinchRef = useRef<{ distancia: number; zoom: number; mundoX: number; mundoY: number } | null>(null)
@@ -156,7 +155,7 @@ export default function PalcoSetores({
   )
 
   useEffect(() => {
-    if (!setorSelecionadoId || versaoFoco === 0 || !containerRef.current) return
+    if (!setorSelecionadoId || versaoFoco === 0 || versaoFoco === versaoFocoAplicadaRef.current || !containerRef.current) return
     const marcador = marcadoresView.find((item) => item.id === setorSelecionadoId)
     if (!marcador) return
     const xPct = marcador.tipo === 'area'
@@ -166,11 +165,18 @@ export default function PalcoSetores({
       ? (marcador.area_y_pct ?? 0) + (marcador.area_h_pct ?? 0) / 2
       : marcador.pos_y_pct ?? 0
     const rect = containerRef.current.getBoundingClientRect()
-    setCamera((atual) => ({
-      ...atual,
-      x: rect.width / 2 - (rect.width * xPct / 100) * atual.zoom,
-      y: rect.height / 2 - (rect.height * yPct / 100) * atual.zoom,
-    }))
+    const zoom = marcador.tipo === 'area'
+      ? clamp(70 / Math.max(marcador.area_w_pct ?? 100, marcador.area_h_pct ?? 100), 1, 3)
+      : 1.8
+    // Centraliza o ponto de ligação e o card, para que os dois permaneçam visíveis após localizar.
+    const focoX = (xPct + marcador.card_x_pct) / 2
+    const focoY = (yPct + marcador.card_y_pct) / 2
+    setCamera({
+      zoom,
+      x: rect.width / 2 - (rect.width * focoX / 100) * zoom,
+      y: rect.height / 2 - (rect.height * focoY / 100) * zoom,
+    })
+    versaoFocoAplicadaRef.current = versaoFoco
   }, [setorSelecionadoId, versaoFoco, marcadoresView])
 
   // --- arraste de marcador/card existente ------------------------------------------
@@ -446,7 +452,7 @@ export default function PalcoSetores({
         <button
           type="button"
           aria-label="Reduzir zoom"
-          className="rounded p-1.5 hover:bg-muted"
+          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })}
         >
@@ -456,7 +462,7 @@ export default function PalcoSetores({
         <button
           type="button"
           aria-label="Aumentar zoom"
-          className="rounded p-1.5 hover:bg-muted"
+          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })}
         >
@@ -465,7 +471,7 @@ export default function PalcoSetores({
         <button
           type="button"
           aria-label="Ajustar planta à tela"
-          className="rounded p-1.5 hover:bg-muted"
+          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
           onPointerDown={(e) => e.stopPropagation()}
           onClick={ajustarAoQuadro}
         >
@@ -511,7 +517,6 @@ export default function PalcoSetores({
           </svg>
 
             {marcadoresView.filter((m) => idsVisiveis.has(m.id)).map((m) => {
-              const campos = camposPorMarcador.get(m.id)
               const eng = engenheiroPorMarcador.get(m.id)
               const visual = setorVisualPorId.get(m.id)
               const cor = visual ? STATUS_SETORES[visual.status].cor : eng?.cor ?? '#64748b'
@@ -520,7 +525,7 @@ export default function PalcoSetores({
               const atenuado = setorSelecionadoId !== null && !selecionado
 
               return (
-                <div key={m.id} className={`transition-opacity ${atenuado ? 'opacity-30' : 'opacity-100'}`}>
+                <div key={m.id} className={`transition-opacity ${atenuado ? 'opacity-60' : 'opacity-100'}`}>
                 {m.tipo === 'ponto' ? (
                   <div
                     className="absolute z-10"
@@ -587,7 +592,7 @@ export default function PalcoSetores({
                   role="button"
                   tabIndex={0}
                   aria-selected={selecionado}
-                  className={`absolute z-20 min-w-[172px] max-w-[220px] rounded-md border-2 bg-white px-2.5 py-2 text-[11px] leading-relaxed shadow-lg cursor-grab active:cursor-grabbing dark:bg-neutral-900 ${
+                  className={`absolute z-20 min-w-[184px] max-w-[224px] rounded-md border-2 bg-white px-3 py-2.5 text-xs leading-relaxed shadow-lg cursor-grab active:cursor-grabbing dark:bg-neutral-900 ${
                     selecionado ? 'ring-4 ring-primary/20' : ''
                   }`}
                   style={{
@@ -615,7 +620,7 @@ export default function PalcoSetores({
                   }}
                 >
                   <div className="mb-1 flex items-start justify-between gap-2">
-                    <div className="min-w-0 font-semibold uppercase tracking-wide" style={{ color: cor }}>
+                      <div className="min-w-0 text-xs font-semibold uppercase tracking-wide" style={{ color: cor }}>
                       <span className="block truncate">{m.nome}</span>
                     </div>
                     {podeEditar && <button
@@ -633,20 +638,18 @@ export default function PalcoSetores({
                     </button>}
                   </div>
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="rounded-full border px-1.5 py-0.5 text-[9px] font-semibold" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
+                    <span className="rounded-full border px-1.5 py-0.5 text-xs font-semibold" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
                       {visual ? STATUS_SETORES[visual.status].label : 'Sem dados'}
                     </span>
-                    {orfao && <span title="Alguma atividade vinculada não foi encontrada no cronograma atual">⚠️</span>}
+                    {orfao && <span className="font-medium text-amber-700" title="Alguma atividade vinculada não foi encontrada no cronograma atual">Vínculo</span>}
                   </div>
                   {visual && (
                     <>
-                      <div className="mb-1.5 flex justify-between gap-2 text-[10px]">
-                        <span className="text-muted-foreground">Concl. <b className="text-foreground">{visual.concluido != null ? `${visual.concluido.toFixed(0)}%` : '—'}</b></span>
-                        <span className="text-muted-foreground">Prev. <b className="text-foreground">{visual.previsto != null ? `${visual.previsto.toFixed(0)}%` : '—'}</b></span>
+                      <div className="mb-1.5 flex justify-between gap-2">
+                        <span className="text-muted-foreground">Realizado <b className="text-foreground">{visual.concluido != null ? `${visual.concluido.toFixed(0)}%` : '—'}</b></span>
+                        <span className="text-muted-foreground">Planejado <b className="text-foreground">{visual.previsto != null ? `${visual.previsto.toFixed(0)}%` : '—'}</b></span>
                       </div>
-                      <div className="mb-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div className="h-full rounded-full" style={{ width: `${clamp(visual.concluido ?? 0, 0, 100)}%`, backgroundColor: cor }} />
-                      </div>
+                      <ComparacaoAvanco previsto={visual.previsto} concluido={visual.concluido} cor={cor} className="mb-1.5" />
                     </>
                   )}
                   {eng?.nome && (
@@ -655,16 +658,7 @@ export default function PalcoSetores({
                       {selecionado ? eng.nome : eng.nome.split(' ').slice(0, 2).join(' ')}
                     </div>
                   )}
-                  {selecionado && campos && Object.keys(campos).length > 0 ? (
-                    ORDEM_CAMPOS.filter((c) => campos[c]).map((c) => (
-                      <div key={c} className="flex justify-between gap-2">
-                        <span className="text-muted-foreground">{CAMPO_LABEL[c]}</span>
-                        <b>{formatarValorCampo(campos[c])}</b>
-                      </div>
-                    ))
-                  ) : !visual ? (
-                    <div className="text-muted-foreground">Botão direito → Propriedades do card</div>
-                  ) : null}
+                  {!visual && <div className="text-muted-foreground">Configure os vínculos do setor</div>}
                 </div>
               </div>
             )
