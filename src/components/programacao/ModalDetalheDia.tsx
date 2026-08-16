@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ChevronDown, ChevronRight, MinusCircle, XCircle, Trash2, Plus, X, Layers, Eraser, Download, AlertTriangle, ListChecks, Image, Ban, RotateCcw, CheckCheck, CalendarClock, History, CalendarX, CalendarCheck } from 'lucide-react'
 import { toast } from 'sonner'
 import { computeDelayDays, type ActivityLike, type ActivityStatus, type SubEtapa, type SubEtapaStatus, type WeekIndicators } from '@/lib/adherence'
@@ -155,7 +155,9 @@ function statusCounts(activities: ActivityLike[]) {
     concluida: activities.filter((a) => a.status === 'concluida').length,
     parcial: activities.filter((a) => a.status === 'parcial').length,
     nao_concluida: activities.filter((a) => a.status === 'nao_concluida').length,
-    pendente: activities.filter((a) => a.status === 'pendente').length,
+    // Extra com status ainda 'pendente' já foi executada (ver pendentesCount abaixo) —
+    // não é pendência de fechamento, então não entra no "X pend." do cabeçalho.
+    pendente: activities.filter((a) => a.status === 'pendente' && !a.is_extra).length,
   }
 }
 
@@ -195,10 +197,40 @@ export default function ModalDetalheDia({
   // Chave "<cronograma>::<área>" — um dia com 76 atividades em 3 grupos vira uma
   // rolagem longa; colapsar só o cronograma inteiro era grosso demais.
   const [collapsedAreas, setCollapsedAreas] = useState<Set<string>>(new Set())
+  // Mesma definição de "Pendentes" do card do dia (CardDia): status pendente,
+  // fora de inativa/foraDoPlano/extra — inativa e foraDoPlano já saem do
+  // PPC/Aderência e têm exibição própria; extra com status ainda 'pendente' já foi
+  // executada (é isso que "Extra" comunica — trabalho fora do plano, mas feito; o
+  // único efeito do flag é não entrar na conta de indicadores). Nenhuma das três
+  // é pendência de fechamento de verdade.
+  const [somentePendentes, setSomentePendentes] = useState(false)
+
+  // Troca de dia não deve carregar o filtro do dia anterior — senão um dia sem
+  // pendentes abre "vazio" mesmo tendo atividades (o botão que desligaria some
+  // junto, porque só aparece quando pendentesCount > 0).
+  useEffect(() => {
+    setSomentePendentes(false)
+  }, [date])
+
+  const pendentesCount = useMemo(
+    () => activities.filter((a) => a.status === 'pendente' && !a.inativa && !a.foraDoPlano && !a.is_extra).length,
+    [activities],
+  )
+
+  // Com o filtro ligado, atividades resolvidas somem da lista inteira (não só do
+  // card individual) — é o que faltava pra achar "a 1 pendente entre 74" sem
+  // escanear grupo por grupo na hora do fechamento da semana.
+  const activitiesExibidas = useMemo(
+    () =>
+      somentePendentes
+        ? activities.filter((a) => a.status === 'pendente' && !a.inativa && !a.foraDoPlano && !a.is_extra)
+        : activities,
+    [activities, somentePendentes],
+  )
 
   const groups = useMemo(() => {
     const map = new Map<string, ActivityLike[]>()
-    for (const a of activities) {
+    for (const a of activitiesExibidas) {
       const key = a.source || EXTRAS_GROUP
       if (!map.has(key)) map.set(key, [])
       map.get(key)!.push(a)
@@ -209,7 +241,7 @@ export default function ModalDetalheDia({
       if (b === EXTRAS_GROUP) return -1
       return a.localeCompare(b)
     })
-  }, [activities])
+  }, [activitiesExibidas])
 
   // Uma tarefa por dia anterior (não a lista bruta) — se a mesma tarefa (taskUid)
   // ficou pendente em vários dias antes de hoje, só a ocorrência mais recente entra
@@ -289,7 +321,9 @@ export default function ModalDetalheDia({
             </h2>
             {activities.length > 0 && (
               <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
-                {activities.length} {activities.length === 1 ? 'atividade' : 'atividades'} · {groups.length} {groups.length === 1 ? 'grupo' : 'grupos'}
+                {somentePendentes
+                  ? `Mostrando ${pendentesCount} pendente${pendentesCount === 1 ? '' : 's'} de ${activities.length}`
+                  : `${activities.length} ${activities.length === 1 ? 'atividade' : 'atividades'} · ${groups.length} ${groups.length === 1 ? 'grupo' : 'grupos'}`}
                 {acertoDia && (
                   <>
                     {' · '}
@@ -302,6 +336,27 @@ export default function ModalDetalheDia({
                   </>
                 )}
               </p>
+            )}
+            {pendentesCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSomentePendentes((v) => !v)
+                  // Liga o filtro já com tudo aberto — senão uma pendente dentro de
+                  // um grupo/área que a pessoa tinha colapsado antes continua invisível.
+                  setCollapsedGroups(new Set())
+                  setCollapsedAreas(new Set())
+                }}
+                title="Mostrar só as atividades pendentes deste dia"
+                className={`mt-1.5 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${
+                  somentePendentes
+                    ? 'border-gray-400 bg-gray-700 text-white dark:border-gray-500 dark:bg-gray-600'
+                    : 'border-gray-300 bg-gray-50 text-gray-600 hover:bg-gray-100 dark:border-gray-600 dark:bg-gray-700/50 dark:text-gray-300 dark:hover:bg-gray-700'
+                }`}
+              >
+                {pendentesCount} pendente{pendentesCount === 1 ? '' : 's'}
+                {somentePendentes && <X size={12} />}
+              </button>
             )}
           </div>
           <div className="flex w-full items-center justify-end gap-1 sm:w-auto sm:shrink-0">
@@ -365,6 +420,7 @@ export default function ModalDetalheDia({
                     {counts.concluida > 0 && <span className="text-emerald-600 dark:text-emerald-400">{counts.concluida} concl.</span>}
                     {counts.parcial > 0 && <span className="text-amber-600 dark:text-amber-400">{counts.parcial} parc.</span>}
                     {counts.nao_concluida > 0 && <span className="text-red-600 dark:text-red-400">{counts.nao_concluida} não concl.</span>}
+                    {counts.pendente > 0 && <span className="font-semibold text-gray-600 dark:text-gray-300">{counts.pendente} pend.</span>}
                   </div>
                 </button>
                 {!isCollapsed && (
@@ -397,6 +453,7 @@ export default function ModalDetalheDia({
                                 {areaCounts.concluida > 0 && <span className="text-emerald-600 dark:text-emerald-400">{areaCounts.concluida} concl.</span>}
                                 {areaCounts.parcial > 0 && <span className="text-amber-600 dark:text-amber-400">{areaCounts.parcial} parc.</span>}
                                 {areaCounts.nao_concluida > 0 && <span className="text-red-600 dark:text-red-400">{areaCounts.nao_concluida} não concl.</span>}
+                                {areaCounts.pendente > 0 && <span className="font-semibold text-gray-600 dark:text-gray-300">{areaCounts.pendente} pend.</span>}
                               </span>
                             </button>
                           )}
@@ -708,6 +765,13 @@ function ActivityRow({
 
   return (
     <div className={`rounded-md border p-3 transition-colors ${cardColorClasses(activity)}`}>
+      {/* Só o nome/badges divide a linha com os botões de ação — as linhas de
+          informação abaixo (EDT/Área/Engenheiro, Avanço/Início/Término/Atraso)
+          ficam FORA desse flex, ocupando a largura inteira do card. Antes elas
+          viviam dentro do mesmo "min-w-0" ao lado dos ícones, então ficavam
+          espremidas na coluna da esquerda o card inteiro — inclusive nas
+          linhas de baixo, onde os ícones nem aparecem mais —, cortando/
+          quebrando "Término"/"Atraso" com espaço vazio sobrando à direita. */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
@@ -743,41 +807,6 @@ function ActivityRow({
                   não foi prometida aqui.
                 </TooltipContent>
               </Tooltip>
-            )}
-          </div>
-          {activity.areaPath && (
-            <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{activity.areaPath}</p>
-          )}
-          {activity.inativa && activity.motivoInativacao && (
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
-              <span className="font-medium">Motivo:</span> {activity.motivoInativacao}
-            </p>
-          )}
-          {activity.foraDoPlano && activity.motivoFora && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
-              <span className="font-medium">Fora do plano:</span> {activity.motivoFora}
-            </p>
-          )}
-          <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-            {activity.stage && <span>EDT: {activity.stage}</span>}
-            {activity.discipline && <span>Disciplina: {activity.discipline}</span>}
-            {activity.area && <span>Área: {activity.area}</span>}
-            {activity.foreman && <span>Engenheiro: {activity.foreman}</span>}
-            {activity.company && <span>Empresa: {activity.company}</span>}
-          </div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-            <span>Avanço previsto: {activity.planned_pct}%</span>
-            {detail && <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>}
-            {detail && <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>}
-            {detail && <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>}
-            {detail && (
-              delayDays > 0 ? (
-                <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
-                  <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
-                </span>
-              ) : (
-                <span>Atraso: 0 dias</span>
-              )
             )}
           </div>
         </div>
@@ -906,6 +935,45 @@ function ActivityRow({
             <Trash2 size={14} />
           </button>
         </div>
+      </div>
+
+      {/* Fora da linha do nome/ícones de propósito (ver comentário lá em
+          cima) — usa a largura inteira do card, sem ficar espremida atrás
+          dos botões de ação que só existem na primeira linha. */}
+      {activity.areaPath && (
+        <p className="text-[11px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">{activity.areaPath}</p>
+      )}
+      {activity.inativa && activity.motivoInativacao && (
+        <p className="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+          <span className="font-medium">Motivo:</span> {activity.motivoInativacao}
+        </p>
+      )}
+      {activity.foraDoPlano && activity.motivoFora && (
+        <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
+          <span className="font-medium">Fora do plano:</span> {activity.motivoFora}
+        </p>
+      )}
+      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+        {activity.stage && <span>EDT: {activity.stage}</span>}
+        {activity.discipline && <span>Disciplina: {activity.discipline}</span>}
+        {activity.area && <span>Área: {activity.area}</span>}
+        {activity.foreman && <span>Engenheiro: {activity.foreman}</span>}
+        {activity.company && <span>Empresa: {activity.company}</span>}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+        <span>Avanço previsto: {activity.planned_pct}%</span>
+        {detail && <span>Avanço atual: {Math.round(detail.percentComplete)}%</span>}
+        {detail && <span>Início: {detail.start.toLocaleDateString('pt-BR')}</span>}
+        {detail && <span>Término: {detail.finish.toLocaleDateString('pt-BR')}</span>}
+        {detail && (
+          delayDays > 0 ? (
+            <span className="flex items-center gap-1 text-red-600 dark:text-red-400 font-medium">
+              <AlertTriangle size={11} /> Atraso: {delayDays} {delayDays === 1 ? 'dia' : 'dias'}
+            </span>
+          ) : (
+            <span>Atraso: 0 dias</span>
+          )
+        )}
       </div>
 
       {showReprogramar && (

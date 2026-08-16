@@ -42,7 +42,11 @@ export default function CardDia({ date, activities, onOpen, partialWeight = 0.5,
   const concluidas = ativas.filter((a) => a.status === 'concluida').length
   const parciais = ativas.filter((a) => a.status === 'parcial').length
   const naoConc = ativas.filter((a) => a.status === 'nao_concluida').length
-  const pendentes = ativas.filter((a) => a.status === 'pendente').length
+  // Extra com status ainda 'pendente' já foi executada — é isso que "Extra" comunica
+  // (trabalho fora do plano, mas que aconteceu); o único efeito do flag é sair da
+  // conta de PPC/Aderência, não deixa de ter sido feita. Sem excluir aqui, uma extra
+  // sem status marcado contava em dobro: em "Extras" E em "Pendentes".
+  const pendentes = ativas.filter((a) => a.status === 'pendente' && !a.is_extra).length
   const extras = ativas.filter((a) => a.is_extra).length
   const cronograma = ativas.filter((a) => !!a.source).length
 
