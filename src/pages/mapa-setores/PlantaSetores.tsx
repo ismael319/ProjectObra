@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Crop, MapPin, Square, Printer, Loader2, X, Maximize2, Minimize2, Search, SlidersHorizontal, Settings2, LocateFixed } from 'lucide-react'
+import { ArrowLeft, Crop, MapPin, Square, Printer, Loader2, X, Maximize2, Minimize2, RotateCcw, Search, SlidersHorizontal, Settings2, LocateFixed } from 'lucide-react'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { useProjects } from '@/lib/project-store'
 import {
@@ -43,6 +43,16 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 
 type ModoEdicao = 'nenhum' | 'ponto' | 'area' | 'recorte'
 
@@ -195,12 +205,41 @@ export default function PlantaSetores() {
   }, [marcadores, camposPorMarcador])
 
   const [modo, setModo] = useState<ModoEdicao>('nenhum')
+  const [recortePendente, setRecortePendente] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const [confirmarRestauracao, setConfirmarRestauracao] = useState(false)
   const [pendente, setPendente] = useState<{ geometria: NovaGeometria; cardPos: { x: number; y: number } } | null>(null)
   const [configurandoCaixaId, setConfigurandoCaixaId] = useState<string | null>(null)
   const [propriedadesId, setPropriedadesId] = useState<string | null>(null)
 
   function alternarModo(alvo: 'ponto' | 'area' | 'recorte') {
     setModo((atual) => (atual === alvo ? 'nenhum' : alvo))
+  }
+
+  async function aplicarRecortePermanente() {
+    if (!planta || !recortePendente) return
+    try {
+      await atualizarCrop.mutateAsync({ plantaId: planta.id, crop: recortePendente })
+      setRecortePendente(null)
+      setModo('nenhum')
+      toast.success('Visualização padrão atualizada')
+    } catch (err) {
+      toast.error(`Não foi possível atualizar a visualização: ${err instanceof Error ? err.message : err}`)
+    }
+  }
+
+  async function restaurarPlantaInteira() {
+    if (!planta) return
+    try {
+      await atualizarCrop.mutateAsync({
+        plantaId: planta.id,
+        crop: { x: 0, y: 0, w: planta.largura_natural, h: planta.altura_natural },
+      })
+      setConfirmarRestauracao(false)
+      setModo('nenhum')
+      toast.success('Planta inteira restaurada')
+    } catch (err) {
+      toast.error(`Não foi possível restaurar a planta: ${err instanceof Error ? err.message : err}`)
+    }
   }
 
   if (carregandoPlanta) {
@@ -224,6 +263,7 @@ export default function PlantaSetores() {
 
   const marcadorConfigurandoCaixa = configurandoCaixaId ? marcadores.find((m) => m.id === configurandoCaixaId) : undefined
   const marcadorPropriedades = propriedadesId ? marcadores.find((m) => m.id === propriedadesId) : undefined
+  const plantaRecortada = planta.crop_x !== 0 || planta.crop_y !== 0 || planta.crop_w !== planta.largura_natural || planta.crop_h !== planta.altura_natural
 
   return (
     <div className="p-4 sm:p-6 space-y-4">
@@ -241,8 +281,14 @@ export default function PlantaSetores() {
             <>
               <Button variant={modo === 'recorte' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('recorte')}>
                 <Crop size={15} className="mr-1" />
-                Recortar planta
+                Definir visualização padrão
               </Button>
+              {plantaRecortada && (
+                <Button variant="outline" size="sm" onClick={() => setConfirmarRestauracao(true)}>
+                  <RotateCcw size={15} className="mr-1" />
+                  Restaurar planta inteira
+                </Button>
+              )}
               <Button variant={modo === 'ponto' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('ponto')}>
                 {modo === 'ponto' ? <X size={15} className="mr-1" /> : <MapPin size={15} className="mr-1" />}
                 {modo === 'ponto' ? 'Cancelar' : '+ Ponto'}
@@ -266,7 +312,7 @@ export default function PlantaSetores() {
 
       {modo !== 'nenhum' && (
         <p className="text-xs text-muted-foreground print:hidden">
-          {modo === 'recorte' && 'Arraste sobre a planta inteira para selecionar a área que representa o layout.'}
+          {modo === 'recorte' && 'Arraste sobre a planta inteira para selecionar a visualização padrão do layout.'}
           {modo === 'ponto' && 'Clique na planta para posicionar o setor.'}
           {modo === 'area' && 'Arraste sobre a planta para desenhar a área do setor.'}
         </p>
@@ -375,10 +421,7 @@ export default function PlantaSetores() {
               }}
               onMoverMarcador={(id, campos) => atualizarMarcador.mutate({ id, ...campos })}
               onRecortar={(crop) => {
-                if (!planta) return
-                atualizarCrop.mutate({ plantaId: planta.id, crop })
-                setModo('nenhum')
-                toast.success('Recorte aplicado')
+                setRecortePendente(crop)
               }}
               onConfigurarCaixa={(id) => setConfigurandoCaixaId(id)}
               onPropriedadesCard={(id) => setPropriedadesId(id)}
@@ -540,6 +583,40 @@ export default function PlantaSetores() {
           cardPos={pendente.cardPos}
         />
       )}
+
+      <AlertDialog open={!!recortePendente} onOpenChange={(open) => !open && setRecortePendente(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Atualizar visualização padrão?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A área selecionada será exibida como padrão para esta planta. Você poderá restaurar a planta inteira depois.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void aplicarRecortePermanente()} disabled={atualizarCrop.isPending}>
+              Aplicar visualização
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmarRestauracao} onOpenChange={setConfirmarRestauracao}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Restaurar planta inteira?</AlertDialogTitle>
+            <AlertDialogDescription>
+              A visualização padrão voltará para a imagem completa. Nenhum setor, card ou vínculo será removido.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void restaurarPlantaInteira()} disabled={atualizarCrop.isPending}>
+              Restaurar planta inteira
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {marcadorConfigurandoCaixa && plantaId && (
         <ConfigurarCaixaDialog
