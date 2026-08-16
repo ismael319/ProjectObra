@@ -18,7 +18,7 @@ import {
 import { toast } from "sonner";
 import { Trash2, Download, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import { buildWorkbook, downloadWorkbook, exportFilename, type Apontamento } from "./lib/excel-export";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { useProjects } from "@/lib/project-store";
 
 type Filters = {
@@ -48,7 +48,8 @@ function defaultFilters(): Filters {
 
 export default function Consulta() {
   const qc = useQueryClient();
-  const { userProfile } = useAuth();
+  const { user, userProfile } = useAuth();
+  const { papel } = usePapelModulo('engenharia');
   const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? null;
   const projetoId = currentProject?.id ?? null;
@@ -252,9 +253,11 @@ export default function Consulta() {
                     <TableCell className="max-w-[220px] truncate" title={r.obs_planejamento ?? ""}>{r.obs_planejamento || "—"}</TableCell>
                     <TableCell className="whitespace-nowrap text-muted-foreground">{r.criado_por_nome ?? "—"}</TableCell>
                     <TableCell>
-                      <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setConfirmDel(r.id)}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
+                      {(papel === 'edicao' || r.criado_por === user?.id) && (
+                        <Button size="icon" variant="ghost" className="h-7 w-7 text-destructive" onClick={() => setConfirmDel(r.id)}>
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))}

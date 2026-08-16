@@ -21,7 +21,7 @@ import {
 import Assinatura from '@/components/Assinatura'
 import { formatarDataAssinatura } from '@/lib/assinatura'
 import { useAssinaturas } from '@/lib/assinatura-db'
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { useProjects } from "@/lib/project-store";
 import {
   useValidacaoEtapas, useValidacaoResponsaveis, useConfirmacoes, useDecidir, useDesfazerDecisao,
@@ -93,6 +93,7 @@ interface Apontamento {
   validado_em: string | null;
   validacao_status: ValidacaoStatus;
   criado_em?: string | null;
+  criado_por?: string | null;
 }
 
 const CORES_STATUS: Record<ValidacaoStatus, string> = {
@@ -118,6 +119,7 @@ export default function ValidacaoPage() {
   });
 
   const { user, userProfile } = useAuth();
+  const { papel } = usePapelModulo('engenharia');
   const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const projetoId = currentProject?.id ?? null;
@@ -884,27 +886,31 @@ export default function ValidacaoPage() {
                             <span className={`rounded px-2 py-0.5 text-xs font-medium ${CORES_STATUS[status]}`}>
                               {ROTULO_STATUS[status]}
                             </span>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7"
-                              title="Editar"
-                              onClick={() => iniciarEdicao(a)}
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="h-7 w-7 text-destructive"
-                              title="Excluir"
-                              onClick={() => {
-                                if (confirm(`Excluir apontamento de ${a.atividade_nome}?`))
-                                  excluirMut.mutate(a.id);
-                              }}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
+                            {(papel === 'edicao' || a.criado_por === user?.id) && (
+                              <>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  title="Editar"
+                                  onClick={() => iniciarEdicao(a)}
+                                >
+                                  <Pencil className="h-3.5 w-3.5" />
+                                </Button>
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7 text-destructive"
+                                  title="Excluir"
+                                  onClick={() => {
+                                    if (confirm(`Excluir apontamento de ${a.atividade_nome}?`))
+                                      excluirMut.mutate(a.id);
+                                  }}
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
                           </div>
                         </div>
                         <div className="mt-2 flex flex-wrap gap-2 text-xs">

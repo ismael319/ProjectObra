@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, usePapelModulo } from "@/lib/auth-context";
 import { useProjects } from "@/lib/project-store";
 import { todayISO, formatBR, computeApontamento } from "./lib/date-utils";
 import {
@@ -51,6 +51,7 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
 export default function LancamentoPage() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
+  const { papel } = usePapelModulo('engenharia');
   const { currentProject, projects, isLoadingProjects, setCurrentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? null;
   const projetoId = currentProject?.id ?? null;
@@ -427,13 +428,15 @@ export default function LancamentoPage() {
                     {r.subarea_nome ? ` / ${r.subarea_nome}` : ""}
                   </div>
                 </div>
-                <button
-                  onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
-                  className="text-muted-foreground hover:text-destructive"
-                  aria-label="Remover"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
+                {(r._pending || papel === 'edicao' || r.criado_por === user?.id) && (
+                  <button
+                    onClick={() => (r._pending ? removePendingMut.mutate(r._queueId) : delMut.mutate(r.id))}
+                    className="text-muted-foreground hover:text-destructive"
+                    aria-label="Remover"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-xs">
                 {r._pending && r._status === "error" ? (
