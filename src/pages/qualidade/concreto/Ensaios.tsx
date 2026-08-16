@@ -145,7 +145,7 @@ export default function ConcretoEnsaios() {
           <CardHeader>
             <CardTitle className="text-base">Calendário de rastreabilidade</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-2">
+          <CardContent className="flex flex-col items-center space-y-2">
             <Calendar
               mode="single"
               selected={diaFiltro ? new Date(diaFiltro + "T12:00:00") : undefined}
@@ -154,7 +154,11 @@ export default function ConcretoEnsaios() {
                 const iso = d.toISOString().slice(0, 10);
                 setDiaFiltro((atual) => (atual === iso ? null : iso));
               }}
-              className="rounded-md border scale-[0.9] origin-top-left"
+              // scale sem origin explícito usa o centro por padrão — com
+              // origin-top-left (como estava) o encolhimento empurrava tudo
+              // pro canto superior esquerdo, deixando o quadro visivelmente
+              // fora de centro dentro do card.
+              className="rounded-md border scale-[0.9]"
               components={{
                 DayButton: (props) => {
                   const dateStr = props.day.date.toISOString().slice(0, 10);

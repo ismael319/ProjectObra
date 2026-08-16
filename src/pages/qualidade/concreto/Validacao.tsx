@@ -19,12 +19,13 @@ import {
 } from '@/lib/validacao/status'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Card } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Combobox } from '@/components/ui/combobox'
+import { Calendar, CalendarDayButton } from '@/components/ui/calendar'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -34,6 +35,7 @@ import { formatBR } from '@/lib/utils'
 import Assinatura from '@/components/Assinatura'
 import { formatarDataAssinatura } from '@/lib/assinatura'
 import { useAssinaturas } from '@/lib/assinatura-db'
+import { useRastreabilidadeCargas } from './lib/ensaios-catalog'
 
 interface CargaRow {
   id: string
@@ -63,6 +65,18 @@ export default function ConcretoValidacao() {
   const { user, userProfile } = useAuth()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
   const { data: assinaturas } = useAssinaturas(organizacaoId)
+
+  // Mesma fonte do calendário de Ensaios (vw_rastreabilidade_concreto, todas
+  // as cargas da empresa, sem os filtros da tabela abaixo) — aqui não usa o
+  // status de rastreabilidade dela, só data + volume, pra somar por dia.
+  const { data: cargasParaCalendario = [] } = useRastreabilidadeCargas(organizacaoId)
+  const volumePorDia = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const c of cargasParaCalendario) {
+      map.set(c.data, (map.get(c.data) ?? 0) + c.quantidade_m3)
+    }
+    return map
+  }, [cargasParaCalendario])
 
   const { data: etapas = [] } = useValidacaoEtapas(organizacaoId)
   const { data: responsaveis = [] } = useValidacaoResponsaveis(organizacaoId)
@@ -201,29 +215,77 @@ export default function ConcretoValidacao() {
         )}
       </header>
 
-      <Card className="p-4 grid gap-3 sm:grid-cols-4 items-end">
-        <div className="space-y-1">
-          <Label>Conferir como</Label>
-          <Combobox
-            options={minhasEtapas.map((e) => ({ value: e.chave, label: e.nome }))}
-            value={etapaAtiva?.chave ?? null}
-            onChange={(v) => { setEtapaChave(v); setSelecionados(new Set()) }}
-            allowClear={false}
-          />
-        </div>
-        <div className="space-y-1">
-          <Label>De</Label>
-          <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
-        </div>
-        <div className="space-y-1">
-          <Label>Até</Label>
-          <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
-        </div>
-        <label className="flex items-center gap-2 text-sm pb-2">
-          <Checkbox checked={soPendentes} onCheckedChange={(v) => setSoPendentes(!!v)} />
-          Só o que falta conferir
-        </label>
-      </Card>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="p-4 grid gap-3 sm:grid-cols-2 lg:col-span-2 lg:grid-cols-4 items-end">
+          <div className="space-y-1">
+            <Label>Conferir como</Label>
+            <Combobox
+              options={minhasEtapas.map((e) => ({ value: e.chave, label: e.nome }))}
+              value={etapaAtiva?.chave ?? null}
+              onChange={(v) => { setEtapaChave(v); setSelecionados(new Set()) }}
+              allowClear={false}
+            />
+          </div>
+          <div className="space-y-1">
+            <Label>De</Label>
+            <Input type="date" value={dataInicio} onChange={(e) => setDataInicio(e.target.value)} />
+          </div>
+          <div className="space-y-1">
+            <Label>Até</Label>
+            <Input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} />
+          </div>
+          <label className="flex items-center gap-2 text-sm pb-2">
+            <Checkbox checked={soPendentes} onCheckedChange={(v) => setSoPendentes(!!v)} />
+            Só o que falta conferir
+          </label>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Calendário de volume</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col items-center space-y-2">
+            <Calendar
+              mode="single"
+              selected={dataInicio && dataInicio === dataFim ? new Date(dataInicio + 'T12:00:00') : undefined}
+              onSelect={(d) => {
+                if (!d) return
+                const iso = d.toISOString().slice(0, 10)
+                // Clicar de novo no mesmo dia limpa o filtro (volta a mostrar
+                // o período/todas as cargas) — mesmo padrão de alternância do
+                // calendário de Ensaios.
+                if (dataInicio === iso && dataFim === iso) {
+                  setDataInicio('')
+                  setDataFim('')
+                } else {
+                  setDataInicio(iso)
+                  setDataFim(iso)
+                }
+              }}
+              // Sem origin-top-left (ver Ensaios.tsx) — scale já centra
+              // sozinho por padrão.
+              className="rounded-md border scale-[0.9]"
+              components={{
+                DayButton: (props) => {
+                  const dateStr = props.day.date.toISOString().slice(0, 10)
+                  const volume = volumePorDia.get(dateStr)
+                  return (
+                    <div className="relative">
+                      <CalendarDayButton {...props} />
+                      {volume != null && volume > 0 && (
+                        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 text-[9px] leading-none text-blue-600 dark:text-blue-400 font-medium whitespace-nowrap">
+                          {volume.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}
+                        </span>
+                      )}
+                    </div>
+                  )
+                },
+              }}
+            />
+            <p className="text-xs text-muted-foreground">Volume total de concreto (m³) lançado em cada dia.</p>
+          </CardContent>
+        </Card>
+      </div>
 
       {selecionados.size > 0 && (
         <div className="sticky top-16 z-10 flex flex-wrap items-center gap-3 rounded-lg border bg-background p-3 shadow-sm">
