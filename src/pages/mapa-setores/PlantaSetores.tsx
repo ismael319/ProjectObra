@@ -241,7 +241,7 @@ export default function PlantaSetores() {
             <>
               <Button variant={modo === 'recorte' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('recorte')}>
                 <Crop size={15} className="mr-1" />
-                Definir recorte permanente
+                Recortar planta
               </Button>
               <Button variant={modo === 'ponto' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('ponto')}>
                 {modo === 'ponto' ? <X size={15} className="mr-1" /> : <MapPin size={15} className="mr-1" />}
@@ -266,7 +266,7 @@ export default function PlantaSetores() {
 
       {modo !== 'nenhum' && (
         <p className="text-xs text-muted-foreground print:hidden">
-          {modo === 'recorte' && 'Arraste sobre a planta inteira para definir a área permanente exibida no layout.'}
+          {modo === 'recorte' && 'Arraste sobre a planta inteira para selecionar a área que representa o layout.'}
           {modo === 'ponto' && 'Clique na planta para posicionar o setor.'}
           {modo === 'area' && 'Arraste sobre a planta para desenhar a área do setor.'}
         </p>
@@ -378,7 +378,7 @@ export default function PlantaSetores() {
                 if (!planta) return
                 atualizarCrop.mutate({ plantaId: planta.id, crop })
                 setModo('nenhum')
-                toast.success('Recorte permanente aplicado')
+                toast.success('Recorte aplicado')
               }}
               onConfigurarCaixa={(id) => setConfigurandoCaixaId(id)}
               onPropriedadesCard={(id) => setPropriedadesId(id)}
