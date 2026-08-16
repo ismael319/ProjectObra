@@ -3,9 +3,10 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, Loader2, Shield, Lock, FileCheck } from 'lucide-react'
+import { Eye, EyeOff, Loader2, Shield, Lock, FileCheck, ArrowRight, PlayCircle } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
+import { ProductTour } from '@/components/ProductTour'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const loginSchema = z.object({
@@ -19,6 +20,7 @@ export default function Login() {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [tourOpen, setTourOpen] = useState(false)
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -185,12 +187,29 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="mt-6 text-center">
-            <Link to="/signup" className="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-              Conhecer aplicativo →
-            </Link>
+          <div className="mt-6">
+            <button
+              onClick={() => setTourOpen(true)}
+              className="w-full flex items-center justify-center gap-2 border border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-200 font-semibold text-sm py-2.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 hover:border-gray-300 dark:hover:border-gray-500 transition"
+            >
+              <PlayCircle size={17} />
+              Conhecer aplicativo
+            </button>
           </div>
         </div>
+
+        {/* CTA de planos */}
+        <div className="mt-6 text-center">
+          <Link
+            to="/planos"
+            className="inline-flex items-center gap-2 bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 text-white font-semibold text-sm py-2.5 px-6 rounded-full shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/30 hover:-translate-y-px transition-all"
+          >
+            Assine já
+            <ArrowRight size={16} />
+          </Link>
+        </div>
+
+        <ProductTour open={tourOpen} onOpenChange={setTourOpen} />
 
         {/* Footer */}
         <div className="mt-6 text-center">

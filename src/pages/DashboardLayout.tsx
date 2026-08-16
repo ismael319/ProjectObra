@@ -9,6 +9,7 @@ import { DashboardHeader } from '@/components/layout/DashboardHeader'
 import { DashboardNavigation } from '@/components/layout/DashboardNavigation'
 import { usePresentationMode } from '@/lib/presentation-mode'
 import { useTheme } from '@/lib/theme-context'
+import { useChatbotPreference } from '@/lib/chatbot-preference-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
@@ -20,6 +21,7 @@ import { usePendenciasValidacao, useMeusRejeitados } from '@/lib/validacao/valid
 export default function DashboardLayout() {
   const { presentationMode } = usePresentationMode()
   const { isDark, toggle, brandColor } = useTheme()
+  const { chatbotEnabled, toggleChatbot } = useChatbotPreference()
   const isMobile = useMediaQuery('(max-width: 639px)')
   const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
@@ -148,9 +150,11 @@ export default function DashboardLayout() {
     userInitials,
     brandColor,
     isDark,
+    chatbotEnabled,
     onOpenMenu: () => setMobileMenuOpen(true),
     onNavigate: navigate,
     onToggleTheme: toggle,
+    onToggleChatbot: toggleChatbot,
     onSignOut: () => { signOut(); navigate('/login') },
   }
 
@@ -189,7 +193,7 @@ export default function DashboardLayout() {
         </div>
       </main>
 
-      <ChatWidget isMobile={isMobile} hasMobileNavigation={hasMobileBottomNav} />
+      {chatbotEnabled && <ChatWidget isMobile={isMobile} hasMobileNavigation={hasMobileBottomNav} />}
     </div>
   )
 }

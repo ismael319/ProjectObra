@@ -6,6 +6,7 @@ import { AuthProvider } from '@/lib/auth-context'
 import { ProjectStoreProvider } from '@/lib/project-store'
 import { ProjectProvider } from '@/lib/project-context'
 import { ThemeProvider } from '@/lib/theme-context'
+import { ChatbotPreferenceProvider } from '@/lib/chatbot-preference-context'
 import ProtectedRoute from '@/components/ProtectedRoute'
 import SessionOnlyRoute from '@/components/SessionOnlyRoute'
 import RequireModulo from '@/components/RequireModulo'
@@ -32,6 +33,8 @@ const Occurrences = lazy(() => import('@/pages/Occurrences'))
 const ProjectSelection = lazy(() => import('@/pages/ProjectSelection'))
 const Activities = lazy(() => import('@/pages/Activities'))
 const Profile = lazy(() => import('@/pages/Profile'))
+const MeuPlano = lazy(() => import('@/pages/MeuPlano'))
+const Planos = lazy(() => import('@/pages/Planos'))
 const ExportarDados = lazy(() => import('@/pages/ExportarDados'))
 const ExcluirConta = lazy(() => import('@/pages/ExcluirConta'))
 const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
@@ -100,6 +103,7 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <ThemeProvider>
+          <ChatbotPreferenceProvider>
           <ProjectStoreProvider>
             <ProjectProvider>
               <Toaster richColors position="top-right" />
@@ -108,6 +112,7 @@ function App() {
                   <Routes>
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
+                    <Route path="/planos" element={<Planos />} />
                     {/* Público, sem sessão — nunca dentro de ProtectedRoute/DashboardLayout
                         (ver Fase 0 do plano: acesso anônimo só passa por RPC estreita,
                         nunca por RLS aberta numa tabela real). */}
@@ -179,6 +184,14 @@ function App() {
                       element={
                         <ProtectedRoute>
                           <Profile />
+                        </ProtectedRoute>
+                      }
+                    />
+                    <Route
+                      path="/profile/plano"
+                      element={
+                        <ProtectedRoute>
+                          <MeuPlano />
                         </ProtectedRoute>
                       }
                     />
@@ -265,6 +278,7 @@ function App() {
               </BrowserRouter>
             </ProjectProvider>
           </ProjectStoreProvider>
+          </ChatbotPreferenceProvider>
         </ThemeProvider>
       </AuthProvider>
     </QueryClientProvider>

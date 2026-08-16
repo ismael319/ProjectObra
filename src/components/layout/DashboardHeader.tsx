@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, ChevronDown, FileText, FolderOpen, LogOut, Menu, Moon, ShieldCheck, Sun, User } from 'lucide-react'
+import { Bell, ChevronDown, CreditCard, FileText, FolderOpen, LogOut, Menu, MessageCircle, Moon, ShieldCheck, Sun, User } from 'lucide-react'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 export interface DashboardHeaderProps {
@@ -18,9 +18,11 @@ export interface DashboardHeaderProps {
   userInitials: string
   brandColor: string
   isDark: boolean
+  chatbotEnabled: boolean
   onOpenMenu: () => void
   onNavigate: (path: string) => void
   onToggleTheme: () => void
+  onToggleChatbot: () => void
   onSignOut: () => void
 }
 
@@ -40,9 +42,11 @@ export function DashboardHeader({
   userInitials,
   brandColor,
   isDark,
+  chatbotEnabled,
   onOpenMenu,
   onNavigate,
   onToggleTheme,
+  onToggleChatbot,
   onSignOut,
 }: DashboardHeaderProps) {
   const isMobile = variant === 'mobile'
@@ -204,6 +208,35 @@ export function DashboardHeader({
                       Meu Perfil
                     </button>
                   )}
+                  {!isInsercaoPontual && (
+                    <button
+                      onClick={() => { onNavigate('/profile/plano'); setUserMenuOpen(false) }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    >
+                      <CreditCard size={16} />
+                      Meu Plano
+                    </button>
+                  )}
+                  <button
+                    onClick={onToggleChatbot}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+                    role="switch"
+                    aria-checked={chatbotEnabled}
+                  >
+                    <MessageCircle size={16} />
+                    <span className="flex-1 text-left">Assistente Virtual</span>
+                    <span
+                      className={`relative inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors ${
+                        chatbotEnabled ? 'bg-blue-600' : 'bg-gray-300 dark:bg-gray-600'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${
+                          chatbotEnabled ? 'translate-x-4' : 'translate-x-1'
+                        }`}
+                      />
+                    </span>
+                  </button>
                   <button
                     onClick={onToggleTheme}
                     className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
