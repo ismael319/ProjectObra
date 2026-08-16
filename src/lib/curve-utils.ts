@@ -186,6 +186,29 @@ export function filterRawPointsByExcludedActivities(
  * aparecem na tabela/gráfico, fazendo a curva "começar" numa semana onde tudo que é
  * exibido (planejado, real, LB de referência) está zerado.
  */
+// Cache de curvas por cronograma. buildCurveFromRawPoints é O(pontos × baselines)
+// e é chamado repetidamente a cada interação na Curva S (cronCurves + cronCurvesFull
+// + o gráfico de progresso). O resultado depende dos inputs E do momento atual
+// (`new Date()` decide quais períodos de Type 2 contam e onde fica o status), então a
+// chave inclui o dia corrente — o cache expira sozinho à meia-noite, sem nunca servir
+// resultado obsoleto (o status só avança no limite de um período, então dentro do
+// mesmo dia o resultado é estável). Nenhum consumidor muta as curvas retornadas (a
+// única escrita, `p.spiPeriod`, acontece em objetos novos dentro de consolidateCurves),
+// logo é seguro compartilhar a mesma referência entre chamadas.
+const curveCache = new WeakMap<TimephasedDataPoint[], Map<string, CurvePeriod[]>>()
+
+function curveCacheKey(
+  granularity: CurveGranularity,
+  unit: CalculationUnit,
+  availableBLs: BaselineInfo[],
+  weekStartDay: number,
+  referenceBLId: string | undefined,
+): string {
+  const blSig = availableBLs.map((b) => `${b.index}:${b.id}`).join(',')
+  const today = format(new Date(), 'yyyy-MM-dd')
+  return `${granularity}|${unit}|${weekStartDay}|${referenceBLId ?? ''}|${blSig}|${today}`
+}
+
 export function buildCurveFromRawPoints(
   rawPoints: TimephasedDataPoint[] | undefined,
   granularity: CurveGranularity,
@@ -195,6 +218,16 @@ export function buildCurveFromRawPoints(
   referenceBLId?: string,
 ): CurvePeriod[] {
   if (!rawPoints || rawPoints.length === 0) return []
+
+  const cacheKey = curveCacheKey(granularity, unit, availableBLs, weekStartDay, referenceBLId)
+  let cached = curveCache.get(rawPoints)
+  if (cached) {
+    const hit = cached.get(cacheKey)
+    if (hit) return hit
+  } else {
+    cached = new Map()
+    curveCache.set(rawPoints, cached)
+  }
 
   interface Bucket {
     label: string
@@ -458,6 +491,7 @@ export function buildCurveFromRawPoints(
     periods.length = lastWorkIdx + 1
   }
 
+  cached.set(cacheKey, periods)
   return periods
 }
 

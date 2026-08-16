@@ -365,13 +365,18 @@ export default function SCurve() {
     })
   }, [selectedCronogramasData, unit, availableBLs, granularity, activityExclusions, columnFilters, rawBLSuffix, weekStartDay])
 
+  // Curva SEM filtros (exclusões de atividade/coluna), usada pelo avanço geral do
+  // header e pela consolidação "cheia". Sem filtro ativo, filterRawPointsByExcludedActivities
+  // devolve o mesmo rawPoints e o resultado é idêntico ao de cronCurves — reutiliza
+  // direto em vez de recomputar buildCurveFromRawPoints uma segunda vez por cronograma.
   const cronCurvesFull = useMemo(() => {
+    if (!hasActivityFilter) return cronCurves.map((c) => c.curve)
     return selectedCronogramasData.map((c) => {
       const ownBLs = availableBLs.filter((bl) => bl.id.startsWith(`${c.id}__`))
       const referenceBLId = rawBLSuffix ? ownBLs.find((bl) => bl.id.endsWith(`__${rawBLSuffix}`))?.id : undefined
       return buildCurveFromRawPoints(c.dados?.timephased?.rawPoints, granularity, unit, ownBLs, weekStartDay, referenceBLId)
     })
-  }, [selectedCronogramasData, unit, availableBLs, granularity, rawBLSuffix, weekStartDay])
+  }, [selectedCronogramasData, unit, availableBLs, granularity, rawBLSuffix, weekStartDay, hasActivityFilter, cronCurves])
 
   const curveData = useMemo(() => {
     return cronCurves.length === 0
@@ -512,6 +517,14 @@ export default function SCurve() {
   }, [rawBLSuffix, consolidatedBLs])
 
   const chartData = useMemo(() => {
+    // Índice por data de cada curva de cronograma — evita um `find` O(n) por período
+    // dentro do loop abaixo (cronCurves × curveData), o que pesava na granularidade
+    // diária com vários cronogramas selecionados.
+    const curvesByDate = cronCurves.map((cc) => ({
+      id: cc.id,
+      byDate: new Map(cc.curve.map((p) => [p.date, p])),
+      last: cc.curve[cc.curve.length - 1],
+    }))
     return curveData.map((w) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const row: any = {
@@ -528,13 +541,12 @@ export default function SCurve() {
         const periodValue = w.blPeriod[bl.rawKey] || 0
         row[`${bl.id}_period`] = pct(periodValue, finalPlanned)
       }
-      for (const cc of cronCurves) {
-        const cw = cc.curve.find((c) => c.date === w.date)
+      for (const { id, byDate, last } of curvesByDate) {
+        const cw = byDate.get(w.date)
         const value = cw?.actual || 0
-        const ccLast = cc.curve[cc.curve.length - 1]
-        const ccBL0 = ccLast ? sumBL0(ccLast.blCum) : 0
-        const finalCronPlanned = ccBL0 > 0 ? ccBL0 : (ccLast?.planned || 0)
-        row[`cron_${cc.id}`] = pct(value, finalCronPlanned)
+        const ccBL0 = last ? sumBL0(last.blCum) : 0
+        const finalCronPlanned = ccBL0 > 0 ? ccBL0 : (last?.planned || 0)
+        row[`cron_${id}`] = pct(value, finalCronPlanned)
       }
       return row
     })
