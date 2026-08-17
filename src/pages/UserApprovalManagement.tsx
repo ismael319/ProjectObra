@@ -157,16 +157,15 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
     if (!orgAlvo) return
     const papel = selectedPapel[row.id] ?? papeisDisponiveis[0]
     setProcessingId(row.id)
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .update({ papel, status_solicitacao: 'aprovado', organizacao_id: orgAlvo })
-      .eq('id', row.id)
-      .select('id')
+    const { error } = await supabase.rpc('gerenciar_usuario', {
+      p_usuario_id: row.id,
+      p_status: 'aprovado',
+      p_papel: papel,
+      p_nome: row.nome,
+    })
 
     if (error) {
       toast.error(`Não foi possível aprovar: ${error.message}`)
-    } else if (!data || data.length === 0) {
-      toast.error('Esta solicitação já foi decidida por outra pessoa.')
     } else {
       toast.success(`${row.email ?? 'Usuário'} aprovado como ${PAPEL_LABELS[papel]}`)
       setRows((prev) => prev.filter((r) => r.id !== row.id))
@@ -178,16 +177,12 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   const handleConvidar = async () => {
     if (!conviteEmail.trim() || !orgAlvo) return
     setIsSendingConvite(true)
-    const { data: convite, error } = await supabase
-      .from('convites')
-      .insert({
-        email: conviteEmail.trim(),
-        papel_convidado: convitePapel,
-        organizacao_id: orgAlvo,
-        criado_por: user?.id,
-      })
-      .select('id')
-      .single()
+    const { data, error } = await supabase.rpc('criar_convite', {
+      p_email: conviteEmail.trim(),
+      p_papel: convitePapel,
+      p_organizacao_id: orgAlvo,
+    })
+    const convite = Array.isArray(data) ? data[0] : data
 
     if (error) {
       toast.error(`Não foi possível criar o convite: ${error.message}`)
@@ -198,6 +193,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
     try {
       await enviarConviteEmail({
         conviteId: convite.id,
+        token: convite.token,
       })
       toast.success(`Convite enviado para ${conviteEmail.trim()}.`)
     } catch (emailError) {
@@ -212,7 +208,7 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
   }
 
   const handleCancelarConvite = async (convite: ConviteRow) => {
-    const { error } = await supabase.from('convites').delete().eq('id', convite.id)
+    const { error } = await supabase.rpc('revogar_convite', { p_convite_id: convite.id })
     if (error) {
       toast.error(`Não foi possível cancelar: ${error.message}`)
     } else {
@@ -240,16 +236,15 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
 
   const handleRejeitar = async (row: SolicitacaoRow) => {
     setProcessingId(row.id)
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .update({ status_solicitacao: 'rejeitado' })
-      .eq('id', row.id)
-      .select('id')
+    const { error } = await supabase.rpc('gerenciar_usuario', {
+      p_usuario_id: row.id,
+      p_status: 'rejeitado',
+      p_papel: null,
+      p_nome: row.nome,
+    })
 
     if (error) {
       toast.error(`Não foi possível rejeitar: ${error.message}`)
-    } else if (!data || data.length === 0) {
-      toast.error('Esta solicitação já foi decidida por outra pessoa.')
     } else {
       toast.success(`Solicitação de ${row.email ?? 'usuário'} rejeitada`)
       setRows((prev) => prev.filter((r) => r.id !== row.id))
@@ -279,16 +274,15 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         ? { status_solicitacao: 'aprovado', papel: editPapel, nome: editNome.trim() || null }
         : { status_solicitacao: 'rejeitado', papel: null, nome: editNome.trim() || null }
 
-    const { data, error } = await supabase
-      .from('user_profiles')
-      .update(patch)
-      .eq('id', row.id)
-      .select('id')
+    const { error } = await supabase.rpc('gerenciar_usuario', {
+      p_usuario_id: row.id,
+      p_status: patch.status_solicitacao,
+      p_papel: patch.papel,
+      p_nome: patch.nome,
+    })
 
     if (error) {
       toast.error(`Não foi possível salvar: ${error.message}`)
-    } else if (!data || data.length === 0) {
-      toast.error('Não foi possível salvar — sem permissão ou o registro mudou.')
     } else {
       toast.success(`${row.email ?? 'Usuário'} atualizado`)
       setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...patch } : r)))

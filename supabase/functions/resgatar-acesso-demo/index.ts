@@ -28,6 +28,7 @@ function json(data: unknown, status: number, headers: Record<string, string>): R
     status,
     headers: {
       'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
       ...headers,
     },
   })
@@ -35,6 +36,7 @@ function json(data: unknown, status: number, headers: Record<string, string>): R
 
 Deno.serve(async (request: Request) => {
   const cors = corsHeaders(request.headers.get('Origin'))
+  const origin = request.headers.get('Origin')
 
   if (request.method === 'OPTIONS') {
     return new Response('ok', { status: 200, headers: cors })
@@ -42,6 +44,9 @@ Deno.serve(async (request: Request) => {
 
   if (request.method !== 'POST') {
     return json({ error: 'Método não permitido' }, 405, cors)
+  }
+  if (origin && !ALLOWED_ORIGINS.has(origin)) {
+    return json({ error: 'Origem não permitida' }, 403, cors)
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
@@ -61,6 +66,13 @@ Deno.serve(async (request: Request) => {
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
+
+  // Valida no banco antes de criar qualquer auth.users. Isso impede que UUIDs
+  // aleatórios poluam Auth e a fila de perfis pendentes.
+  const { data: linkValido, error: validacaoError } = await admin.rpc('validar_acesso_demo_para_provisionamento', { p_id: id })
+  if (validacaoError || !linkValido) {
+    return json({ error: 'Link de acesso demo indisponível' }, 400, cors)
+  }
 
   // Email descartável só pra existir um auth.users de verdade — .invalid é
   // reservado por RFC 2606 pra domínio que nunca é entregável de verdade.
@@ -83,9 +95,9 @@ Deno.serve(async (request: Request) => {
 
   if (rpcError) {
     console.error('Falha ao resgatar acesso demo:', rpcError.message)
-    // A RPC já valida link inválido/revogado/expirado e lança exceção — a
-    // mensagem dela é segura pra mostrar direto pro visitante.
-    return json({ error: rpcError.message }, 400, cors)
+    // O usuário recém-criado não pode sobreviver a um provisionamento falho.
+    await admin.auth.admin.deleteUser(linkData.user.id)
+    return json({ error: 'Link de acesso demo indisponível' }, 400, cors)
   }
 
   return json({ hashed_token: linkData.properties.hashed_token }, 200, cors)

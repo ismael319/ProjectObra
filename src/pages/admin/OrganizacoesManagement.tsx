@@ -234,10 +234,10 @@ export default function OrganizacoesManagement() {
   const handleTogglePlatformOwner = async () => {
     if (!resultadoBusca) return
     const novoValor = !resultadoBusca.is_super_admin
-    const { error } = await supabase
-      .from('user_profiles')
-      .update({ is_super_admin: novoValor })
-      .eq('id', resultadoBusca.id)
+    const { error } = await supabase.rpc('definir_super_admin', {
+      p_usuario_id: resultadoBusca.id,
+      p_valor: novoValor,
+    })
     if (error) {
       toast.error(`Não foi possível atualizar: ${error.message}`)
       return

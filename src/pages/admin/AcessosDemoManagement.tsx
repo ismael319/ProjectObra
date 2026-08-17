@@ -105,19 +105,13 @@ export default function AcessosDemoManagement() {
 
   const handleRevogar = async (acesso: AcessoDemoRow) => {
     setRevokingId(acesso.id)
-    const agora = new Date().toISOString()
-    const { error } = await supabase.from('acessos_demo').update({ revogado_em: agora }).eq('id', acesso.id)
+    const { error } = await supabase.rpc('revogar_acesso_demo', { p_id: acesso.id })
     if (error) {
       toast.error(`Não foi possível revogar: ${error.message}`)
       setRevokingId(null)
       return
     }
-    if (acesso.organizacao_id) {
-      // Encerra o acesso já em uso — a limpeza de verdade acontece no
-      // próximo ciclo do job horário de organizações demo expiradas.
-      await supabase.from('organizacoes').update({ demo_expira_em: agora }).eq('id', acesso.organizacao_id)
-    }
-    toast.success('Link revogado.')
+    toast.success('Link e acesso demo revogados imediatamente.')
     await load()
     setRevokingId(null)
   }

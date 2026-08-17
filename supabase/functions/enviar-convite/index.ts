@@ -62,7 +62,7 @@ Deno.serve(async (request: Request) => {
     return json({ error: 'Sessão inválida ou expirada' }, 401)
   }
 
-  let body: { conviteId?: string; email?: string }
+  let body: { conviteId?: string; token?: string; email?: string }
   try {
     body = await request.json()
   } catch {
@@ -70,6 +70,7 @@ Deno.serve(async (request: Request) => {
   }
 
   const conviteId = body?.conviteId
+  const conviteToken = body?.token
   const legacyEmail = body?.email?.trim()
   if (
     (!conviteId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conviteId))
@@ -80,6 +81,9 @@ Deno.serve(async (request: Request) => {
   if (!RESEND_API_KEY) {
     return json({ error: 'RESEND_API_KEY não configurada' }, 500)
   }
+  if (!conviteToken || !/^[0-9a-f]{64}$/i.test(conviteToken)) {
+    return json({ error: 'Token de convite inválido' }, 400)
+  }
 
   // O convite é carregado usando o JWT de quem chamou. A RLS de `convites`
   // decide quem pode reenviar e impede que dados arbitrários virem e-mail.
@@ -87,6 +91,8 @@ Deno.serve(async (request: Request) => {
     .from('convites')
     .select('email, papel_convidado, organizacoes(nome)')
     .is('usado_em', null)
+    .is('revogado_em', null)
+    .gt('expira_em', new Date().toISOString())
     .maybeSingle()
 
   conviteQuery = conviteId
@@ -109,7 +115,7 @@ Deno.serve(async (request: Request) => {
   const orgName = escapeHtml(Array.isArray(org) ? (org[0]?.nome ?? '—') : (org?.nome ?? '—'))
   const papelLabel = escapeHtml(PAPEL_LABELS[papel] ?? papel)
   const safeEmail = escapeHtml(email)
-  const signupUrl = `${APP_ORIGIN.replace(/\/+$/, '')}/signup`
+  const signupUrl = `${APP_ORIGIN.replace(/\/+$/, '')}/signup?convite=${encodeURIComponent(conviteToken)}`
   const link = `<a href="${signupUrl}" style="color:#2563eb;font-weight:600;">criar sua conta</a>`
 
   const html = `<!DOCTYPE html>
@@ -132,7 +138,7 @@ Deno.serve(async (request: Request) => {
                 <strong>${safeEmail}</strong>.
               </p>
               <p style="margin:0 0 16px;font-size:14px;line-height:1.6;color:#374151;">
-                Assim que a conta for criada, o acesso já estará liberado, sem precisar de aprovação manual.
+                Este link é pessoal, válido por 7 dias e só pode ser usado uma vez.
               </p>
               <p style="margin:0;font-size:12px;color:#9ca3af;">
                 Se você não esperava este convite, pode ignorar esta mensagem.

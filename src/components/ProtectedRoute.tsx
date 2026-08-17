@@ -32,6 +32,10 @@ export default function ProtectedRoute({ children }: ProtectedRouteProps) {
     return <Navigate to="/aguardando-aprovacao" replace />
   }
 
+  if (!userProfile.ativo) {
+    return <Navigate to="/login" replace />
+  }
+
   // Usuário precisa aceitar os termos de uso e política de privacidade
   if (!userProfile.termos_aceitos_em && location.pathname !== '/aceitar-termos') {
     return <Navigate to="/aceitar-termos" replace />

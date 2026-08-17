@@ -59,12 +59,16 @@ export default function Signup() {
       p_email: data.email,
     })
 
-    const { error } = await signUp(data.email, data.password, data.nome)
+    const convite = new URLSearchParams(window.location.search).get('convite')
+    const conviteToken = convite && /^[0-9a-f]{64}$/i.test(convite) ? convite : undefined
+    const { error } = await signUp(data.email, data.password, data.nome, conviteToken, turnstileToken)
     setIsLoading(false)
     if (error) {
       setError('Erro ao criar conta. Tente novamente.')
     } else {
-      setSuccess('Conta criada! Confirme seu email e aguarde a aprovação de um gestor para acessar o sistema.')
+      setSuccess(conviteToken
+        ? 'Conta criada! Confirme seu email para concluir o acesso pelo convite.'
+        : 'Conta criada! Confirme seu email e aguarde a aprovação de um gestor para acessar o sistema.')
       setTimeout(() => navigate('/login'), 3000)
     }
   }

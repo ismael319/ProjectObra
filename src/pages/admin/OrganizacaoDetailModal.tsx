@@ -196,7 +196,10 @@ export default function OrganizacaoDetailModal({
 
   const handleTrocarPapel = async (membro: MembroRow, papel: PapelUsuario) => {
     setSavingPapelId(membro.id)
-    const { error } = await supabase.from('user_profiles').update({ papel }).eq('id', membro.id)
+    const { error } = await supabase.rpc('alterar_papel_usuario', {
+      p_usuario_id: membro.id,
+      p_papel: papel,
+    })
     if (error) {
       toast.error(`Não foi possível trocar o nível de acesso: ${error.message}`)
     } else {

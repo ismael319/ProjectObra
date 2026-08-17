@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase'
 
 export interface EnviarConviteParams {
   conviteId: string
+  token: string
 }
 
 export async function enviarConviteEmail(params: EnviarConviteParams) {
@@ -9,6 +10,7 @@ export async function enviarConviteEmail(params: EnviarConviteParams) {
   const { data, error } = await supabase.functions.invoke('enviar-convite', {
     body: {
       conviteId: params.conviteId,
+      token: params.token,
     },
   })
 

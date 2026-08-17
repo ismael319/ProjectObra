@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Play, Pause, SkipBack, SkipForward, X } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
 import { fetchPublicoPlaylist, fetchPublicoSlides, type TipoTela } from '@/lib/apresentacao-db'
 import SlideDashboardMacro from './SlideDashboardMacro'
 import SlideCurvaS from './SlideCurvaS'
@@ -9,11 +8,6 @@ import SlideOcorrencias from './SlideOcorrencias'
 import SlideProducaoVisual from './SlideProducaoVisual'
 import SlideMapaSetores from './SlideMapaSetores'
 import SlideCustomUrl from './SlideCustomUrl'
-
-// Tipos cujo dado vem de projeto_kpis_snapshot — vale a pena forçar o
-// refresh sob demanda antes de mostrar (a função no banco já tem guard de
-// 30s, então chamar toda vez que um desses slides entra é seguro).
-const TIPOS_QUE_USAM_SNAPSHOT: TipoTela[] = ['dashboard_macro', 'curva_s']
 
 function renderSlide(tipo: TipoTela, token: string, projetoId: string | null, parametros: Record<string, unknown>) {
   switch (tipo) {
@@ -51,10 +45,12 @@ export default function PresentationPlayer({ token, controlavel = false, onSair 
   const { data: playlist, isLoading: carregandoPlaylist } = useQuery({
     queryKey: ['apresentacao-publica-playlist', token],
     queryFn: () => fetchPublicoPlaylist(token),
+    refetchInterval: 30_000,
   })
   const { data: slides = [], isLoading: carregandoSlides } = useQuery({
     queryKey: ['apresentacao-publica-slides', token],
     queryFn: () => fetchPublicoSlides(token),
+    refetchInterval: 30_000,
   })
 
   const [indice, setIndice] = useState(0)
@@ -62,15 +58,6 @@ export default function PresentationPlayer({ token, controlavel = false, onSair 
   const [visivel, setVisivel] = useState(true)
 
   const slideAtual = slides[indice]
-
-  // Refresh sob demanda do snapshot ANTES de trocar pro slide — cumpre
-  // "auto-refresh a cada troca de slide, sem cache stale" sem precisar de
-  // refresh em tempo real pro resto do app (ver migration da Fase C).
-  useEffect(() => {
-    if (slideAtual && TIPOS_QUE_USAM_SNAPSHOT.includes(slideAtual.tipoTela)) {
-      supabase.rpc('refresh_projeto_kpis_sob_demanda').then(() => {})
-    }
-  }, [slideAtual?.slideId, slideAtual?.tipoTela])
 
   // Avanço automático — reinicia a cada troca de slide/pausa.
   useEffect(() => {

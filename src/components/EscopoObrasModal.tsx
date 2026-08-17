@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { supabase } from '@/lib/supabase'
-import { useAuth } from '@/lib/auth-context'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -19,7 +18,6 @@ interface Props {
 }
 
 export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuarioEmail, organizacaoId }: Props) {
-  const { user } = useAuth()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [escopo, setEscopo] = useState<Escopo>('todos')
@@ -73,34 +71,12 @@ export default function EscopoObrasModal({ open, onOpenChange, usuarioId, usuari
     setSaving(true)
     try {
       const ids = [...selecionados]
-      if (escopo === 'vinculados') {
-        const { error: insertError } = await supabase.from('projeto_usuarios').upsert(
-          ids.map((projeto_id) => ({ projeto_id, user_id: usuarioId, atribuido_por: user?.id ?? null })),
-          { onConflict: 'projeto_id,user_id' },
-        )
-        if (insertError) throw insertError
-
-        const removidos = projetos.map((projeto) => projeto.id).filter((id) => !selecionados.has(id))
-        if (removidos.length > 0) {
-          const { error: deleteError } = await supabase
-            .from('projeto_usuarios')
-            .delete()
-            .eq('user_id', usuarioId)
-            .in('projeto_id', removidos)
-          if (deleteError) throw deleteError
-        }
-      }
-
-      const { error: perfilError } = await supabase
-        .from('user_profiles')
-        .update({ escopo_projetos: escopo })
-        .eq('id', usuarioId)
-      if (perfilError) throw perfilError
-
-      if (escopo === 'todos') {
-        const { error: deleteError } = await supabase.from('projeto_usuarios').delete().eq('user_id', usuarioId)
-        if (deleteError) throw deleteError
-      }
+      const { error } = await supabase.rpc('definir_escopo_projetos', {
+        p_usuario_id: usuarioId,
+        p_escopo: escopo,
+        p_projeto_ids: ids,
+      })
+      if (error) throw error
 
       toast.success(escopo === 'todos' ? 'Acesso liberado para todas as obras.' : 'Obras permitidas atualizadas.')
       onOpenChange(false)
