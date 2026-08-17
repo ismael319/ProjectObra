@@ -133,7 +133,11 @@ export default function DashboardLayout() {
   const activeCount = currentProject ? (currentProject.cronogramas || []).filter((c) => c.ativo).length : 0
   const totalCount = currentProject ? (currentProject.cronogramas || []).length : 0
   const pageTitle = getDashboardRouteTitle(location.pathname)
-  const hasMobileBottomNav = isMobile && !presentationMode && !isInsercaoPontual
+  // Portfólio e a própria tela de configurar Apresentação são visões que
+  // olham várias/todas as obras de uma vez — a navegação do dashboard
+  // (sidebar/bottom-nav) é "de dentro de uma obra" e não faz sentido aqui.
+  const escondeNavegacao = presentationMode || rotaSemProjetoObrigatorio
+  const hasMobileBottomNav = isMobile && !escondeNavegacao && !isInsercaoPontual
 
   const headerProps = {
     pageTitle,
@@ -170,6 +174,10 @@ export default function DashboardLayout() {
     podeVerPortfolio,
     podeConfigurarApresentacao,
     projectName: currentProject?.nome,
+    // Módulos da sidebar (Engenharia, Qualidade, Segurança...) são navegação
+    // DENTRO de uma obra — sem projeto selecionado (Portfólio, Apresentação
+    // "de todas as obras") eles não fazem sentido e escondem.
+    temProjeto: !!currentProject,
     brandColor,
   }
 
@@ -178,13 +186,14 @@ export default function DashboardLayout() {
       <DashboardHeader {...headerProps} variant={isMobile ? 'mobile' : 'desktop'} />
 
       {/* Sidebar abaixo do header — escondida em modo apresentação (ex.: Gantt
-          Livre) pra sobrar tela inteira pro conteúdo durante uma reunião. */}
-      {!presentationMode && (
+          Livre) e na própria tela de configurar Apresentação, pra sobrar tela
+          inteira pro conteúdo. */}
+      {!escondeNavegacao && (
         <DashboardNavigation {...navigationProps} />
       )}
 
       {/* Conteúdo principal */}
-      <main className={`dashboard-app-content min-w-0 pt-14 transition-all duration-300 sm:pt-16 ${isMobile ? 'mobile-app-content' : ''} ${presentationMode ? '' : sidebarCollapsed ? 'lg:ml-[calc(4rem+env(safe-area-inset-left,0px))]' : 'lg:ml-[calc(16rem+env(safe-area-inset-left,0px))]'}`}>
+      <main className={`dashboard-app-content min-w-0 pt-14 transition-all duration-300 sm:pt-16 ${isMobile ? 'mobile-app-content' : ''} ${escondeNavegacao ? '' : sidebarCollapsed ? 'lg:ml-[calc(4rem+env(safe-area-inset-left,0px))]' : 'lg:ml-[calc(16rem+env(safe-area-inset-left,0px))]'}`}>
         <div className={`dashboard-content-inner min-w-0 p-4 sm:p-6 ${hasMobileBottomNav ? 'mobile-content-with-nav' : ''}`}>
           <OfflineBanner />
           <PwaUpdateBanner />

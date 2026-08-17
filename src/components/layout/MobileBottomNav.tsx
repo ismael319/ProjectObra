@@ -8,6 +8,7 @@ interface MobileBottomNavProps {
   modulos: string[]
   podeGerenciarUsuarios: boolean
   projectName?: string
+  temProjeto?: boolean
   brandColor: string
 }
 
@@ -28,12 +29,13 @@ export default function MobileBottomNav({
   modulos,
   podeGerenciarUsuarios,
   projectName,
+  temProjeto = true,
   brandColor,
 }: MobileBottomNavProps) {
   const location = useLocation()
   const navigate = useNavigate()
   const [moreOpen, setMoreOpen] = useState(false)
-  const sections = useMemo(() => buildNavSections(modulos), [modulos])
+  const sections = useMemo(() => (temProjeto ? buildNavSections(modulos) : []), [modulos, temProjeto])
 
   const primaryItems = useMemo(() => {
     const items = sections.flatMap((section) => section.items)

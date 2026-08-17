@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { GripVertical, RotateCcw, X } from 'lucide-react'
-import { FILTERABLE_WIDGETS, type WidgetFiltros, type WidgetId } from '@/lib/dashboard-config'
+import type { WidgetFiltros } from '@/lib/dashboard-widgets-db'
 import ColumnValueFilter from '@/components/ColumnValueFilter'
 import type { CronogramaInfo } from '@/lib/project-store'
 import { useMediaQuery } from '@/lib/use-media-query'
@@ -8,8 +8,9 @@ import { useMediaQuery } from '@/lib/use-media-query'
 type Props = {
   x: number
   y: number
-  widgetId: WidgetId
+  widgetId: string
   widgetLabel: string
+  suportaFiltros: boolean
   cronogramasAtivos: CronogramaInfo[]
   filtros: WidgetFiltros
   onChange: (filtros: WidgetFiltros) => void
@@ -21,6 +22,7 @@ export default function WidgetFilterMenu({
   y,
   widgetLabel,
   widgetId,
+  suportaFiltros,
   cronogramasAtivos,
   filtros,
   onChange,
@@ -101,7 +103,6 @@ export default function WidgetFilterMenu({
     window.addEventListener('mouseup', onUp)
   }
 
-  const suportaFiltros = FILTERABLE_WIDGETS.includes(widgetId)
   const activeFilterCount = (filtros.cronograma === 'todos' ? 0 : 1) + filtros.colunas.length
 
   // Só os cronogramas que entram no cálculo deste card — quando um cronograma

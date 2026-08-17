@@ -1,128 +1,128 @@
-import { useMemo } from 'react'
-import { Users, Clock, TrendingUp, TrendingDown } from 'lucide-react'
-import { useProject } from '@/lib/project-context'
-import { toDate } from '@/lib/utils'
+import { useQuery } from '@tanstack/react-query'
+import { Users, Loader2 } from 'lucide-react'
+import { supabase } from '@/lib/supabase'
+import { useAuth } from '@/lib/auth-context'
 
-const GROUP_COLORS = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#db2777', '#65a30d']
+interface ResumoApontamento {
+  data: string
+  registros: number
+  pedreiro: number
+  servente: number
+  carpinteiro: number
+  qntdd_funcao: number
+  total: number
+}
 
-export default function WorkforceSummary() {
-  const { resources, laborEntries } = useProject()
+// Antes este card lia `laborEntries` do project-context — um estado que
+// nenhuma tela do app popula (addLaborEntry/removeLaborEntry não são
+// chamados em lugar nenhum), então sempre mostrava "0 HH apontadas".
+// Passou a ler direto de apontamentos_diarios (mesma tabela da tela de
+// Apontamento > Dashboard), do dia mais recente com lançamento — headcount
+// (nº de pessoas por função), não HH, porque é isso que a tabela guarda.
+function useResumoApontamentoRecente(organizacaoId: string | undefined, projetoId: string | undefined) {
+  return useQuery({
+    queryKey: ['apontamento_resumo_recente', organizacaoId, projetoId],
+    enabled: !!organizacaoId && !!projetoId,
+    staleTime: 5 * 60 * 1000,
+    queryFn: async (): Promise<ResumoApontamento | null> => {
+      const { data: ultimo, error: errUltimo } = await supabase
+        .from('apontamentos_diarios')
+        .select('data')
+        .eq('organizacao_id', organizacaoId!)
+        .eq('projeto_id', projetoId!)
+        .order('data', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (errUltimo) throw new Error(errUltimo.message)
+      if (!ultimo) return null
 
-  const stats = useMemo(() => {
-    const now = new Date()
-    const last7 = new Date(now.getTime() - 7 * 86400000)
-    const prev7 = new Date(now.getTime() - 14 * 86400000)
+      const { data: linhas, error } = await supabase
+        .from('apontamentos_diarios')
+        .select('pedreiro, servente, carpinteiro, qntdd_funcao, total')
+        .eq('organizacao_id', organizacaoId!)
+        .eq('projeto_id', projetoId!)
+        .eq('data', ultimo.data)
+      if (error) throw new Error(error.message)
 
-    const activeResourceUids = new Set(laborEntries.map((e) => e.resourceUid))
-    const totalHours = laborEntries.reduce((s, e) => s + e.hours, 0)
-    const last7Hours = laborEntries.filter((e) => toDate(e.date) >= last7).reduce((s, e) => s + e.hours, 0)
-    const prev7Hours = laborEntries
-      .filter((e) => toDate(e.date) >= prev7 && toDate(e.date) < last7)
-      .reduce((s, e) => s + e.hours, 0)
-    const trendPct = prev7Hours > 0 ? ((last7Hours - prev7Hours) / prev7Hours) * 100 : null
+      const acc = { pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, total: 0 }
+      for (const l of linhas ?? []) {
+        acc.pedreiro += l.pedreiro ?? 0
+        acc.servente += l.servente ?? 0
+        acc.carpinteiro += l.carpinteiro ?? 0
+        acc.qntdd_funcao += l.qntdd_funcao ?? 0
+        acc.total += l.total ?? 0
+      }
+      return { data: ultimo.data, registros: linhas?.length ?? 0, ...acc }
+    },
+  })
+}
 
-    const byGroup = new Map<string, number>()
-    for (const e of laborEntries) {
-      const res = resources.find((r) => r.uid === e.resourceUid)
-      const key = res?.group?.trim() || 'Sem grupo'
-      byGroup.set(key, (byGroup.get(key) || 0) + e.hours)
-    }
-    const groupBreakdown = Array.from(byGroup.entries())
-      .map(([name, hours]) => ({ name, hours, pct: totalHours > 0 ? (hours / totalHours) * 100 : 0 }))
-      .sort((a, b) => b.hours - a.hours)
-      .slice(0, 6)
+function formatarData(iso: string) {
+  return new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR')
+}
 
-    return {
-      activeResources: activeResourceUids.size,
-      totalResources: resources.length,
-      totalHours,
-      last7Hours,
-      trendPct,
-      groupBreakdown,
-    }
-  }, [resources, laborEntries])
+export default function WorkforceSummary({ projetoId }: { projetoId: string | undefined }) {
+  const { userProfile } = useAuth()
+  const { data: resumo, isLoading } = useResumoApontamentoRecente(userProfile?.organizacao_id, projetoId)
 
-  if (resources.length === 0 && laborEntries.length === 0) {
-    return (
-      <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
-        <div className="mb-3 flex items-center gap-2">
-          <Users size={18} className="text-amber-600 dark:text-amber-400" />
-          <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Resumo do Efetivo</h2>
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum recurso ou apontamento registrado.</p>
-      </div>
-    )
-  }
+  const funcoes = resumo
+    ? [
+        { name: 'Pedreiro', qtd: resumo.pedreiro },
+        { name: 'Servente', qtd: resumo.servente },
+        { name: 'Carpinteiro', qtd: resumo.carpinteiro },
+        { name: 'Outras funções', qtd: resumo.qntdd_funcao },
+      ].filter((f) => f.qtd > 0)
+    : []
+  const maxQtd = Math.max(1, ...funcoes.map((f) => f.qtd))
 
   return (
     <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-card dark:border-gray-700 dark:bg-gray-800 sm:rounded-xl sm:p-6 sm:shadow-sm">
-      <div className="flex items-center gap-2 mb-4">
+      <div className="mb-4 flex items-center gap-2">
         <Users size={18} className="text-amber-600 dark:text-amber-400" />
-        <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Resumo do Efetivo</h2>
+        <h2 className="text-base font-bold text-gray-900 dark:text-white sm:text-lg">Apontamento de Mão de Obra</h2>
       </div>
 
-      <div className="grid grid-cols-1 gap-5 sm:gap-6 lg:grid-cols-3">
-        {/* Números principais */}
-        <div className="grid grid-cols-2 gap-4 content-start">
-          <div>
-            <p className="text-2xl font-extrabold text-gray-900 dark:text-white">{stats.activeResources}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Recursos com apontamento</p>
-            <p className="text-[11px] text-gray-400 dark:text-gray-500">de {stats.totalResources} cadastrados</p>
-          </div>
-          <div>
-            <p className="text-2xl font-extrabold text-gray-900 dark:text-white">{stats.totalHours.toFixed(0)}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">HH apontadas (total)</p>
-          </div>
-          <div className="col-span-2 pt-2 border-t border-gray-100 dark:border-gray-700">
-            <div className="flex items-center gap-2">
-              <Clock size={14} className="text-gray-400 dark:text-gray-500" />
-              <span className="text-sm font-semibold text-gray-700 dark:text-gray-300">{stats.last7Hours.toFixed(0)}h</span>
-              <span className="text-xs text-gray-400 dark:text-gray-500">últimos 7 dias</span>
-              {stats.trendPct !== null && (
-                <span
-                  className={`ml-auto flex items-center gap-0.5 text-xs font-semibold px-1.5 py-0.5 rounded-full ${
-                    stats.trendPct >= 0
-                      ? 'text-green-700 bg-green-50 dark:text-green-400 dark:bg-green-500/10'
-                      : 'text-red-700 bg-red-50 dark:text-red-400 dark:bg-red-500/10'
-                  }`}
-                >
-                  {stats.trendPct >= 0 ? <TrendingUp size={11} /> : <TrendingDown size={11} />}
-                  {Math.abs(stats.trendPct).toFixed(0)}%
-                </span>
-              )}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 size={18} className="animate-spin text-gray-300" />
+        </div>
+      ) : !resumo ? (
+        <p className="text-sm text-gray-500 dark:text-gray-400">Nenhum apontamento registrado ainda para este projeto.</p>
+      ) : (
+        <div className="grid grid-cols-1 gap-5 sm:gap-6 lg:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4 content-start">
+            <div>
+              <p className="text-2xl font-extrabold text-gray-900 dark:text-white">{resumo.total}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Pessoas em {formatarData(resumo.data)}</p>
+            </div>
+            <div>
+              <p className="text-2xl font-extrabold text-gray-900 dark:text-white">{resumo.registros}</p>
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Registros no dia</p>
             </div>
           </div>
-        </div>
 
-        {/* HH por grupo */}
-        <div className="border-t border-gray-100 pt-5 dark:border-gray-700 sm:border-t-0 sm:pt-0 lg:col-span-2">
-          <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-            HH por Grupo de Recurso
-          </h3>
-          {stats.groupBreakdown.length === 0 ? (
-            <p className="text-sm text-gray-400 dark:text-gray-500">Nenhum apontamento registrado</p>
-          ) : (
-            <div className="space-y-2.5">
-              {stats.groupBreakdown.map((g, i) => (
-                <div key={g.name}>
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="text-gray-700 dark:text-gray-300 truncate">{g.name}</span>
-                    <span className="text-gray-400 dark:text-gray-500 shrink-0 ml-2">
-                      {g.hours.toFixed(0)}h · {g.pct.toFixed(0)}%
-                    </span>
+          <div className="border-t border-gray-100 pt-5 dark:border-gray-700 sm:border-t-0 sm:pt-0 lg:col-span-2">
+            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Por função</h3>
+            {funcoes.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">Sem detalhamento por função nesse dia.</p>
+            ) : (
+              <div className="space-y-2.5">
+                {funcoes.map((f) => (
+                  <div key={f.name}>
+                    <div className="mb-1 flex items-center justify-between text-xs">
+                      <span className="text-gray-700 dark:text-gray-300">{f.name}</span>
+                      <span className="shrink-0 text-gray-400 dark:text-gray-500">{f.qtd}</span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-gray-100 dark:bg-gray-700">
+                      <div className="h-1.5 rounded-full bg-amber-500" style={{ width: `${(f.qtd / maxQtd) * 100}%` }} />
+                    </div>
                   </div>
-                  <div className="w-full bg-gray-100 dark:bg-gray-700 rounded-full h-1.5">
-                    <div
-                      className="h-1.5 rounded-full"
-                      style={{ width: `${g.pct}%`, backgroundColor: GROUP_COLORS[i % GROUP_COLORS.length] }}
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

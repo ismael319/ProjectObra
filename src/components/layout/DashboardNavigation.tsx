@@ -14,12 +14,14 @@ interface NavigationProps {
   podeVerPortfolio?: boolean
   podeConfigurarApresentacao?: boolean
   projectName?: string
+  temProjeto?: boolean
   brandColor: string
 }
 
 export function DashboardNavigation({
   variant,
   projectName,
+  temProjeto = true,
   brandColor,
   ...sidebarProps
 }: NavigationProps) {
@@ -30,10 +32,11 @@ export function DashboardNavigation({
         modulos={sidebarProps.modulos ?? []}
         podeGerenciarUsuarios={sidebarProps.podeGerenciarUsuarios}
         projectName={projectName}
+        temProjeto={temProjeto}
         brandColor={brandColor}
       />
     )
   }
 
-  return <Sidebar {...sidebarProps} />
+  return <Sidebar {...sidebarProps} temProjeto={temProjeto} />
 }

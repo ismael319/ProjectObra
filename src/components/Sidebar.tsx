@@ -61,15 +61,19 @@ interface SidebarProps {
   // já que alguém pode ter um override edicao só em "sistema".
   podeGerenciarUsuarios?: boolean
   podeConfigurarApresentacao?: boolean
+  // Sem obra selecionada (Portfólio, Apresentação "de todas as obras") os
+  // módulos abaixo (Engenharia, Qualidade...) são navegação de DENTRO de uma
+  // obra e não fazem sentido — ficam escondidos.
+  temProjeto?: boolean
 }
 
 export default function Sidebar({
   collapsed, onToggle, mobileOpen, onMobileClose, papel,
-  modulos = [], podeGerenciarUsuarios = false, podeConfigurarApresentacao = false,
+  modulos = [], podeGerenciarUsuarios = false, podeConfigurarApresentacao = false, temProjeto = true,
 }: SidebarProps) {
   const isInsercaoPontual = papel === 'insercao_pontual'
 
-  const navSections = isInsercaoPontual ? navSectionsInsercaoPontual : buildNavSections(modulos)
+  const navSections = !temProjeto ? [] : isInsercaoPontual ? navSectionsInsercaoPontual : buildNavSections(modulos)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
     new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
   )
