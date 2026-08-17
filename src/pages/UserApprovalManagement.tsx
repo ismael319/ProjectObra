@@ -113,6 +113,8 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
         .select('id, email, papel_convidado, criado_em')
         .eq('organizacao_id', orgAlvo)
         .is('usado_em', null)
+        .is('revogado_em', null)
+        .gt('expira_em', new Date().toISOString())
         .order('criado_em', { ascending: false })
 
       if (error) {
