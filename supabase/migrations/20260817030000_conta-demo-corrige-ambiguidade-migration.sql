@@ -14,6 +14,11 @@
 -- (a Edge Function) não lê o `data`, só o `error`, então não quebra nada.
 -- ============================================================
 
+-- Mudar o nome das colunas de saída conta como "tipo de retorno diferente"
+-- pro Postgres — CREATE OR REPLACE sozinho não permite, precisa apagar a
+-- versão antiga primeiro.
+DROP FUNCTION IF EXISTS public.resgatar_acesso_demo(uuid, uuid);
+
 CREATE OR REPLACE FUNCTION public.resgatar_acesso_demo(p_id uuid, p_user_id uuid DEFAULT NULL)
 RETURNS TABLE (out_organizacao_id uuid, out_projeto_id uuid)
 LANGUAGE plpgsql
