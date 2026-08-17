@@ -2,48 +2,62 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-const APP_ORIGIN = Deno.env.get('APP_ORIGIN') ?? 'https://project-obra.vercel.app'
 
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': APP_ORIGIN,
-  'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Max-Age': '86400',
+// Origens permitidas a chamar esta função: produção + dev local (Vite roda
+// em 5173 por padrão). Ecoa a origem da requisição em vez de fixar uma só —
+// senão testar em localhost sempre esbarra em CORS bloqueado pelo navegador.
+const ALLOWED_ORIGINS = new Set([
+  Deno.env.get('APP_ORIGIN') ?? 'https://project-obra.vercel.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+])
+
+function corsHeaders(origin: string | null) {
+  const allowOrigin = origin && ALLOWED_ORIGINS.has(origin) ? origin : 'https://project-obra.vercel.app'
+  return {
+    'Access-Control-Allow-Origin': allowOrigin,
+    'Access-Control-Allow-Headers': 'authorization, apikey, x-client-info, content-type',
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Max-Age': '86400',
+    Vary: 'Origin',
+  }
 }
 
-function json(data: unknown, status = 200): Response {
+function json(data: unknown, status: number, headers: Record<string, string>): Response {
   return new Response(JSON.stringify(data), {
     status,
     headers: {
       'Content-Type': 'application/json',
-      ...CORS_HEADERS,
+      ...headers,
     },
   })
 }
 
 Deno.serve(async (request: Request) => {
+  const cors = corsHeaders(request.headers.get('Origin'))
+
   if (request.method === 'OPTIONS') {
-    return new Response('ok', { status: 200, headers: CORS_HEADERS })
+    return new Response('ok', { status: 200, headers: cors })
   }
 
   if (request.method !== 'POST') {
-    return json({ error: 'Método não permitido' }, 405)
+    return json({ error: 'Método não permitido' }, 405, cors)
   }
 
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
-    return json({ error: 'Configuração do servidor incompleta' }, 500)
+    return json({ error: 'Configuração do servidor incompleta' }, 500, cors)
   }
 
   let body: { id?: string }
   try {
     body = await request.json()
   } catch {
-    return json({ error: 'JSON inválido' }, 400)
+    return json({ error: 'JSON inválido' }, 400, cors)
   }
 
   const id = body?.id
   if (!id || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) {
-    return json({ error: 'Link de acesso demo inválido' }, 400)
+    return json({ error: 'Link de acesso demo inválido' }, 400, cors)
   }
 
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY)
@@ -59,7 +73,7 @@ Deno.serve(async (request: Request) => {
 
   if (linkError || !linkData?.user) {
     console.error('Falha ao gerar magic link demo:', linkError?.message)
-    return json({ error: 'Não foi possível iniciar a sessão demo' }, 500)
+    return json({ error: 'Não foi possível iniciar a sessão demo' }, 500, cors)
   }
 
   const { error: rpcError } = await admin.rpc('resgatar_acesso_demo', {
@@ -71,8 +85,8 @@ Deno.serve(async (request: Request) => {
     console.error('Falha ao resgatar acesso demo:', rpcError.message)
     // A RPC já valida link inválido/revogado/expirado e lança exceção — a
     // mensagem dela é segura pra mostrar direto pro visitante.
-    return json({ error: rpcError.message }, 400)
+    return json({ error: rpcError.message }, 400, cors)
   }
 
-  return json({ hashed_token: linkData.properties.hashed_token })
+  return json({ hashed_token: linkData.properties.hashed_token }, 200, cors)
 })
