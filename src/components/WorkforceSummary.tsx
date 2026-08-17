@@ -63,7 +63,7 @@ function formatarData(iso: string) {
 
 export default function WorkforceSummary({ projetoId }: { projetoId: string | undefined }) {
   const { userProfile } = useAuth()
-  const { data: resumo, isLoading } = useResumoApontamentoRecente(userProfile?.organizacao_id, projetoId)
+  const { data: resumo, isLoading } = useResumoApontamentoRecente(userProfile?.organizacao_id ?? undefined, projetoId)
 
   const funcoes = resumo
     ? [
