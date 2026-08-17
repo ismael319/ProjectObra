@@ -180,7 +180,7 @@ describe('computeIndicatorsCronograma — mede o plano original', () => {
 })
 
 describe('computeSegment', () => {
-  it('agrupa pelo campo e ordena por volume', () => {
+  it('agrupa pelo campo e ordena por aderência, maior pra menor', () => {
     const linhas = computeSegment(
       [
         ativ({ foreman: 'Ana', status: 'concluida' }),
@@ -189,9 +189,9 @@ describe('computeSegment', () => {
       ],
       'foreman',
     )
-    expect(linhas.map((l) => l.name)).toEqual(['Ana', 'Beto'])
-    expect(linhas[0].pct).toBe(0.5)
-    expect(linhas[1].pct).toBe(1)
+    expect(linhas.map((l) => l.name)).toEqual(['Beto', 'Ana'])
+    expect(linhas[0].pct).toBe(1)
+    expect(linhas[1].pct).toBe(0.5)
   })
 
   it('sem valor no campo cai em "(sem valor)", inclusive string vazia', () => {
@@ -222,6 +222,47 @@ describe('computeSegment', () => {
     const importada = ativ({ is_extra: false, area: null, areaPath: 'Bloco B / Laje 3' })
     const linhas = computeSegment([importada], 'area')
     expect(linhas[0].name).toBe('Bloco B')
+  })
+
+  it('área digitada diferente (maiúscula/acento/espaço) cai no mesmo grupo da EDT', () => {
+    const importada1 = ativ({ is_extra: false, area: null, areaPath: 'ARMAZÉM GRANDE / EXPEDIÇÃO' })
+    const importada2 = ativ({ is_extra: false, area: null, areaPath: 'ARMAZÉM GRANDE / RECEBIMENTO' })
+    const extraDigitadaDiferente = ativ({ is_extra: true, area: 'Armazém  grande', foreman: null })
+    const linhas = computeSegment([importada1, importada2, extraDigitadaDiferente], 'area')
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0].count).toBe(3)
+    // Nome de exibição é a grafia mais comum no grupo (a da EDT, 2 contra 1).
+    expect(linhas[0].name).toBe('ARMAZÉM GRANDE')
+  })
+
+  it('área com nível 3 colado no texto livre cai no mesmo grupo do nível 2 puro', () => {
+    const importada1 = ativ({ is_extra: false, area: null, areaPath: 'ARMAZÉM GRANELEIRO 02 (303.108t) / OITÃO 1ª ETAPA' })
+    const importada2 = ativ({ is_extra: false, area: null, areaPath: 'ARMAZÉM GRANELEIRO 02 (303.108t) / RECEBIMENTO' })
+    // Extra com o path inteiro (nível 2 + nível 3) colado no campo de texto livre.
+    const extraComPathInteiro = ativ({
+      is_extra: true,
+      foreman: null,
+      area: 'ARMAZÉM GRANELEIRO 02 (303.108t) / OITÃO 1ª ETAPA (EIXO 01 CASA DE MÁQUINAS/RECEBIMENTO)',
+    })
+    const linhas = computeSegment([importada1, importada2, extraComPathInteiro], 'area')
+    expect(linhas).toHaveLength(1)
+    expect(linhas[0].count).toBe(3)
+    expect(linhas[0].name).toBe('ARMAZÉM GRANELEIRO 02 (303.108t)')
+  })
+
+  it('inativa entra na Aderência do Cronograma do grupo, mesmo saindo da Ajustada', () => {
+    const linhas = computeSegment(
+      [
+        ativ({ foreman: 'Ana', status: 'concluida', isExtraOriginal: false }),
+        ativ({ foreman: 'Ana', status: 'nao_concluida', inativa: true, isExtraOriginal: false }),
+      ],
+      'foreman',
+    )
+    // Ajustada: a inativa sai do grupo inteiro — só a concluída conta.
+    expect(linhas[0].count).toBe(1)
+    expect(linhas[0].pct).toBe(1)
+    // Cronograma: o compromisso original continua cobrando a inativa.
+    expect(linhas[0].pctCronograma).toBe(0.5)
   })
 })
 

@@ -1,8 +1,10 @@
-import { useMemo, useState, useEffect, useCallback } from 'react'
+import { useMemo, useState, useEffect, useCallback, useRef } from 'react'
 import { Calendar, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { getISOWeekYearAndNumber, isoWeekFromParts, addDays, toISODateStr, parseISODateStr, formatShortDate } from '@/lib/iso-week'
+import { downloadNodeAsPng } from '@/lib/png-export'
+import { useTheme } from '@/lib/theme-context'
 import { computeIndicators, computeIndicatorsCronograma, computeIndicatorsDia, diaComprometidoPorAtividade, computeSegment, type ActivityLike, type ActivityStatus, type SubEtapa, type WeekIndicators } from '@/lib/adherence'
 import {
   getWeek,
@@ -39,6 +41,7 @@ import ModalEngenheirosArea from '@/components/programacao/ModalEngenheirosArea'
 import ModalExportarImagem, { type AlvoExportacao } from '@/components/programacao/ModalExportarImagem'
 import IndicadoresSemana from '@/components/programacao/IndicadoresSemana'
 import PainelAderencia from '@/components/programacao/PainelAderencia'
+import TabelaAderenciaEngenheiro from '@/components/programacao/TabelaAderenciaEngenheiro'
 import ModalAnaliseSemana from '@/components/programacao/ModalAnaliseSemana'
 import PainelValidacaoSemana from '@/components/programacao/PainelValidacaoSemana'
 import { programacaoProntaParaBloqueio } from '@/lib/validacao/programacao'
@@ -56,6 +59,7 @@ export default function DailyProgramming() {
   const organizacaoId = userProfile?.organizacao_id ?? ''
   const projetoId = currentProject?.id ?? ''
   const { podeEditar } = usePapelModulo('engenharia')
+  const { isDark } = useTheme()
   const now = new Date()
   const cur = getISOWeekYearAndNumber(now)
   const [isoYear, setIsoYear] = useState(cur.year)
@@ -79,6 +83,11 @@ export default function DailyProgramming() {
   const [showExportar, setShowExportar] = useState(false)
   const [alvoExportacao, setAlvoExportacao] = useState<AlvoExportacao | null>(null)
   const [showAnalise, setShowAnalise] = useState(false)
+  const [exportandoResumo, setExportandoResumo] = useState(false)
+  // Envolve exatamente o que aparece na tela (dias da semana + indicadores +
+  // aderências) — o "fechamento" visual da semana, pra exportar como imagem
+  // sem precisar remontar esse layout num componente à parte.
+  const resumoRef = useRef<HTMLDivElement>(null)
 
   // showLoading=false evita o spinner de página inteira (que some com o modal aberto)
   // em atualizações depois de uma ação — status, exclusão, importação etc. Só a
@@ -327,6 +336,22 @@ export default function DailyProgramming() {
     if (days.length === 0) return
     setAlvoExportacao({ tipo: 'semana', weekDays: days })
     setShowExportar(true)
+  }
+
+  // Diferente de handleExportarSemana (matriz por engenheiro, num card à
+  // parte): aqui é literal — captura o resumo já renderizado na tela
+  // (dias, indicadores, aderências), pro fechamento da semana.
+  const handleExportarResumo = async () => {
+    if (!resumoRef.current || !weekData) return
+    setExportandoResumo(true)
+    try {
+      const semana = `${weekData.week.iso_year}-S${String(weekData.week.iso_week).padStart(2, '0')}`
+      await downloadNodeAsPng(resumoRef.current, `resumo-semana-${semana}.png`, isDark ? '#0f172a' : '#ffffff')
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Erro ao exportar o resumo')
+    } finally {
+      setExportandoResumo(false)
+    }
   }
 
   const goto = (y: number, w: number) => {
@@ -682,9 +707,12 @@ export default function DailyProgramming() {
         onClearWeek={handleClearWeek}
         onManageEngenheiros={() => setShowEngenheirosArea(true)}
         onExportSemanal={handleExportarSemana}
+        onExportResumo={handleExportarResumo}
+        exportandoResumo={exportandoResumo}
         onAnalysis={() => setShowAnalise(true)}
       />
 
+      <div ref={resumoRef} className="space-y-6">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-7">
         {days.map((d) => (
           <CardDia
@@ -698,14 +726,15 @@ export default function DailyProgramming() {
         ))}
       </div>
 
-      <PainelValidacaoSemana weekId={weekData.week.id} />
-
       <IndicadoresSemana ind={indicators} aderenciaCronograma={indicatorsCronograma.aderencia} />
 
       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <PainelAderencia title="Aderência por Área" rows={segArea} />
-        <PainelAderencia title="Aderência por Engenheiro" rows={segEnc} />
+        <TabelaAderenciaEngenheiro title="Aderência por Engenheiro" rows={segEnc} />
       </div>
+      </div>
+
+      <PainelValidacaoSemana weekId={weekData.week.id} />
 
       <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
         Indicadores calculados a partir do status registrado — PPC ponderado Credit activities with partial progress.

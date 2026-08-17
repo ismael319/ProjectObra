@@ -45,6 +45,10 @@ export default function OrganizacoesManagement() {
   // organizacao_id -> contagem, pro selo de pendência no card
   const [pendentesPorOrg, setPendentesPorOrg] = useState<Record<string, number>>({})
   const [convitesPorOrg, setConvitesPorOrg] = useState<Record<string, number>>({})
+  // organizacao_id -> nº de membros aprovados (usuários ativos)
+  const [usuariosAtivosPorOrg, setUsuariosAtivosPorOrg] = useState<Record<string, number>>({})
+  // organizacao_id -> pacote (plano) vigente
+  const [pacotePorOrg, setPacotePorOrg] = useState<Record<string, { nome: string; status: string }>>({})
 
   // Promover Dono da Plataforma
   const [buscaEmailDono, setBuscaEmailDono] = useState('')
@@ -53,12 +57,14 @@ export default function OrganizacoesManagement() {
 
   const load = useCallback(async () => {
     setIsLoading(true)
-    const [orgsRes, modulosRes, orgModulosRes, pendentesRes, convitesRes] = await Promise.all([
+    const [orgsRes, modulosRes, orgModulosRes, pendentesRes, convitesRes, aprovadosRes, pacotesRes] = await Promise.all([
       supabase.from('organizacoes').select('id, nome, is_piloto, ativo, criado_em').order('criado_em', { ascending: false }),
       supabase.from('modulos').select('key, nome').order('nome'),
       supabase.from('organizacao_modulos').select('organizacao_id, modulo_key').eq('ativo', true),
       supabase.from('user_profiles').select('organizacao_id').eq('status_solicitacao', 'pendente'),
       supabase.from('convites').select('organizacao_id').is('usado_em', null),
+      supabase.from('user_profiles').select('organizacao_id').eq('status_solicitacao', 'aprovado'),
+      supabase.from('organizacao_planos').select('organizacao_id, status, plano:planos(nome)').is('data_fim', null),
     ])
 
     let orgsCarregadas: OrganizacaoRow[] = []
@@ -98,6 +104,24 @@ export default function OrganizacoesManagement() {
         contagem[row.organizacao_id] = (contagem[row.organizacao_id] ?? 0) + 1
       }
       setConvitesPorOrg(contagem)
+    }
+
+    if (!aprovadosRes.error) {
+      const contagem: Record<string, number> = {}
+      for (const row of (aprovadosRes.data ?? []) as { organizacao_id: string | null }[]) {
+        if (!row.organizacao_id) continue
+        contagem[row.organizacao_id] = (contagem[row.organizacao_id] ?? 0) + 1
+      }
+      setUsuariosAtivosPorOrg(contagem)
+    }
+
+    if (!pacotesRes.error) {
+      const mapa: Record<string, { nome: string; status: string }> = {}
+      for (const row of (pacotesRes.data ?? []) as { organizacao_id: string; status: string; plano: { nome: string } | { nome: string }[] | null }[]) {
+        const plano = Array.isArray(row.plano) ? row.plano[0] : row.plano
+        if (plano) mapa[row.organizacao_id] = { nome: plano.nome, status: row.status }
+      }
+      setPacotePorOrg(mapa)
     }
 
     setIsLoading(false)
@@ -297,6 +321,8 @@ export default function OrganizacoesManagement() {
               modulosAtivos={modulosPorOrg[org.id] ?? new Set()}
               pendentes={pendentesPorOrg[org.id] ?? 0}
               convitesPendentes={convitesPorOrg[org.id] ?? 0}
+              usuariosAtivos={usuariosAtivosPorOrg[org.id] ?? 0}
+              pacoteAtual={pacotePorOrg[org.id] ?? null}
               onGerenciar={() => setManagingOrgId(org.id)}
             />
           ))}

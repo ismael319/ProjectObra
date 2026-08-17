@@ -1,4 +1,4 @@
-import { Settings2, Bell, Mail } from 'lucide-react'
+import { Settings2, Bell, Mail, Users, Package } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 
 interface ModuloRow {
@@ -14,16 +14,25 @@ interface OrganizacaoRow {
   criado_em: string
 }
 
+const PLANO_STATUS_LABELS: Record<string, string> = {
+  trial: 'Trial',
+  ativo: 'Ativo',
+  suspenso: 'Suspenso',
+  cancelado: 'Cancelado',
+}
+
 interface Props {
   organizacao: OrganizacaoRow
   modulosCatalogo: ModuloRow[]
   modulosAtivos: Set<string>
   pendentes: number
   convitesPendentes: number
+  usuariosAtivos: number
+  pacoteAtual: { nome: string; status: string } | null
   onGerenciar: () => void
 }
 
-export default function OrganizacaoCard({ organizacao, modulosCatalogo, modulosAtivos, pendentes, convitesPendentes, onGerenciar }: Props) {
+export default function OrganizacaoCard({ organizacao, modulosCatalogo, modulosAtivos, pendentes, convitesPendentes, usuariosAtivos, pacoteAtual, onGerenciar }: Props) {
   const modulosNomes = modulosCatalogo.filter((m) => modulosAtivos.has(m.key))
 
   return (
@@ -34,9 +43,25 @@ export default function OrganizacaoCard({ organizacao, modulosCatalogo, modulosA
       </div>
 
       <h3 className="text-lg font-semibold text-gray-900 dark:text-white line-clamp-1 mb-1">{organizacao.nome}</h3>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">
+      <p className="text-xs text-gray-400 dark:text-gray-500 mb-1">
         Criada em {new Date(organizacao.criado_em).toLocaleDateString('pt-BR')}
       </p>
+      <div className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400 mb-2">
+        <Users size={12} />
+        {usuariosAtivos} usuário{usuariosAtivos !== 1 ? 's' : ''} ativo{usuariosAtivos !== 1 ? 's' : ''}
+      </div>
+
+      <div className="mb-3">
+        <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1">Pacote contratado</p>
+        {pacoteAtual ? (
+          <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300">
+            <Package size={11} /> {pacoteAtual.nome}
+            {pacoteAtual.status !== 'ativo' && ` · ${PLANO_STATUS_LABELS[pacoteAtual.status] ?? pacoteAtual.status}`}
+          </span>
+        ) : (
+          <p className="text-xs text-gray-400 dark:text-gray-500 italic">Nenhum pacote atribuído</p>
+        )}
+      </div>
 
       {(pendentes > 0 || convitesPendentes > 0) && (
         <div className="flex flex-wrap gap-1.5 mb-3">

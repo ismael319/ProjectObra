@@ -1,9 +1,27 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, ChevronDown, ChevronRight, Save } from 'lucide-react'
+import { X, Loader2, ChevronDown, ChevronRight, Save, Pencil } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import UserApprovalManagement from '@/pages/UserApprovalManagement'
+
+interface PlanoRow {
+  id: string
+  nome: string
+}
+
+interface PlanoAtualRow {
+  id: string
+  plano_id: string
+  status: string
+}
+
+const PLANO_STATUS_LABELS: Record<string, string> = {
+  trial: 'Trial',
+  ativo: 'Ativo',
+  suspenso: 'Suspenso',
+  cancelado: 'Cancelado',
+}
 
 interface ModuloRow {
   key: string
@@ -49,6 +67,16 @@ export default function OrganizacaoDetailModal({
   onClose,
 }: Props) {
   const { user } = useAuth()
+
+  const [nomeAtual, setNomeAtual] = useState(organizacao.nome)
+  const [editandoNome, setEditandoNome] = useState(false)
+  const [nomeEditado, setNomeEditado] = useState(organizacao.nome)
+  const [salvandoNome, setSalvandoNome] = useState(false)
+
+  const [planosCatalogo, setPlanosCatalogo] = useState<PlanoRow[]>([])
+  const [planoAtual, setPlanoAtual] = useState<PlanoAtualRow | null>(null)
+  const [isLoadingPlano, setIsLoadingPlano] = useState(true)
+  const [salvandoPlano, setSalvandoPlano] = useState(false)
 
   const [membros, setMembros] = useState<MembroRow[]>([])
   const [isLoadingMembros, setIsLoadingMembros] = useState(true)
@@ -98,6 +126,73 @@ export default function OrganizacaoDetailModal({
   useEffect(() => {
     carregar()
   }, [carregar])
+
+  const carregarPlano = useCallback(async () => {
+    setIsLoadingPlano(true)
+    const [planosRes, atualRes] = await Promise.all([
+      supabase.from('planos').select('id, nome').eq('status', 'ativo').order('ordem_exibicao'),
+      supabase
+        .from('organizacao_planos')
+        .select('id, plano_id, status')
+        .eq('organizacao_id', organizacao.id)
+        .is('data_fim', null)
+        .maybeSingle(),
+    ])
+    if (!planosRes.error) setPlanosCatalogo((planosRes.data as PlanoRow[]) ?? [])
+    if (!atualRes.error) setPlanoAtual((atualRes.data as PlanoAtualRow | null) ?? null)
+    setIsLoadingPlano(false)
+  }, [organizacao.id])
+
+  useEffect(() => {
+    carregarPlano()
+  }, [carregarPlano])
+
+  const handleSalvarNome = async () => {
+    const novoNome = nomeEditado.trim()
+    if (!novoNome || novoNome === nomeAtual) {
+      setEditandoNome(false)
+      setNomeEditado(nomeAtual)
+      return
+    }
+    setSalvandoNome(true)
+    const { error } = await supabase.from('organizacoes').update({ nome: novoNome }).eq('id', organizacao.id)
+    if (error) {
+      toast.error(`Não foi possível renomear a empresa: ${error.message}`)
+    } else {
+      toast.success('Nome da empresa atualizado')
+      setNomeAtual(novoNome)
+      setEditandoNome(false)
+    }
+    setSalvandoNome(false)
+  }
+
+  const handleTrocarPlano = async (novoPlanoId: string) => {
+    setSalvandoPlano(true)
+    const hoje = new Date().toISOString().slice(0, 10)
+    let ok = true
+
+    if (planoAtual) {
+      const { error } = await supabase.from('organizacao_planos').update({ data_fim: hoje }).eq('id', planoAtual.id)
+      if (error) {
+        toast.error(`Não foi possível trocar o pacote: ${error.message}`)
+        ok = false
+      }
+    }
+
+    if (ok && novoPlanoId) {
+      const { error } = await supabase
+        .from('organizacao_planos')
+        .insert({ organizacao_id: organizacao.id, plano_id: novoPlanoId, status: 'ativo' })
+      if (error) {
+        toast.error(`Não foi possível atribuir o pacote: ${error.message}`)
+        ok = false
+      }
+    }
+
+    if (ok) toast.success(novoPlanoId ? 'Pacote atualizado' : 'Pacote removido')
+    await carregarPlano()
+    setSalvandoPlano(false)
+  }
 
   const handleTrocarPapel = async (membro: MembroRow, papel: PapelUsuario) => {
     setSavingPapelId(membro.id)
@@ -164,16 +259,78 @@ export default function OrganizacaoDetailModal({
     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
       <div className="bg-white dark:bg-gray-800 rounded-2xl w-full max-w-3xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700 sticky top-0 bg-white dark:bg-gray-800 z-10">
-          <div>
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white">{organizacao.nome}</h2>
-            <p className="text-sm text-gray-500 dark:text-gray-400">Módulos, membros e acesso</p>
+          <div className="min-w-0">
+            {editandoNome ? (
+              <div className="flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={nomeEditado}
+                  disabled={salvandoNome}
+                  onChange={(e) => setNomeEditado(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSalvarNome()
+                    if (e.key === 'Escape') { setEditandoNome(false); setNomeEditado(nomeAtual) }
+                  }}
+                  className="text-xl font-bold text-gray-900 dark:text-white bg-transparent border-b border-blue-400 focus:outline-none"
+                />
+                <button onClick={handleSalvarNome} disabled={salvandoNome} className="text-blue-600 hover:text-blue-700 disabled:opacity-50 p-1">
+                  {salvandoNome ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                </button>
+                <button
+                  onClick={() => { setEditandoNome(false); setNomeEditado(nomeAtual) }}
+                  disabled={salvandoNome}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => setEditandoNome(true)} className="flex items-center gap-2 group min-w-0">
+                <h2 className="text-xl font-bold text-gray-900 dark:text-white truncate">{nomeAtual}</h2>
+                <Pencil size={14} className="shrink-0 text-gray-300 group-hover:text-gray-500 dark:text-gray-600 dark:group-hover:text-gray-400" />
+              </button>
+            )}
+            <p className="text-sm text-gray-500 dark:text-gray-400">
+              Módulos, membros e acesso · {isLoadingMembros ? '…' : `${membros.length} usuário${membros.length !== 1 ? 's' : ''} ativo${membros.length !== 1 ? 's' : ''}`}
+            </p>
           </div>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1 shrink-0">
             <X size={24} />
           </button>
         </div>
 
         <div className="p-6 space-y-8">
+          {/* Pacote contratado */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              Pacote contratado
+            </h3>
+            {isLoadingPlano ? (
+              <div className="flex items-center py-2">
+                <Loader2 className="animate-spin text-blue-600" size={18} />
+              </div>
+            ) : (
+              <div className="flex items-center gap-3 flex-wrap">
+                <select
+                  value={planoAtual?.plano_id ?? ''}
+                  disabled={salvandoPlano}
+                  onChange={(e) => handleTrocarPlano(e.target.value)}
+                  className="text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 px-2 py-1.5"
+                >
+                  <option value="">Nenhum pacote</option>
+                  {planosCatalogo.map((p) => (
+                    <option key={p.id} value={p.id}>{p.nome}</option>
+                  ))}
+                </select>
+                {planoAtual && (
+                  <span className="text-xs text-gray-500 dark:text-gray-400">
+                    Status: {PLANO_STATUS_LABELS[planoAtual.status] ?? planoAtual.status}
+                  </span>
+                )}
+              </div>
+            )}
+          </section>
+
           {/* Módulos contratados */}
           <section>
             <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">

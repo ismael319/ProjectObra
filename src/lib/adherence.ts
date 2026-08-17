@@ -77,7 +77,11 @@ export interface WeekIndicators {
 export interface SegmentRow {
   name: string;
   count: number;
+  /** Aderência Ajustada do grupo — mesma base de computeIndicators (is_extra atual). */
   pct: number;
+  /** Aderência do Cronograma do grupo — mesma base de computeIndicatorsCronograma
+   * (isExtraOriginal, plano original antes de qualquer Extra/Inativa feito depois). */
+  pctCronograma: number;
 }
 
 export function statusWeight(s: ActivityStatus, partialWeight: number): number {
@@ -171,31 +175,128 @@ export function computeDelayDays(detail: WBSActivity): number {
   return Math.round((today.getTime() - finishDay.getTime()) / 86400000);
 }
 
+function segmentKey(a: ActivityLike, field: "company" | "discipline" | "area" | "stage" | "foreman"): string {
+  // Em atividades importadas (is_extra=false), `area` fica sempre null de propósito
+  // (ver getWeek em programacao-db.ts) — o texto de verdade vem do nível 2 da EDT,
+  // guardado em `areaPath`. Sem isso, "Aderência por Área" ficava sempre "(sem
+  // valor)" pra tudo que veio do cronograma.
+  const raw = field === "area" && !a.is_extra && a.areaPath ? getAreaNivel2(a.areaPath) : a[field];
+  let texto = (raw ?? "(sem valor)").toString().trim() || "(sem valor)";
+  // "Área" nunca deveria carregar o nível 3 (etapa) junto — só o nível 2, mesmo
+  // corte de getAreaNivel2 (split em " / "). Cobre dois casos que escapavam da
+  // linha acima: o texto livre de uma Extra, quando alguém cola o path inteiro
+  // no campo em vez de só o nome da área; e o legado do campo `area` de
+  // atividades antigas, de antes de existir `areaPath`, que guardavam
+  // "Nível2 / Nível3" direto ali.
+  if (field === "area" && texto.includes(" / ")) texto = texto.split(" / ")[0].trim() || "(sem valor)";
+  return texto;
+}
+
+// O campo Área de uma atividade Extra é texto livre com autocomplete (não
+// obrigatório escolher a sugestão) — "ARMAZÉM GRANDE" (vindo da EDT do
+// cronograma, via segmentKey) e "Armazém Grande" (digitado à mão) viravam
+// dois grupos diferentes em "Aderência por Área", cada um mostrando só
+// parte da obra. Chave de agrupamento ignora maiúscula/minúscula, acento e
+// espaço duplicado — mesmo texto "de verdade" cai no mesmo grupo.
+function normalizeChave(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toUpperCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function groupByNorm(
+  activities: ActivityLike[],
+  field: "company" | "discipline" | "area" | "stage" | "foreman",
+): Map<string, ActivityLike[]> {
+  const groups = new Map<string, ActivityLike[]>();
+  for (const a of activities) {
+    const norm = normalizeChave(segmentKey(a, field));
+    const arr = groups.get(norm) ?? [];
+    arr.push(a);
+    groups.set(norm, arr);
+  }
+  return groups;
+}
+
+// Nome de exibição por chave normalizada: a grafia mais usada entre as
+// atividades do grupo, não a primeira encontrada — um typo raro não deveria
+// virar o rótulo do grupo inteiro.
+function nomesDeExibicao(
+  activities: ActivityLike[],
+  field: "company" | "discipline" | "area" | "stage" | "foreman",
+): Map<string, string> {
+  const porChave = new Map<string, Map<string, number>>();
+  for (const a of activities) {
+    const raw = segmentKey(a, field);
+    const norm = normalizeChave(raw);
+    const variantes = porChave.get(norm) ?? new Map<string, number>();
+    variantes.set(raw, (variantes.get(raw) ?? 0) + 1);
+    porChave.set(norm, variantes);
+  }
+  const nomes = new Map<string, string>();
+  for (const [norm, variantes] of porChave) {
+    let melhor = "";
+    let melhorContagem = -1;
+    for (const [raw, contagem] of variantes) {
+      if (contagem > melhorContagem) {
+        melhor = raw;
+        melhorContagem = contagem;
+      }
+    }
+    nomes.set(norm, melhor);
+  }
+  return nomes;
+}
+
 export function computeSegment(
   activities: ActivityLike[],
   field: "company" | "discipline" | "area" | "stage" | "foreman",
   partialWeight = 0.5,
 ): SegmentRow[] {
-  const groups = new Map<string, ActivityLike[]>();
-  for (const a of activities.filter((x) => !x.inativa && !x.foraDoPlano)) {
-    // Em atividades importadas (is_extra=false), `area` fica sempre null de propósito
-    // (ver getWeek em programacao-db.ts) — o texto de verdade vem do nível 2 da EDT,
-    // guardado em `areaPath`. Sem isso, "Aderência por Área" ficava sempre "(sem
-    // valor)" pra tudo que veio do cronograma.
-    const raw = field === "area" && !a.is_extra && a.areaPath ? getAreaNivel2(a.areaPath) : a[field];
-    const key = (raw ?? "(sem valor)").toString().trim() || "(sem valor)";
-    const arr = groups.get(key) ?? [];
-    arr.push(a);
-    groups.set(key, arr);
-  }
+  // "Cronograma" é o conjunto mais amplo (só exclui foraDoPlano) — ver
+  // computeIndicatorsCronograma. "Ajustada" é sempre um subconjunto dele
+  // (exclui também inativa), então o nome de exibição escolhido aqui já
+  // cobre os dois grupos.
+  const consideradas = activities.filter((x) => !x.foraDoPlano);
+  const nomes = nomesDeExibicao(consideradas, field);
+
+  // Dois conjuntos diferentes, um por métrica — mesma distinção de
+  // computeIndicators x computeIndicatorsCronograma. Ajustada exclui
+  // "inativa" (em análise, fora do número enquanto isso). Cronograma NÃO
+  // exclui: é o ponto de existir — se o time "limpa" a Ajustada marcando
+  // item como inativa, o Cronograma continua cobrando o compromisso
+  // original. Se as duas usassem o mesmo conjunto filtrado, os inativos que
+  // derrubam o Cronograma agregado (computeIndicatorsCronograma, que também
+  // não os exclui) ficariam invisíveis aqui, inflando o Cronograma por grupo.
+  const groupsAjustada = groupByNorm(consideradas.filter((x) => !x.inativa), field);
+  const groupsCronograma = groupByNorm(consideradas, field);
+
+  const chaves = new Set([...groupsAjustada.keys(), ...groupsCronograma.keys()]);
   const rows: SegmentRow[] = [];
-  for (const [name, list] of groups) {
-    const planned = list.filter((a) => !a.is_extra);
+  for (const chave of chaves) {
+    const listAjustada = groupsAjustada.get(chave) ?? [];
+    const planned = listAjustada.filter((a) => !a.is_extra);
     const denom = planned.length;
     const w = planned.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
-    rows.push({ name, count: list.length, pct: denom ? w / denom : 0 });
+
+    const listCronograma = groupsCronograma.get(chave) ?? [];
+    const plannedCronograma = listCronograma.filter((a) => !(a.isExtraOriginal ?? a.is_extra));
+    const denomCronograma = plannedCronograma.length;
+    const wCronograma = plannedCronograma.reduce((s, a) => s + statusWeight(a.status, partialWeight), 0);
+
+    rows.push({
+      name: nomes.get(chave) ?? chave,
+      count: listAjustada.length,
+      pct: denom ? w / denom : 0,
+      pctCronograma: denomCronograma ? wCronograma / denomCronograma : 0,
+    });
   }
-  rows.sort((a, b) => b.count - a.count);
+  // Tabelas/gráficos de aderência sempre do maior pro menor — não por volume,
+  // pra quem está pior aparecer/comparar tão fácil quanto quem está melhor.
+  rows.sort((a, b) => b.pct - a.pct);
   return rows;
 }
 

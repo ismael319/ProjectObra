@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck, Undo2, CircleAlert } from 'lucide-react'
+import { ChevronLeft, ChevronRight, FileDown, FileUp, Lock, Unlock, Download, Eraser, UserCog, Image, TriangleAlert, ClipboardCheck, Undo2, CircleAlert, Camera, Loader2 } from 'lucide-react'
 import { formatShortDate, parseISODateStr } from '@/lib/iso-week'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import type { WeekStatus } from '@/lib/programacao-db'
@@ -38,6 +38,10 @@ interface Props {
   onClearWeek: () => void
   onManageEngenheiros: () => void
   onExportSemanal: () => void
+  /** Exporta como imagem o resumo já visível na tela (dias, indicadores e
+   * aderências) — o fechamento da semana, pronto pra compartilhar. */
+  onExportResumo: () => void
+  exportandoResumo: boolean
   onAnalysis: () => void
 }
 
@@ -64,6 +68,8 @@ export default function WeekBar({
   onClearWeek,
   onManageEngenheiros,
   onExportSemanal,
+  onExportResumo,
+  exportandoResumo,
   onAnalysis,
 }: Props) {
   const start = parseISODateStr(startDate)
@@ -347,6 +353,19 @@ export default function WeekBar({
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="left" className="max-w-xs">Gera uma imagem com a semana inteira por Engenheiro, pra compartilhar no WhatsApp.</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => { setActionsOpen(false); onExportResumo() }}
+                    disabled={exportandoResumo}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-gray-700 rounded-md transition disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {exportandoResumo ? <Loader2 size={14} className="animate-spin text-blue-600" /> : <Camera size={14} className="text-blue-600" />}
+                    Exportar resumo da semana
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="left" className="max-w-xs">Baixa uma imagem com o que está na tela agora — dias, indicadores e aderências — pra guardar como fechamento da semana.</TooltipContent>
               </Tooltip>
               {/* Disponível já na semana comprometida, não só na fechada: com o
                   baseline gravado no início, a análise passa a ter o que
