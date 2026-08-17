@@ -23,3 +23,8 @@ export function formatBR(iso: string | null): string {
   const [y, m, d] = iso.split('-')
   return `${d}/${m}/${y}`
 }
+
+/** Restringe `v` ao intervalo [min, max], tratando NaN/Infinity como min. */
+export function clamp(v: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min))
+}

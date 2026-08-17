@@ -15,7 +15,7 @@ export default function ComparacaoAvanco({ previsto, concluido, cor, className }
   const descricao = `Realizado ${concluido == null ? 'sem dados' : `${concluido.toFixed(0)}%`}; planejado ${previsto == null ? 'sem dados' : `${previsto.toFixed(0)}%`}`
 
   return (
-    <div className={className} role="img" aria-label={descricao}>
+    <div className={className} role="progressbar" aria-valuenow={concluido ?? undefined} aria-valuemin={0} aria-valuemax={100} aria-label={descricao}>
       <div className="relative h-2 overflow-visible rounded-full bg-muted">
         <div className="h-full rounded-full" style={{ width: `${realizado}%`, backgroundColor: cor }} />
         {planejado != null && (

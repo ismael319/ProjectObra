@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateActio
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, BarChart3, Building2, Layers3, ListFilter, Printer, Loader2, X, Minimize2, RotateCcw, Search, Settings2, LocateFixed, PanelRightClose, PanelRightOpen } from 'lucide-react'
+import { ArrowLeft, BarChart3, Building2, Layers3, ListFilter, Printer, Loader2, X, Minimize2, RotateCcw, Search, Settings2, LocateFixed, PanelRightClose, PanelRightOpen, MapPin, Square } from 'lucide-react'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { useProjects } from '@/lib/project-store'
 import {
@@ -97,7 +97,7 @@ export default function PlantaSetores() {
     queryFn: () => getActivitiesInDateRange(organizacaoId!, projetoId!, hoje, hoje),
   })
 
-  useRealtimeMapaSetores(plantaId, projetoId)
+  useRealtimeMapaSetores(plantaId, projetoId, marcadorIds)
 
   const atualizarMarcador = useAtualizarMarcador(plantaId)
   const atualizarCrop = useAtualizarCropSetor(organizacaoId, projetoId)
@@ -210,6 +210,7 @@ export default function PlantaSetores() {
 
   const areaFullscreenRef = useRef<HTMLDivElement>(null)
   const [emTelaCheia, setEmTelaCheia] = useState(false)
+  const fullscreenContainer = emTelaCheia ? areaFullscreenRef.current ?? undefined : undefined
   const [resumoVisivel, setResumoVisivel] = useState(true)
   useEffect(() => {
     const atualizar = () => {
@@ -348,7 +349,7 @@ export default function PlantaSetores() {
 
       <div ref={areaFullscreenRef} className={`grid gap-4 ${emTelaCheia ? 'h-full grid-cols-1 bg-background p-0' : 'lg:grid-cols-[minmax(0,1fr)_360px]'}`}>
         <div className={`min-w-0 ${emTelaCheia ? 'relative h-full' : ''}`}>
-          {imagemUrl && (
+          {imagemUrl ? (
             <PalcoSetores
               planta={planta}
               imagemUrl={imagemUrl}
@@ -382,6 +383,10 @@ export default function PlantaSetores() {
               onConfigurarCaixa={(id) => setConfigurandoCaixaId(id)}
               onPropriedadesCard={(id) => setPropriedadesId(id)}
             />
+          ) : (
+            <div className="relative min-h-[400px] w-full animate-pulse rounded-2xl border border-border/80 bg-muted/30" aria-label="Carregando mapa…" role="status">
+              <span className="sr-only">Carregando mapa…</span>
+            </div>
           )}
         </div>
 
@@ -401,7 +406,7 @@ export default function PlantaSetores() {
                 <>
                   <div className="grid grid-cols-2 gap-3"><ResumoMetrica label="Previsão" valor={`${resumo.previsao.toFixed(0)}%`} /><ResumoMetrica label="Realizado" valor={`${resumo.avancoTotal.toFixed(0)}%`} destaque /></div>
                   <div className="space-y-2"><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Avanço x previsão</span><span className={resumo.desvio >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-red-600'}>{resumo.desvio >= 0 ? '+' : ''}{resumo.desvio.toFixed(0)} p.p.</span></div><ComparacaoAvanco previsto={resumo.previsao} concluido={resumo.avancoTotal} cor="var(--primary)" /></div>
-                  <div className="space-y-2 border-t border-border/70 pt-3 text-xs"><div className="flex justify-between gap-3"><span className="text-muted-foreground">Meta diária</span><b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b></div><div><span className="text-muted-foreground">Setor com menor avanço</span><p className="mt-1 truncate font-medium text-foreground">{destaqueSetor ? `${destaqueSetor.nome} (${destaqueSetor.avancoConcluido.toFixed(0)}%)` : '—'}</p></div></div>
+                  <div className="space-y-2 border-t border-border/70 pt-3 text-xs"><div className="flex justify-between gap-3"><span className="text-muted-foreground">Meta diária</span><b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b></div><div className="flex justify-between gap-3"><span className="text-muted-foreground">Avanço hoje</span><b>{resumo.avancoDoDia != null ? `${resumo.avancoDoDia >= 0 ? '+' : ''}${resumo.avancoDoDia.toFixed(2)}%` : '—'}</b></div><div><span className="text-muted-foreground">Setor com menor avanço</span><p className="mt-1 truncate font-medium text-foreground">{destaqueSetor ? `${destaqueSetor.nome} (${destaqueSetor.avancoConcluido.toFixed(0)}%)` : '—'}</p></div></div>
                 </>
               ) : (
                 <p className="text-sm text-muted-foreground">Selecione uma obra para ver o resumo.</p>
@@ -445,14 +450,41 @@ export default function PlantaSetores() {
 
         {emTelaCheia && (
           <>
-            <button
-              type="button"
-              aria-label={resumoVisivel ? 'Ocultar resumo' : 'Mostrar resumo'}
-              className="fixed right-4 top-4 z-40 flex size-9 items-center justify-center rounded-xl border border-border/80 bg-background/90 shadow-elevated backdrop-blur-xl transition-colors hover:bg-muted/80"
-              onClick={() => setResumoVisivel((v) => !v)}
-            >
-              {resumoVisivel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-            </button>
+            <div className="fixed right-4 top-4 z-40 flex items-center gap-1 rounded-xl border border-border/80 bg-background/90 p-1 shadow-elevated backdrop-blur-xl">
+              {podeEditar && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Criar setor por ponto"
+                    title="Criar setor por ponto"
+                    className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'ponto' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`}
+                    onClick={() => alternarModo('ponto')}
+                  >
+                    {modo === 'ponto' ? <X size={15} /> : <MapPin size={15} />}
+                    <span className="text-xs font-medium">Ponto</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Criar setor por área"
+                    title="Criar setor por área"
+                    className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'area' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`}
+                    onClick={() => alternarModo('area')}
+                  >
+                    {modo === 'area' ? <X size={15} /> : <Square size={15} />}
+                    <span className="text-xs font-medium">Área</span>
+                  </button>
+                  <span className="h-5 w-px bg-border" />
+                </>
+              )}
+              <button
+                type="button"
+                aria-label={resumoVisivel ? 'Ocultar resumo' : 'Mostrar resumo'}
+                className="flex size-8 items-center justify-center rounded-lg hover:bg-muted"
+                onClick={() => setResumoVisivel((v) => !v)}
+              >
+                {resumoVisivel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+              </button>
+            </div>
 
             {resumoVisivel && (
               <div className="fixed right-4 top-16 bottom-4 z-30 w-[340px] overflow-y-auto rounded-2xl border border-border/80 bg-background/90 p-5 shadow-elevated backdrop-blur-xl animate-in slide-in-from-right duration-200">
@@ -482,6 +514,10 @@ export default function PlantaSetores() {
                       <div className="flex justify-between gap-3">
                         <span className="text-muted-foreground">Meta diária</span>
                         <b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b>
+                      </div>
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">Avanço hoje</span>
+                        <b>{resumo.avancoDoDia != null ? `${resumo.avancoDoDia >= 0 ? '+' : ''}${resumo.avancoDoDia.toFixed(2)}%` : '—'}</b>
                       </div>
                       <div>
                         <span className="text-muted-foreground">Setor com menor avanço</span>
@@ -533,11 +569,12 @@ export default function PlantaSetores() {
           plantaId={plantaId}
           geometria={pendente.geometria}
           cardPos={pendente.cardPos}
+          container={fullscreenContainer}
         />
       )}
 
       <AlertDialog open={!!recortePendente} onOpenChange={(open) => !open && setRecortePendente(null)}>
-        <AlertDialogContent>
+        <AlertDialogContent container={fullscreenContainer}>
           <AlertDialogHeader>
             <AlertDialogTitle>Atualizar visualização padrão?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -554,7 +591,7 @@ export default function PlantaSetores() {
       </AlertDialog>
 
       <AlertDialog open={confirmarRestauracao} onOpenChange={setConfirmarRestauracao}>
-        <AlertDialogContent>
+        <AlertDialogContent container={fullscreenContainer}>
           <AlertDialogHeader>
             <AlertDialogTitle>Restaurar planta inteira?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -576,6 +613,7 @@ export default function PlantaSetores() {
           onOpenChange={(v) => !v && setConfigurandoCaixaId(null)}
           plantaId={plantaId}
           marcador={marcadorConfigurandoCaixa}
+          container={fullscreenContainer}
         />
       )}
 
@@ -588,6 +626,7 @@ export default function PlantaSetores() {
           marcador={marcadorPropriedades}
           cronogramasAtivos={cronogramasAtivos}
           camposAtuais={vinculosPorMarcador.get(marcadorPropriedades.id) ?? []}
+          container={fullscreenContainer}
         />
       )}
     </div>

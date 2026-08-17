@@ -25,6 +25,7 @@ interface Props {
   marcador: MapaSetoresMarcador
   cronogramasAtivos: CronogramaInfo[]
   camposAtuais: VinculoCampo[]
+  container?: HTMLElement
 }
 
 interface EstadoCampo {
@@ -43,7 +44,7 @@ const ESTADO_VAZIO: Record<CampoCard, EstadoCampo> = {
 }
 
 export default function PropriedadesCardDialog({
-  open, onOpenChange, organizacaoId, plantaId, marcador, cronogramasAtivos, camposAtuais,
+  open, onOpenChange, organizacaoId, plantaId, marcador, cronogramasAtivos, camposAtuais, container,
 }: Props) {
   const [cronogramaId, setCronogramaId] = useState<string | null>(marcador.cronograma_id)
   const [estado, setEstado] = useState<Record<CampoCard, EstadoCampo>>(ESTADO_VAZIO)
@@ -127,7 +128,7 @@ export default function PropriedadesCardDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-xl">
+      <DialogContent container={container} className="max-w-xl">
         <DialogHeader>
           <DialogTitle>Propriedades do card — {marcador.nome}</DialogTitle>
         </DialogHeader>

@@ -42,6 +42,8 @@ export interface MapaSetoresMarcador {
   area_h_pct: number | null
   card_x_pct: number
   card_y_pct: number
+  /** Cor customizada do setor — quando definida, sobrepõe a cor do engenheiro. */
+  cor: string | null
   /** Cronograma de onde os 4 campos do card (ver mapa_setores_campos) leem suas
    * atividades — `null` até o usuário configurar via "Propriedades do card". */
   cronograma_id: string | null
@@ -111,7 +113,9 @@ export function usePlantaSetoresUrl(arquivoPath: string | undefined) {
 
       const { data, error } = await supabase.storage.from(BUCKET).download(arquivoPath!)
       if (error || !data) throw error ?? new Error('Não foi possível abrir a planta')
-      idbSet(cacheKey, data).catch(() => {})
+      idbSet(cacheKey, data).catch(() => {
+        console.warn('Falha ao cachear planta no IndexedDB — sera rebaixada no proximo carregamento.')
+      })
       return URL.createObjectURL(data)
     },
   })
@@ -366,9 +370,11 @@ export interface CampoInput {
   customFieldId: string | null
 }
 
-/** Grava o cronograma do marcador e substitui TODOS os campos dele pela lista nova
- * (delete + insert) — no máximo 4 linhas por marcador, então diff campo a campo não
- * compensa a complexidade. */
+/** Grava o cronograma do marcador e substitui TODOS os campos dele pela lista nova.
+ *  Ordem: insert primeiro, delete depois — se o insert falhar, os dados antigos
+ *  permanecem íntegros (nenhuma perda). Se o delete falhar após insert bem-sucedido,
+ *  podem ocorrer duplicatas temporárias, mas sem perda de dados. Máx 4 linhas por
+ *  marcador, então diff campo a campo não compensa a complexidade. */
 export function useSalvarPropriedadesDoCard(plantaId: string | undefined) {
   const qc = useQueryClient()
   return useMutation({
@@ -389,22 +395,24 @@ export function useSalvarPropriedadesDoCard(plantaId: string | undefined) {
         .eq('id', marcadorId)
       if (erroMarcador) throw erroMarcador
 
+      // Insert primeiro: se falhar, os dados antigos permanecem intactos.
+      if (campos.length > 0) {
+        const { error: erroInsert } = await supabase.from('mapa_setores_campos').insert(
+          campos.map((c) => ({
+            organizacao_id: organizacaoId,
+            marcador_id: marcadorId,
+            campo: c.campo,
+            fonte_tipo: c.fonteTipo,
+            activity_uid: c.activityUid,
+            custom_field_id: c.customFieldId,
+          })),
+        )
+        if (erroInsert) throw erroInsert
+      }
+
+      // Delete depois: só remove os antigos após os novos gravados com sucesso.
       const { error: erroDelete } = await supabase.from('mapa_setores_campos').delete().eq('marcador_id', marcadorId)
       if (erroDelete) throw erroDelete
-
-      if (campos.length === 0) return
-
-      const { error: erroInsert } = await supabase.from('mapa_setores_campos').insert(
-        campos.map((c) => ({
-          organizacao_id: organizacaoId,
-          marcador_id: marcadorId,
-          campo: c.campo,
-          fonte_tipo: c.fonteTipo,
-          activity_uid: c.activityUid,
-          custom_field_id: c.customFieldId,
-        })),
-      )
-      if (erroInsert) throw erroInsert
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['mapa_setores_marcadores', plantaId] })
@@ -419,8 +427,9 @@ export function useSalvarPropriedadesDoCard(plantaId: string | undefined) {
 // de Realtime no projeto: sem convenção prévia a seguir, canal por planta.
 // ---------------------------------------------------------------------------
 
-export function useRealtimeMapaSetores(plantaId: string | undefined, projetoId: string | undefined) {
+export function useRealtimeMapaSetores(plantaId: string | undefined, projetoId: string | undefined, marcadorIds: string[]) {
   const qc = useQueryClient()
+  const chaveCampos = [...marcadorIds].sort().join(',')
 
   useEffect(() => {
     if (!plantaId) return
@@ -435,14 +444,17 @@ export function useRealtimeMapaSetores(plantaId: string | undefined, projetoId: 
       .on(
         'postgres_changes',
         { event: '*', schema: 'public', table: 'mapa_setores_campos' },
-        () => qc.invalidateQueries({ queryKey: ['mapa_setores_campos'] }),
+        () => {
+          // Invalida apenas os campos dos marcadores desta planta, não todos do banco.
+          qc.invalidateQueries({ queryKey: ['mapa_setores_campos', chaveCampos] })
+        },
       )
       .subscribe()
 
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [plantaId, qc])
+  }, [plantaId, qc, chaveCampos])
 
   // Reimportação de cronograma (projeto_cronogramas.dados) NÃO recalcula os cards
   // sozinha: os dados do cronograma vivem em project-store.tsx, que hidrata cada

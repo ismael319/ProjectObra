@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { Loader2, Trash2 } from 'lucide-react'
 import { useAtualizarMarcador, useExcluirMarcador, type MapaSetoresMarcador } from '@/lib/mapa-setores/mapa-setores-db'
+import { clamp } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -11,21 +12,24 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
 
+const HEX_RE = /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
+
+function isValidHex(value: string) {
+  return !value || HEX_RE.test(value)
+}
+
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
   plantaId: string
   marcador: MapaSetoresMarcador
-}
-
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, Number.isFinite(v) ? v : min))
+  container?: HTMLElement
 }
 
 /** Edição precisa (números) do que o arraste no mapa já faz visualmente — útil quando o
  * mouse não é preciso o bastante. Não mexe em cronograma/campos, isso é
  * "Propriedades do card" (o outro item do menu de botão direito). */
-export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, marcador }: Props) {
+export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, marcador, container }: Props) {
   const [nome, setNome] = useState(marcador.nome)
   const [posX, setPosX] = useState(marcador.pos_x_pct ?? 0)
   const [posY, setPosY] = useState(marcador.pos_y_pct ?? 0)
@@ -35,6 +39,7 @@ export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, ma
   const [areaH, setAreaH] = useState(marcador.area_h_pct ?? 10)
   const [cardX, setCardX] = useState(marcador.card_x_pct)
   const [cardY, setCardY] = useState(marcador.card_y_pct)
+  const [cor, setCor] = useState(marcador.cor ?? '')
   const [confirmarExclusao, setConfirmarExclusao] = useState(false)
 
   const atualizar = useAtualizarMarcador(plantaId)
@@ -51,11 +56,16 @@ export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, ma
     setAreaH(marcador.area_h_pct ?? 10)
     setCardX(marcador.card_x_pct)
     setCardY(marcador.card_y_pct)
+    setCor(marcador.cor ?? '')
   }, [open, marcador])
 
   async function salvar() {
     if (!nome.trim()) {
       toast.error('Dê um nome ao setor.')
+      return
+    }
+    if (!isValidHex(cor)) {
+      toast.error('Cor inválida. Use formato #fff ou #123456.')
       return
     }
     try {
@@ -72,18 +82,23 @@ export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, ma
             }),
         card_x_pct: clamp(cardX, 0, 100),
         card_y_pct: clamp(cardY, 0, 100),
+        cor: cor || null,
       })
       toast.success('Setor atualizado')
       onOpenChange(false)
     } catch (err) {
-      toast.error(`Não foi possível salvar: ${err instanceof Error ? err.message : err}`)
+      const msg = err instanceof Error ? err.message : (err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : String(err))
+      console.error('[ConfigurarCaixaDialog] salvar error:', err)
+      toast.error(`Não foi possível salvar: ${msg}`)
     }
   }
+
+  const PRESET_COR = ['#16a34a', '#2563eb', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#64748b', '#db2777']
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-md">
+        <DialogContent container={container} className="max-w-md">
           <DialogHeader>
             <DialogTitle>Configurar caixa — {marcador.nome}</DialogTitle>
           </DialogHeader>
@@ -136,6 +151,30 @@ export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, ma
                 <Input type="number" min={0} max={100} step={0.1} value={cardY} onChange={(e) => setCardY(Number(e.target.value))} />
               </div>
             </div>
+
+            <div className="space-y-2 pt-2 border-t">
+              <Label>Cor do setor</Label>
+              <div className="flex items-center gap-2">
+                <input type="color" value={cor || '#64748b'} onChange={(e) => setCor(e.target.value)} className="size-8 cursor-pointer rounded-lg border border-border p-0" />
+                <Input value={cor} onChange={(e) => setCor(e.target.value)} placeholder="#64748b" pattern="^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$" className={`h-8 w-28 font-mono text-xs ${cor && !isValidHex(cor) ? 'border-destructive' : ''}`} />
+                {cor && (
+                  <Button type="button" variant="ghost" size="sm" className="h-8 text-xs" onClick={() => setCor('')}>
+                    Limpar
+                  </Button>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {PRESET_COR.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={`size-6 rounded-full border-2 transition-transform hover:scale-110 ${cor === c ? 'border-foreground ring-2 ring-foreground/20' : 'border-transparent'}`}
+                    style={{ backgroundColor: c }}
+                    onClick={() => setCor(c)}
+                  />
+                ))}
+              </div>
+            </div>
           </div>
 
           <DialogFooter className="sm:justify-between">
@@ -157,7 +196,7 @@ export default function ConfigurarCaixaDialog({ open, onOpenChange, plantaId, ma
       </Dialog>
 
       <AlertDialog open={confirmarExclusao} onOpenChange={setConfirmarExclusao}>
-        <AlertDialogContent>
+        <AlertDialogContent container={container}>
           <AlertDialogHeader>
             <AlertDialogTitle>Excluir "{marcador.nome}"?</AlertDialogTitle>
             <AlertDialogDescription>

@@ -1,3 +1,5 @@
+import { round2 } from '@/lib/curve-utils'
+
 export type StatusSetor = 'concluido' | 'em_dia' | 'atencao' | 'atrasado' | 'sem_dados'
 
 export interface StatusSetorInfo {
@@ -18,7 +20,7 @@ export const STATUS_SETORES: Record<StatusSetor, StatusSetorInfo> = {
 /** Diferença em pontos percentuais entre o avanço concluído e o previsto. */
 export function calcularDesvioSetor(previsto: number | null, concluido: number | null): number | null {
   if (previsto == null || concluido == null) return null
-  return Math.round((concluido - previsto) * 100) / 100
+  return round2(concluido - previsto)
 }
 
 /**

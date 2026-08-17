@@ -15,13 +15,14 @@ interface Props {
   plantaId: string
   geometria: NovaGeometria
   cardPos: { x: number; y: number }
+  container?: HTMLElement
 }
 
 /** Criação é só o nome — geometria já veio do clique/arraste na planta. Cronograma e os
  * 4 campos do card são configurados depois, com o botão direito no card ("Propriedades
  * do card"), porque um setor recém-desenhado ainda não tem por que já saber de qual
  * atividade ele trata. */
-export default function NovoSetorDialog({ open, onOpenChange, organizacaoId, plantaId, geometria, cardPos }: Props) {
+export default function NovoSetorDialog({ open, onOpenChange, organizacaoId, plantaId, geometria, cardPos, container }: Props) {
   const [nome, setNome] = useState('')
   const criar = useCriarMarcador(plantaId)
 
@@ -42,7 +43,7 @@ export default function NovoSetorDialog({ open, onOpenChange, organizacaoId, pla
         cardXPct: cardPos.x,
         cardYPct: cardPos.y,
       })
-      toast.success('Setor criado — clique com o botão direito nele para configurar as atividades.')
+      toast.success('Setor criado — toque no card para configurar as atividades.')
       setNome('')
       onOpenChange(false)
     } catch (err) {
@@ -52,7 +53,7 @@ export default function NovoSetorDialog({ open, onOpenChange, organizacaoId, pla
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-sm">
+      <DialogContent container={container} className="max-w-sm">
         <DialogHeader>
           <DialogTitle>Novo setor</DialogTitle>
         </DialogHeader>

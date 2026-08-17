@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Crop, MapPin, Maximize, Maximize2, Minimize2, Minus, Plus, Settings2, Square, X } from 'lucide-react'
 import type { MapaSetoresMarcador, MapaSetoresPlanta } from '@/lib/mapa-setores/mapa-setores-db'
 import type { EngenheiroDoSetor } from '@/lib/mapa-setores/progresso'
 import { resultadoDaCamada, type CamadaMapaId, type ItemLegendaCamada, type SetorComCamada } from '@/lib/mapa-setores/camadas'
-import ComparacaoAvanco from './ComparacaoAvanco'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { clamp } from '@/lib/utils'
+import { TooltipProvider } from '@/components/ui/tooltip'
+import ToolbarEdicao from './ToolbarEdicao'
+import ToolbarZoom from './ToolbarZoom'
+import MarcadorPonto from './MarcadorPonto'
+import MarcadorArea from './MarcadorArea'
+import CardSetor from './CardSetor'
+import BarraInstrucao from './BarraInstrucao'
+import LegendaMapa from './LegendaMapa'
+import MenuContexto from './MenuContexto'
 
 // Interação de arraste inteira (marcador ponto/área, card solto, criação por clique ou
 // retângulo) é mouse events manuais, sem lib de drag — o projeto não tem nenhuma
@@ -14,10 +20,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 // elemento) pra não perder o solto se o cursor sair da área durante o arraste.
 
 export type ModoEdicao = 'nenhum' | 'ponto' | 'area' | 'recorte'
-
-function clamp(v: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, v))
-}
 
 function calcularAlturaMaximaDoPalco() {
   if (typeof window === 'undefined') return 600
@@ -96,14 +98,10 @@ export default function PalcoSetores({
   onPropriedadesCard,
 }: Props) {
   const [menuContexto, setMenuContexto] = useState<{ marcadorId: string; x: number; y: number } | null>(null)
-  const menuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!menuContexto) return
-    const fechar = (e: Event) => {
-      if (menuRef.current?.contains(e.target as Node)) return
-      setMenuContexto(null)
-    }
+    const fechar = () => setMenuContexto(null)
     window.addEventListener('mousedown', fechar)
     window.addEventListener('scroll', fechar, true)
     return () => {
@@ -134,6 +132,10 @@ export default function PalcoSetores({
     window.addEventListener('resize', atualizarAltura)
     return () => window.removeEventListener('resize', atualizarAltura)
   }, [])
+
+  useEffect(() => {
+    setCamera({ zoom: 1, x: 0, y: 0 })
+  }, [emTelaCheia])
 
   const crop = { x: planta.crop_x, y: planta.crop_y, w: planta.crop_w, h: planta.crop_h }
   const cropVisivel = modo === 'recorte' ? { x: 0, y: 0, w: planta.largura_natural, h: planta.altura_natural } : crop
@@ -485,12 +487,12 @@ export default function PalcoSetores({
     <div
       ref={containerRef}
       className={`min-h-[320px] overflow-hidden select-none ${
-        emTelaCheia ? 'absolute inset-0' : 'relative rounded-2xl border border-border/80 shadow-elevated'
+        emTelaCheia ? 'absolute left-0 right-0 top-1/2 -translate-y-1/2' : 'relative rounded-2xl border border-border/80 shadow-elevated'
       } ${
         modo === 'recorte' ? 'cursor-crosshair' : modo === 'ponto' || modo === 'area' ? 'cursor-crosshair' : ''
       }`}
       style={{
-        height: emTelaCheia ? undefined : alturaViewport || Math.min(400, alturaMaxima),
+        height: alturaViewport || Math.min(400, alturaMaxima),
         width: '100%',
         maxWidth: emTelaCheia ? '100%' : larguraMaxima,
         marginInline: 'auto',
@@ -505,25 +507,8 @@ export default function PalcoSetores({
       onPointerCancel={onStagePointerUp}
       onDoubleClick={() => { if (modo === 'nenhum') onAlternarTelaCheia() }}
     >
-      <div className="absolute left-3 top-3 z-40 flex flex-col items-stretch gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-card backdrop-blur sm:flex-row" data-setor-interativo>
-        {podeEditar && <>
-          <button type="button" aria-label="Criar setor por ponto" aria-pressed={modo === 'ponto'} title="Criar setor por ponto" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'ponto' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('ponto')}>{modo === 'ponto' ? <X size={15} /> : <MapPin size={15} />}<span className="hidden text-xs font-medium sm:inline">Ponto</span></button>
-          <button type="button" aria-label="Criar setor por área" aria-pressed={modo === 'area'} title="Criar setor por área" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'area' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('area')}>{modo === 'area' ? <X size={15} /> : <Square size={15} />}<span className="hidden text-xs font-medium sm:inline">Área</span></button>
-          <button type="button" aria-label="Definir visualização padrão" aria-pressed={modo === 'recorte'} title="Definir visualização padrão" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'recorte' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('recorte')}>{modo === 'recorte' ? <X size={15} /> : <Crop size={15} />}<span className="hidden text-xs font-medium sm:inline">Recorte</span></button>
-          <span className="hidden h-5 w-px self-center bg-border sm:block" />
-        </>}
-        <Select value={camada} onValueChange={(valor) => onCamadaChange(valor as CamadaMapaId)}>
-          <SelectTrigger aria-label="Visualizar por" className="h-8 w-40 rounded-lg border-0 bg-transparent px-2 text-xs shadow-none" onPointerDown={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
-          <SelectContent>{camadas.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectContent>
-        </Select>
-      </div>
-      <div className="absolute right-3 top-3 z-40 flex items-center gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-card backdrop-blur" data-setor-interativo>
-        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Reduzir zoom" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })}><Minus size={15} /></button></TooltipTrigger><TooltipContent>Reduzir zoom</TooltipContent></Tooltip>
-        <span className="min-w-10 text-center text-xs font-medium tabular-nums">{Math.round(camera.zoom * 100)}%</span>
-        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Aumentar zoom" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })}><Plus size={15} /></button></TooltipTrigger><TooltipContent>Aumentar zoom</TooltipContent></Tooltip>
-        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Ajustar planta à tela" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={ajustarAoQuadro}><Maximize size={15} /></button></TooltipTrigger><TooltipContent>Ajustar à tela</TooltipContent></Tooltip>
-        <Tooltip><TooltipTrigger asChild><button type="button" aria-label={emTelaCheia ? 'Sair da tela cheia' : 'Tela cheia'} className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={onAlternarTelaCheia}>{emTelaCheia ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button></TooltipTrigger><TooltipContent>{emTelaCheia ? 'Sair da tela cheia' : 'Tela cheia'}</TooltipContent></Tooltip>
-      </div>
+      <ToolbarEdicao modo={modo} camada={camada} camadas={camadas} podeEditar={podeEditar} onAlternarModo={onAlternarModo} onCamadaChange={onCamadaChange} />
+      <ToolbarZoom zoom={camera.zoom} emTelaCheia={emTelaCheia} onZoomIn={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })} onZoomOut={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })} onFit={ajustarAoQuadro} onToggleFullScreen={onAlternarTelaCheia} />
 
       <div
         className="absolute inset-0"
@@ -547,166 +532,54 @@ export default function PalcoSetores({
             {marcadoresView.filter((m) => m.id === setorSelecionadoId && idsVisiveis.has(m.id)).map((m) => {
               const anchor = m.tipo === 'area' ? { x: m.area_x_pct ?? 0, y: m.area_y_pct ?? 0 } : { x: m.pos_x_pct ?? 0, y: m.pos_y_pct ?? 0 }
               return (
-                <line
-                  key={m.id}
-                  x1={anchor.x}
-                  y1={anchor.y}
-                  x2={m.card_x_pct}
-                  y2={m.card_y_pct}
-                  stroke="#64748b"
-                  strokeWidth={0.25}
-                  strokeDasharray="1.2,1"
-                  vectorEffect="non-scaling-stroke"
-                />
+                <line key={m.id} x1={anchor.x} y1={anchor.y} x2={m.card_x_pct} y2={m.card_y_pct} stroke="#64748b" strokeWidth={0.25} strokeDasharray="1.2,1" vectorEffect="non-scaling-stroke" />
               )
             })}
           </svg>
 
-            {marcadoresView.filter((m) => idsVisiveis.has(m.id)).map((m) => {
-              const eng = engenheiroPorMarcador.get(m.id)
-              const visual = setorVisualPorId.get(m.id)
-              const resultadoCamada = resultadoCamadaPorSetor.get(m.id)
-              const cor = resultadoCamada?.cor ?? eng?.cor ?? '#64748b'
-              const orfao = orfaoPorMarcador.get(m.id) ?? false
-              const selecionado = setorSelecionadoId === m.id
-              const atenuado = setorSelecionadoId !== null && !selecionado
+          {marcadoresView.filter((m) => idsVisiveis.has(m.id)).map((m) => {
+            const eng = engenheiroPorMarcador.get(m.id)
+            const visual = setorVisualPorId.get(m.id)
+            const resultadoCamada = resultadoCamadaPorSetor.get(m.id)
+            const cor = m.cor ?? resultadoCamada?.cor ?? eng?.cor ?? '#64748b'
+            const orfao = orfaoPorMarcador.get(m.id) ?? false
+            const selecionado = setorSelecionadoId === m.id
+            const atenuado = setorSelecionadoId !== null && !selecionado
 
-              return (
-                <div key={m.id} className={`transition-all duration-200 ${atenuado ? 'opacity-45' : 'opacity-100'}`}>
+            return (
+              <div key={m.id} className={`transition-all duration-200 ${atenuado ? 'opacity-45' : 'opacity-100'}`}>
                 {m.tipo === 'ponto' ? (
-                  <div
-                    className="absolute z-10"
-                    style={{ left: `${m.pos_x_pct}%`, top: `${m.pos_y_pct}%`, transform: 'translate(-50%, -100%)' }}
-                  >
-                    <div
-                      data-setor-interativo
-                      onPointerDown={(e) => {
-                        onSelecionarSetor(m.id)
-                        iniciarDragMarcador(m.id, 'move-point', e)
-                      }}
-                      onClick={() => onSelecionarSetor(m.id)}
-                      className={`w-4 h-4 rounded-full border-2 border-white shadow cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/35' : ''}`}
-                      style={{
-                        backgroundColor: cor,
-                        transform: `scale(${1 / camera.zoom})`,
-                        transformOrigin: '50% 100%',
-                      }}
-                    />
-                  </div>
+                  <MarcadorPonto marcador={{ ...m, pos_x_pct: m.pos_x_pct ?? 0, pos_y_pct: m.pos_y_pct ?? 0 }} cor={cor} zoom={camera.zoom} selecionado={selecionado} onSelecionar={onSelecionarSetor} onDragStart={iniciarDragMarcador} />
                 ) : (
-                  <div
-                    className="absolute z-10"
-                    style={{ left: `${m.area_x_pct}%`, top: `${m.area_y_pct}%`, width: `${m.area_w_pct}%`, height: `${m.area_h_pct}%` }}
-                  >
-                    <div
-                      data-setor-interativo
-                      onPointerDown={(e) => {
-                        onSelecionarSetor(m.id)
-                        iniciarDragMarcador(m.id, 'move-area', e)
-                      }}
-                      onClick={() => onSelecionarSetor(m.id)}
-                    className={`absolute inset-0 rounded-md border-2 cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/25 shadow-lg' : ''}`}
-                      style={{ borderColor: cor, backgroundColor: `${cor}22` }}
-                    />
-                    <div
-                      className="absolute -left-2 -top-2 w-3.5 h-3.5 rounded-full border-2 border-white shadow pointer-events-none"
-                      style={{
-                        backgroundColor: cor,
-                        transform: `scale(${1 / camera.zoom})`,
-                        transformOrigin: 'center',
-                      }}
-                    />
-                    {podeEditar && (
-                      <div
-                        data-setor-interativo
-                        onPointerDown={(e) => {
-                          onSelecionarSetor(m.id)
-                          iniciarDragMarcador(m.id, 'resize-area', e)
-                        }}
-                        className="absolute -right-1.5 -bottom-1.5 w-3 h-3 bg-white border-2 rounded-sm cursor-nwse-resize"
-                        style={{
-                          borderColor: cor,
-                          transform: `scale(${1 / camera.zoom})`,
-                          transformOrigin: 'center',
-                        }}
-                      />
-                    )}
-                  </div>
+                  <MarcadorArea
+                    marcador={{ ...m, area_x_pct: m.area_x_pct ?? 0, area_y_pct: m.area_y_pct ?? 0, area_w_pct: m.area_w_pct ?? 10, area_h_pct: m.area_h_pct ?? 10 }}
+                    cor={cor}
+                    zoom={camera.zoom}
+                    selecionado={selecionado}
+                    podeEditar={podeEditar}
+                    onSelecionar={onSelecionarSetor}
+                    onDragStart={iniciarDragMarcador}
+                  />
                 )}
-
-                <div
-                  data-setor-interativo
-                  role="button"
-                  tabIndex={0}
-                  aria-selected={selecionado}
-                  className={`absolute z-20 min-w-[184px] max-w-[224px] rounded-xl border-2 bg-white/96 px-3 py-2.5 text-xs leading-relaxed shadow-elevated backdrop-blur-sm cursor-grab active:cursor-grabbing dark:bg-neutral-900/96 ${
-                    selecionado ? 'ring-4 ring-primary/20' : 'hover:shadow-lg'
-                  }`}
-                  style={{
-                    left: `${m.card_x_pct}%`,
-                    top: `${m.card_y_pct}%`,
-                    borderColor: cor,
-                    transform: `scale(${1 / camera.zoom})`,
-                    transformOrigin: 'top left',
-                  }}
-                  onPointerDown={(e) => {
-                    onSelecionarSetor(m.id)
-                    iniciarDragMarcador(m.id, 'move-card', e)
-                  }}
-                  onClick={() => onSelecionarSetor(m.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault()
-                      onSelecionarSetor(m.id)
-                    }
-                  }}
-                  onContextMenu={(e) => {
-                    e.preventDefault()
-                    e.stopPropagation()
-                    if (podeEditar) setMenuContexto({ marcadorId: m.id, x: e.clientX, y: e.clientY })
-                  }}
-                >
-                  <div className="mb-1 flex items-start justify-between gap-2">
-                      <div className="min-w-0 text-xs font-semibold uppercase tracking-wide" style={{ color: cor }}>
-                      <span className="block truncate">{m.nome}</span>
-                    </div>
-                    {podeEditar && <button
-                      type="button"
-                      data-setor-interativo
-                      aria-label={`Configurar ${m.nome}`}
-                      className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onPropriedadesCard(m.id)
-                      }}
-                    >
-                      <Settings2 size={13} />
-                    </button>}
-                  </div>
-                  <div className="mb-1 flex items-center justify-between gap-2">
-                      <span className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
-                      {resultadoCamada?.valor ?? 'Sem dados'}
-                    </span>
-                    {orfao && <span className="font-medium text-amber-700" title="Alguma atividade vinculada não foi encontrada no cronograma atual">Vínculo</span>}
-                  </div>
-                  {visual && (
-                    <>
-                      <div className="mb-1.5 flex justify-between gap-2">
-                        <span className="text-muted-foreground">Realizado <b className="text-foreground">{visual.concluido != null ? `${visual.concluido.toFixed(0)}%` : '—'}</b></span>
-                        <span className="text-muted-foreground">Planejado <b className="text-foreground">{visual.previsto != null ? `${visual.previsto.toFixed(0)}%` : '—'}</b></span>
-                      </div>
-                      <ComparacaoAvanco previsto={visual.previsto} concluido={visual.concluido} cor={cor} className="mb-1.5" />
-                    </>
-                  )}
-                  {eng?.nome && (
-                    <div className="mb-1 flex items-center gap-1 text-muted-foreground">
-                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: eng.cor }} />
-                      {selecionado ? eng.nome : eng.nome.split(' ').slice(0, 2).join(' ')}
-                    </div>
-                  )}
-                  {!visual && <div className="text-muted-foreground">Configure os vínculos do setor</div>}
-                </div>
+                <CardSetor
+                  id={m.id}
+                  nome={m.nome}
+                  cor={cor}
+                  xPct={m.card_x_pct}
+                  yPct={m.card_y_pct}
+                  zoom={camera.zoom}
+                  selecionado={selecionado}
+                  podeEditar={podeEditar}
+                  resultadoCamada={resultadoCamada}
+                  visual={visual}
+                  eng={eng}
+                  orfao={orfao}
+                  onSelecionar={onSelecionarSetor}
+                  onDragStart={iniciarDragMarcador}
+                  onConfigurarCaixa={onConfigurarCaixa}
+                  onPropriedadesCard={onPropriedadesCard}
+                  onContextMenu={(id, x, y) => setMenuContexto({ marcadorId: id, x, y })}
+                />
               </div>
             )
           })}
@@ -728,35 +601,19 @@ export default function PalcoSetores({
       )}
       </div>
 
-      {instrucaoModo && <div className="absolute bottom-3 left-1/2 z-40 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-xl border border-primary/20 bg-background/95 px-3 py-2 text-xs shadow-card backdrop-blur" data-setor-interativo><span className="size-1.5 shrink-0 rounded-full bg-primary animate-pulse" /><span className="truncate">{instrucaoModo}</span><button type="button" className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" onPointerDown={(e) => e.stopPropagation()} onClick={onCancelarModo} aria-label="Cancelar modo de edição"><X size={14} /></button></div>}
-      {modo === 'nenhum' && <div className="absolute bottom-3 left-3 z-40 max-w-[calc(100%-1.5rem)] rounded-xl border border-border/70 bg-background/92 px-3 py-2 shadow-card backdrop-blur" data-setor-interativo><p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Visualizar por</p><div className="flex max-w-72 flex-wrap gap-x-2.5 gap-y-1">{legenda.map((item) => <span key={item.id} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><span className="size-2 rounded-full" style={{ backgroundColor: item.cor }} />{item.label}</span>)}</div></div>}
+      {instrucaoModo && <BarraInstrucao texto={instrucaoModo} onCancelar={onCancelarModo} />}
+      {modo === 'nenhum' && <LegendaMapa legenda={legenda} />}
       {modo === 'nenhum' && <div className="absolute bottom-3 right-3 z-40 hidden rounded-lg border border-border/70 bg-background/90 px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur xl:block" data-setor-interativo>Ctrl/Cmd + rolagem para zoom</div>}
 
       {menuContexto && (
-        <div
-          ref={menuRef}
-          className="fixed z-50 bg-white dark:bg-neutral-900 border rounded-md shadow-lg py-1 min-w-[180px] text-sm"
-          style={{ left: menuContexto.x, top: menuContexto.y }}
-        >
-          <button
-            className="w-full text-left px-3 py-1.5 hover:bg-muted"
-            onClick={() => {
-              onConfigurarCaixa(menuContexto.marcadorId)
-              setMenuContexto(null)
-            }}
-          >
-            Configurar caixa
-          </button>
-          <button
-            className="w-full text-left px-3 py-1.5 hover:bg-muted"
-            onClick={() => {
-              onPropriedadesCard(menuContexto.marcadorId)
-              setMenuContexto(null)
-            }}
-          >
-            Propriedades do card
-          </button>
-        </div>
+        <MenuContexto
+          x={menuContexto.x}
+          y={menuContexto.y}
+          marcadorId={menuContexto.marcadorId}
+          onConfigurarCaixa={onConfigurarCaixa}
+          onPropriedadesCard={onPropriedadesCard}
+          onFechar={() => setMenuContexto(null)}
+        />
       )}
     </div>
     </TooltipProvider>

@@ -56,10 +56,10 @@ function fracaoDecorrida(inicio: Date, fim: Date, agora: Date): number {
  * hoje — baseline (BL0) quando disponível, senão as datas atuais do cronograma. Não pesa
  * por custo/HH porque aqui não há soma de várias atividades (isso ficou no motor da Curva
  * S, pra quando o card precisar agregar — este cálculo é sempre de uma atividade só). */
-function avancoPrevistoDaAtividade(a: WBSActivity): number {
+function avancoPrevistoDaAtividade(a: WBSActivity, agora: Date): number {
   const inicio = a.baselineStart ?? a.start
   const fim = a.baselineFinish ?? a.finish
-  return round2(fracaoDecorrida(inicio, fim, new Date()))
+  return round2(fracaoDecorrida(inicio, fim, agora))
 }
 
 /** "Avanço concluído" de UMA atividade — prioriza actualWork/work (mais preciso que
@@ -71,7 +71,7 @@ function avancoConcluidoDaAtividade(a: WBSActivity): number {
   return round2(a.percentComplete ?? 0)
 }
 
-export function resolverValorCampo(cronograma: CronogramaInfo | undefined, vinculo: VinculoCampo): ValorCampo | null {
+export function resolverValorCampo(cronograma: CronogramaInfo | undefined, vinculo: VinculoCampo, agora?: Date): ValorCampo | null {
   const atividade = atividadeDoVinculo(cronograma, vinculo.activityUid)
   if (!atividade) return null
 
@@ -94,7 +94,7 @@ export function resolverValorCampo(cronograma: CronogramaInfo | undefined, vincu
     case 'termino':
       return { tipo: 'data', data: atividade.finish }
     case 'avanco_prev':
-      return { tipo: 'percentual', pct: avancoPrevistoDaAtividade(atividade) }
+      return { tipo: 'percentual', pct: avancoPrevistoDaAtividade(atividade, agora ?? new Date()) }
     case 'avanco_concl':
       return { tipo: 'percentual', pct: avancoConcluidoDaAtividade(atividade) }
   }
@@ -103,10 +103,11 @@ export function resolverValorCampo(cronograma: CronogramaInfo | undefined, vincu
 export function resolverCamposDoMarcador(
   cronograma: CronogramaInfo | undefined,
   vinculos: VinculoCampo[],
+  agora?: Date,
 ): Partial<Record<CampoCard, ValorCampo>> {
   const out: Partial<Record<CampoCard, ValorCampo>> = {}
   for (const v of vinculos) {
-    const valor = resolverValorCampo(cronograma, v)
+    const valor = resolverValorCampo(cronograma, v, agora)
     if (valor) out[v.campo] = valor
   }
   return out
@@ -145,17 +146,14 @@ export function listarColunasPersonalizadas(cronograma: CronogramaInfo | undefin
   return cronograma?.dados.customFieldDefs.map((d) => ({ fieldId: d.fieldId, nome: d.name })) ?? []
 }
 
-const PALETA_ENGENHEIRO = [
-  '#2f9e5c', '#d6453d', '#c9a600', '#e08a3f', '#0066CC',
-  '#9933FF', '#00AA00', '#CC0000', '#00CCCC', '#FF6600',
-]
-
 /** Cor determinística por nome (mesmo nome → sempre a mesma cor), já que não existe
- * cadastro de cor por engenheiro — só o texto livre de programacao_engenheiros_area. */
+ * cadastro de cor por engenheiro — só o texto livre de programacao_engenheiros_area.
+ * Usa distribuição angular em HSL para suportar任意 quantidade de engenheiros sem repetição. */
 function corPorNome(nome: string): string {
   let hash = 0
   for (let i = 0; i < nome.length; i++) hash = (hash * 31 + nome.charCodeAt(i)) >>> 0
-  return PALETA_ENGENHEIRO[hash % PALETA_ENGENHEIRO.length]
+  const hue = hash % 360
+  return `hsl(${hue}, 65%, 45%)`
 }
 
 export interface EngenheiroDoSetor {
