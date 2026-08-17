@@ -10,6 +10,12 @@ project_id = "ProjectObra-main"
 # e tokens de usuário legacy seriam rejeitados com 401/403).
 verify_jwt = false
 
+[functions.resgatar-acesso-demo]
+# Quem chama ainda não tem sessão nenhuma (é o primeiro contato do visitante
+# com o sistema) — não existe JWT de usuário pra validar. A segurança é o
+# próprio id do link (acessos_demo), revalidado dentro da função/RPC.
+verify_jwt = false
+
 [api]
 enabled = true
 # Port to use for the API URL.

@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
 import OrganizacoesManagement from '@/pages/admin/OrganizacoesManagement'
+import AcessosDemoManagement from '@/pages/admin/AcessosDemoManagement'
 
 // Tela de administração da plataforma — fora do /dashboard de propósito: o
 // /dashboard exige um projeto selecionado (ver DashboardLayout), e um Dono da
@@ -41,8 +42,9 @@ export default function PlatformAdmin() {
         </div>
       </header>
 
-      <div className="px-6 py-8">
+      <div className="px-6 py-8 space-y-10">
         <OrganizacoesManagement />
+        <AcessosDemoManagement />
       </div>
     </div>
   )

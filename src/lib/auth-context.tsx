@@ -18,6 +18,7 @@ interface UserProfile {
   // 'todos' (padrão) = enxerga todo projeto da empresa, igual a hoje.
   // 'vinculados' = só os projetos em projeto_usuarios — ver Dashboard Macro.
   escopo_projetos: EscopoProjetos
+  is_demo: boolean
   modulos: string[]
   // Overrides de papel por módulo (chave = modulo_key) — ausência de chave
   // pra um módulo = usa `papel` (o padrão global). Ver papelEfetivo().
@@ -53,6 +54,7 @@ interface AuthContextType {
   perfilCompleto: boolean
   refetchProfile: () => Promise<void>
   signIn: (email: string, password: string) => Promise<{ error?: string }>
+  redeemDemoAccess: (id: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, nome?: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
   resetPassword: (email: string) => Promise<{ error?: string }>
@@ -91,7 +93,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // campo (papelEfetivo() também tem optional chaining como segunda proteção).
   // v4: bump depois de adicionar escopo_projetos (Dashboard Macro) — cache
   // antigo cai no fallback 'todos' abaixo mesmo assim, é só por higiene.
-  const profileCacheKey = (userId: string) => `auth:profile:v4:${userId}`
+  // v5: bump depois de adicionar is_demo (Conta Demo) — cache antigo cai no
+  // fallback `false` abaixo, é só por higiene.
+  const profileCacheKey = (userId: string) => `auth:profile:v5:${userId}`
 
   // O Supabase costuma disparar onAuthStateChange mais de uma vez logo no
   // boot (INITIAL_SESSION, depois outro evento) mesmo pro MESMO usuário —
@@ -116,9 +120,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // contrato da empresa) — ausência de linhas = sem restrição.
     // user_papel_modulos são os overrides de papel por módulo — ausência de
     // linhas = usa o papel global em todo módulo (comportamento de hoje).
-    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
-    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
-    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, organizacoes(is_piloto, organizacao_modulos(modulo_key, ativo))'
+    const SELECT_COMPLETO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, is_demo, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key), user_papel_modulos(modulo_key, papel)'
+    const SELECT_SEM_PAPEL_MODULO = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, termos_aceitos_em, versao_termos, organizacoes(is_piloto, is_demo, organizacao_modulos(modulo_key, ativo)), user_modulos_visiveis(modulo_key)'
+    const SELECT_SEM_MODULOS_VISIVEIS = 'papel, status_solicitacao, organizacao_id, is_super_admin, escopo_projetos, nome, funcao, assinatura_estilo, organizacoes(is_piloto, is_demo, organizacao_modulos(modulo_key, ativo))'
 
     let { data, error } = await supabase.from('user_profiles').select(SELECT_COMPLETO).eq('id', userId).single()
 
@@ -158,6 +162,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         is_super_admin: data.is_super_admin,
         organizacao_piloto: organizacaoEmbutida?.is_piloto ?? false,
         escopo_projetos: (data.escopo_projetos as EscopoProjetos | undefined) ?? 'todos',
+        is_demo: organizacaoEmbutida?.is_demo ?? false,
         modulos,
         papelPorModulo,
         nome: data.nome,
@@ -221,6 +226,48 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message }
   }
 
+  const redeemDemoAccess = async (id: string) => {
+    // Sem sign-in anônimo: uma Edge Function (Service Role) cria um usuário de
+    // verdade com email descartável via Admin API e devolve um token de
+    // magic-link — trocado abaixo por uma sessão real. Ver
+    // supabase/functions/resgatar-acesso-demo/index.ts (motivo: o toggle
+    // "Anonymous Sign-Ins" do projeto ficou indisponível no painel).
+    const { data, error: invokeError } = await supabase.functions.invoke('resgatar-acesso-demo', {
+      body: { id },
+    })
+
+    if (invokeError) {
+      let detail = ''
+      if (invokeError.context) {
+        try {
+          const payload = await invokeError.context.clone().json()
+          detail = typeof payload?.error === 'string' ? payload.error : ''
+        } catch {
+          /* corpo não-JSON */
+        }
+      }
+      return { error: detail || invokeError.message }
+    }
+
+    const hashedToken = data?.hashed_token as string | undefined
+    if (!hashedToken) return { error: 'Falha ao iniciar sessão demo' }
+
+    const { data: otpData, error: otpError } = await supabase.auth.verifyOtp({
+      token_hash: hashedToken,
+      type: 'magiclink',
+    })
+    if (otpError || !otpData.user) return { error: otpError?.message ?? 'Falha ao entrar na conta demo' }
+
+    // O onAuthStateChange do verifyOtp acima já pode ter disparado um
+    // fetchProfile ANTES da RPC (chamada dentro da Edge Function) commitar o
+    // user_profiles (corrida) — refetchProfile() usa `session` do closure
+    // (ainda null nesse primeiro clique, antes do state atualizar), então
+    // busca direto pelo id devolvido acima em vez de depender dele.
+    await fetchProfile(otpData.user.id)
+
+    return {}
+  }
+
   const signUp = async (email: string, password: string, nome?: string) => {
     const { error } = await supabase.auth.signUp({
       email,
@@ -279,6 +326,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         perfilCompleto,
         refetchProfile,
         signIn,
+        redeemDemoAccess,
         signUp,
         signOut,
         resetPassword,

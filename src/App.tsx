@@ -40,6 +40,7 @@ const ExcluirConta = lazy(() => import('@/pages/ExcluirConta'))
 const PendingApproval = lazy(() => import('@/pages/PendingApproval'))
 const UserApprovalManagement = lazy(() => import('@/pages/UserApprovalManagement'))
 const PlatformAdmin = lazy(() => import('@/pages/admin/PlatformAdmin'))
+const AcessoDemo = lazy(() => import('@/pages/AcessoDemo'))
 const SiengeAlertas = lazy(() => import('@/pages/SiengeAlertas'))
 const AdministracaoHome = lazy(() => import('@/pages/administracao/AdministracaoHome'))
 const SecurityMonitoring = lazy(() => import('@/pages/admin/SecurityMonitoring'))
@@ -117,6 +118,7 @@ function App() {
                         (ver Fase 0 do plano: acesso anônimo só passa por RPC estreita,
                         nunca por RLS aberta numa tabela real). */}
                     <Route path="/apresentacao/:token" element={<ApresentacaoPublica />} />
+                    <Route path="/demo/:id" element={<AcessoDemo />} />
                     <Route path="/forgot-password" element={<ForgotPassword />} />
                     <Route path="/update-password" element={<UpdatePassword />} />
 
