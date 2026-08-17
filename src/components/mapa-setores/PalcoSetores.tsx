@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Maximize, Minus, Plus, Settings2 } from 'lucide-react'
+import { Crop, MapPin, Maximize, Maximize2, Minimize2, Minus, Plus, Settings2, Square, X } from 'lucide-react'
 import type { MapaSetoresMarcador, MapaSetoresPlanta } from '@/lib/mapa-setores/mapa-setores-db'
 import type { EngenheiroDoSetor } from '@/lib/mapa-setores/progresso'
-import { STATUS_SETORES, type SetorVisual } from '@/lib/mapa-setores/status'
+import { resultadoDaCamada, type CamadaMapaId, type ItemLegendaCamada, type SetorComCamada } from '@/lib/mapa-setores/camadas'
 import ComparacaoAvanco from './ComparacaoAvanco'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 
 // Interação de arraste inteira (marcador ponto/área, card solto, criação por clique ou
 // retângulo) é mouse events manuais, sem lib de drag — o projeto não tem nenhuma
@@ -15,6 +17,11 @@ export type ModoEdicao = 'nenhum' | 'ponto' | 'area' | 'recorte'
 
 function clamp(v: number, min: number, max: number) {
   return Math.max(min, Math.min(max, v))
+}
+
+function calcularAlturaMaximaDoPalco() {
+  if (typeof window === 'undefined') return 600
+  return Math.min(760, Math.max(400, Math.round(window.innerHeight * 0.68)))
 }
 
 interface GeometriaPonto {
@@ -37,7 +44,11 @@ interface Props {
   marcadores: MapaSetoresMarcador[]
   engenheiroPorMarcador: Map<string, EngenheiroDoSetor>
   orfaoPorMarcador: Map<string, boolean>
-  setoresVisuais: SetorVisual[]
+  setoresVisuais: SetorComCamada[]
+  camada: CamadaMapaId
+  camadas: { id: CamadaMapaId; label: string; descricao: string }[]
+  legenda: ItemLegendaCamada[]
+  onCamadaChange: (camada: CamadaMapaId) => void
   idsVisiveis: Set<string>
   setorSelecionadoId: string | null
   versaoFoco: number
@@ -47,6 +58,10 @@ interface Props {
   onCriarPendente: (geometria: NovaGeometria, cardPos: { x: number; y: number }) => void
   onMoverMarcador: (id: string, campos: Partial<MapaSetoresMarcador>) => void
   onRecortar: (crop: { x: number; y: number; w: number; h: number }) => void
+  onCancelarModo: () => void
+  onAlternarModo: (modo: Exclude<ModoEdicao, 'nenhum'>) => void
+  emTelaCheia: boolean
+  onAlternarTelaCheia: () => void
   onConfigurarCaixa: (id: string) => void
   onPropriedadesCard: (id: string) => void
 }
@@ -60,6 +75,10 @@ export default function PalcoSetores({
   engenheiroPorMarcador,
   orfaoPorMarcador,
   setoresVisuais,
+  camada,
+  camadas,
+  legenda,
+  onCamadaChange,
   idsVisiveis,
   setorSelecionadoId,
   versaoFoco,
@@ -69,6 +88,10 @@ export default function PalcoSetores({
   onCriarPendente,
   onMoverMarcador,
   onRecortar,
+  onCancelarModo,
+  onAlternarModo,
+  emTelaCheia,
+  onAlternarTelaCheia,
   onConfigurarCaixa,
   onPropriedadesCard,
 }: Props) {
@@ -90,6 +113,7 @@ export default function PalcoSetores({
   }, [menuContexto])
   const containerRef = useRef<HTMLDivElement>(null)
   const [largura, setLargura] = useState(0)
+  const [alturaMaxima, setAlturaMaxima] = useState(calcularAlturaMaximaDoPalco)
   const [camera, setCamera] = useState({ zoom: 1, x: 0, y: 0 })
   const versaoFocoAplicadaRef = useRef(0)
   const cameraDragRef = useRef<{ pointerId: number; startX: number; startY: number; cameraX: number; cameraY: number } | null>(null)
@@ -105,11 +129,22 @@ export default function PalcoSetores({
     return () => obs.disconnect()
   }, [])
 
+  useEffect(() => {
+    const atualizarAltura = () => setAlturaMaxima(calcularAlturaMaximaDoPalco())
+    window.addEventListener('resize', atualizarAltura)
+    return () => window.removeEventListener('resize', atualizarAltura)
+  }, [])
+
   const crop = { x: planta.crop_x, y: planta.crop_y, w: planta.crop_w, h: planta.crop_h }
   const cropVisivel = modo === 'recorte' ? { x: 0, y: 0, w: planta.largura_natural, h: planta.altura_natural } : crop
+  const larguraMaxima = cropVisivel.h > 0 ? alturaMaxima * (cropVisivel.w / cropVisivel.h) : alturaMaxima
   const escala = largura > 0 && cropVisivel.w > 0 ? largura / cropVisivel.w : 0
   const alturaViewport = cropVisivel.h * escala
   const setorVisualPorId = useMemo(() => new Map(setoresVisuais.map((setor) => [setor.id, setor])), [setoresVisuais])
+  const resultadoCamadaPorSetor = useMemo(
+    () => new Map(setoresVisuais.map((setor) => [setor.id, resultadoDaCamada(camada, setor)])),
+    [camada, setoresVisuais],
+  )
 
   function ajustarZoom(novoZoom: number, ponto?: { x: number; y: number }) {
     const el = containerRef.current
@@ -427,6 +462,7 @@ export default function PalcoSetores({
     const el = containerRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       const rect = el.getBoundingClientRect()
       const fator = e.deltaY > 0 ? 0.9 : 1.1
@@ -436,47 +472,57 @@ export default function PalcoSetores({
     return () => el.removeEventListener('wheel', onWheel)
   }, [camera.zoom])
 
+  const instrucaoModo = modo === 'recorte'
+    ? 'Arraste sobre a planta para definir a visualização padrão.'
+    : modo === 'ponto'
+      ? 'Clique na planta para posicionar o setor.'
+      : modo === 'area'
+        ? 'Arraste sobre a planta para desenhar a área do setor.'
+        : null
+
   return (
+    <TooltipProvider delayDuration={300}>
     <div
       ref={containerRef}
-      className={`relative overflow-hidden border rounded-md select-none bg-muted/30 ${
+      className={`min-h-[320px] overflow-hidden select-none ${
+        emTelaCheia ? 'absolute inset-0' : 'relative rounded-2xl border border-border/80 shadow-elevated'
+      } ${
         modo === 'recorte' ? 'cursor-crosshair' : modo === 'ponto' || modo === 'area' ? 'cursor-crosshair' : ''
       }`}
-      style={{ height: alturaViewport || 400, touchAction: 'none' }}
+      style={{
+        height: emTelaCheia ? undefined : alturaViewport || Math.min(400, alturaMaxima),
+        width: '100%',
+        maxWidth: emTelaCheia ? '100%' : larguraMaxima,
+        marginInline: 'auto',
+        touchAction: modo === 'nenhum' ? 'pan-y' : 'none',
+        backgroundColor: 'var(--muted)',
+        backgroundImage: 'repeating-conic-gradient(from 45deg, rgb(100 116 139 / 0.07) 0 25%, transparent 0 50%)',
+        backgroundSize: '24px 24px',
+      }}
       onPointerDown={onStagePointerDown}
       onPointerMove={onStagePointerMove}
       onPointerUp={onStagePointerUp}
       onPointerCancel={onStagePointerUp}
+      onDoubleClick={() => { if (modo === 'nenhum') onAlternarTelaCheia() }}
     >
-      <div className="absolute right-2 top-2 z-40 flex items-center gap-1 rounded-md border bg-background/95 p-1 shadow-sm" data-setor-interativo>
-        <button
-          type="button"
-          aria-label="Reduzir zoom"
-          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })}
-        >
-          <Minus size={15} />
-        </button>
-        <span className="min-w-10 text-center text-xs tabular-nums">{Math.round(camera.zoom * 100)}%</span>
-        <button
-          type="button"
-          aria-label="Aumentar zoom"
-          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })}
-        >
-          <Plus size={15} />
-        </button>
-        <button
-          type="button"
-          aria-label="Ajustar planta à tela"
-          className="min-h-11 min-w-11 rounded p-2.5 hover:bg-muted"
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={ajustarAoQuadro}
-        >
-          <Maximize size={15} />
-        </button>
+      <div className="absolute left-3 top-3 z-40 flex flex-col items-stretch gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-card backdrop-blur sm:flex-row" data-setor-interativo>
+        {podeEditar && <>
+          <button type="button" aria-label="Criar setor por ponto" aria-pressed={modo === 'ponto'} title="Criar setor por ponto" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'ponto' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('ponto')}>{modo === 'ponto' ? <X size={15} /> : <MapPin size={15} />}<span className="hidden text-xs font-medium sm:inline">Ponto</span></button>
+          <button type="button" aria-label="Criar setor por área" aria-pressed={modo === 'area'} title="Criar setor por área" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'area' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('area')}>{modo === 'area' ? <X size={15} /> : <Square size={15} />}<span className="hidden text-xs font-medium sm:inline">Área</span></button>
+          <button type="button" aria-label="Definir visualização padrão" aria-pressed={modo === 'recorte'} title="Definir visualização padrão" className={`flex h-8 items-center justify-center gap-1.5 rounded-lg px-2 transition-colors ${modo === 'recorte' ? 'bg-primary text-primary-foreground shadow-sm' : 'hover:bg-muted'}`} onPointerDown={(e) => e.stopPropagation()} onClick={() => onAlternarModo('recorte')}>{modo === 'recorte' ? <X size={15} /> : <Crop size={15} />}<span className="hidden text-xs font-medium sm:inline">Recorte</span></button>
+          <span className="hidden h-5 w-px self-center bg-border sm:block" />
+        </>}
+        <Select value={camada} onValueChange={(valor) => onCamadaChange(valor as CamadaMapaId)}>
+          <SelectTrigger aria-label="Visualizar por" className="h-8 w-40 rounded-lg border-0 bg-transparent px-2 text-xs shadow-none" onPointerDown={(e) => e.stopPropagation()}><SelectValue /></SelectTrigger>
+          <SelectContent>{camadas.map((item) => <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>)}</SelectContent>
+        </Select>
+      </div>
+      <div className="absolute right-3 top-3 z-40 flex items-center gap-1 rounded-xl border border-border/80 bg-background/95 p-1 shadow-card backdrop-blur" data-setor-interativo>
+        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Reduzir zoom" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={() => ajustarZoom(camera.zoom / 1.2, { x: largura / 2, y: alturaViewport / 2 })}><Minus size={15} /></button></TooltipTrigger><TooltipContent>Reduzir zoom</TooltipContent></Tooltip>
+        <span className="min-w-10 text-center text-xs font-medium tabular-nums">{Math.round(camera.zoom * 100)}%</span>
+        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Aumentar zoom" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={() => ajustarZoom(camera.zoom * 1.2, { x: largura / 2, y: alturaViewport / 2 })}><Plus size={15} /></button></TooltipTrigger><TooltipContent>Aumentar zoom</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><button type="button" aria-label="Ajustar planta à tela" className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={ajustarAoQuadro}><Maximize size={15} /></button></TooltipTrigger><TooltipContent>Ajustar à tela</TooltipContent></Tooltip>
+        <Tooltip><TooltipTrigger asChild><button type="button" aria-label={emTelaCheia ? 'Sair da tela cheia' : 'Tela cheia'} className="flex size-8 items-center justify-center rounded-lg hover:bg-muted" onPointerDown={(e) => e.stopPropagation()} onClick={onAlternarTelaCheia}>{emTelaCheia ? <Minimize2 size={15} /> : <Maximize2 size={15} />}</button></TooltipTrigger><TooltipContent>{emTelaCheia ? 'Sair da tela cheia' : 'Tela cheia'}</TooltipContent></Tooltip>
       </div>
 
       <div
@@ -519,13 +565,14 @@ export default function PalcoSetores({
             {marcadoresView.filter((m) => idsVisiveis.has(m.id)).map((m) => {
               const eng = engenheiroPorMarcador.get(m.id)
               const visual = setorVisualPorId.get(m.id)
-              const cor = visual ? STATUS_SETORES[visual.status].cor : eng?.cor ?? '#64748b'
+              const resultadoCamada = resultadoCamadaPorSetor.get(m.id)
+              const cor = resultadoCamada?.cor ?? eng?.cor ?? '#64748b'
               const orfao = orfaoPorMarcador.get(m.id) ?? false
               const selecionado = setorSelecionadoId === m.id
               const atenuado = setorSelecionadoId !== null && !selecionado
 
               return (
-                <div key={m.id} className={`transition-opacity ${atenuado ? 'opacity-60' : 'opacity-100'}`}>
+                <div key={m.id} className={`transition-all duration-200 ${atenuado ? 'opacity-45' : 'opacity-100'}`}>
                 {m.tipo === 'ponto' ? (
                   <div
                     className="absolute z-10"
@@ -558,7 +605,7 @@ export default function PalcoSetores({
                         iniciarDragMarcador(m.id, 'move-area', e)
                       }}
                       onClick={() => onSelecionarSetor(m.id)}
-                      className={`absolute inset-0 rounded-sm border-2 cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/25' : ''}`}
+                    className={`absolute inset-0 rounded-md border-2 cursor-grab active:cursor-grabbing ${selecionado ? 'ring-4 ring-primary/25 shadow-lg' : ''}`}
                       style={{ borderColor: cor, backgroundColor: `${cor}22` }}
                     />
                     <div
@@ -592,8 +639,8 @@ export default function PalcoSetores({
                   role="button"
                   tabIndex={0}
                   aria-selected={selecionado}
-                  className={`absolute z-20 min-w-[184px] max-w-[224px] rounded-md border-2 bg-white px-3 py-2.5 text-xs leading-relaxed shadow-lg cursor-grab active:cursor-grabbing dark:bg-neutral-900 ${
-                    selecionado ? 'ring-4 ring-primary/20' : ''
+                  className={`absolute z-20 min-w-[184px] max-w-[224px] rounded-xl border-2 bg-white/96 px-3 py-2.5 text-xs leading-relaxed shadow-elevated backdrop-blur-sm cursor-grab active:cursor-grabbing dark:bg-neutral-900/96 ${
+                    selecionado ? 'ring-4 ring-primary/20' : 'hover:shadow-lg'
                   }`}
                   style={{
                     left: `${m.card_x_pct}%`,
@@ -638,8 +685,8 @@ export default function PalcoSetores({
                     </button>}
                   </div>
                   <div className="mb-1 flex items-center justify-between gap-2">
-                    <span className="rounded-full border px-1.5 py-0.5 text-xs font-semibold" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
-                      {visual ? STATUS_SETORES[visual.status].label : 'Sem dados'}
+                      <span className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide" style={{ color: cor, borderColor: `${cor}55`, backgroundColor: `${cor}12` }}>
+                      {resultadoCamada?.valor ?? 'Sem dados'}
                     </span>
                     {orfao && <span className="font-medium text-amber-700" title="Alguma atividade vinculada não foi encontrada no cronograma atual">Vínculo</span>}
                   </div>
@@ -681,6 +728,10 @@ export default function PalcoSetores({
       )}
       </div>
 
+      {instrucaoModo && <div className="absolute bottom-3 left-1/2 z-40 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-2 rounded-xl border border-primary/20 bg-background/95 px-3 py-2 text-xs shadow-card backdrop-blur" data-setor-interativo><span className="size-1.5 shrink-0 rounded-full bg-primary animate-pulse" /><span className="truncate">{instrucaoModo}</span><button type="button" className="ml-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground" onPointerDown={(e) => e.stopPropagation()} onClick={onCancelarModo} aria-label="Cancelar modo de edição"><X size={14} /></button></div>}
+      {modo === 'nenhum' && <div className="absolute bottom-3 left-3 z-40 max-w-[calc(100%-1.5rem)] rounded-xl border border-border/70 bg-background/92 px-3 py-2 shadow-card backdrop-blur" data-setor-interativo><p className="mb-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">Visualizar por</p><div className="flex max-w-72 flex-wrap gap-x-2.5 gap-y-1">{legenda.map((item) => <span key={item.id} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground"><span className="size-2 rounded-full" style={{ backgroundColor: item.cor }} />{item.label}</span>)}</div></div>}
+      {modo === 'nenhum' && <div className="absolute bottom-3 right-3 z-40 hidden rounded-lg border border-border/70 bg-background/90 px-2.5 py-1.5 text-[11px] text-muted-foreground shadow-sm backdrop-blur xl:block" data-setor-interativo>Ctrl/Cmd + rolagem para zoom</div>}
+
       {menuContexto && (
         <div
           ref={menuRef}
@@ -708,5 +759,6 @@ export default function PalcoSetores({
         </div>
       )}
     </div>
+    </TooltipProvider>
   )
 }

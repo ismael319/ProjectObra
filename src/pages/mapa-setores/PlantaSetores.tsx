@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Crop, MapPin, Square, Printer, Loader2, X, Maximize2, Minimize2, RotateCcw, Search, SlidersHorizontal, Settings2, LocateFixed } from 'lucide-react'
+import { ArrowLeft, BarChart3, Building2, Layers3, ListFilter, Printer, Loader2, X, Minimize2, RotateCcw, Search, Settings2, LocateFixed, PanelRightClose, PanelRightOpen } from 'lucide-react'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
 import { useProjects } from '@/lib/project-store'
 import {
@@ -14,7 +14,8 @@ import {
   useCamposDosMarcadores,
   useRealtimeMapaSetores,
 } from '@/lib/mapa-setores/mapa-setores-db'
-import { listEngenheirosArea } from '@/lib/programacao-db'
+import { getActivitiesInDateRange, listEngenheirosArea } from '@/lib/programacao-db'
+import { CAMADAS_MAPA, legendaDaCamada, resolverProgramacaoHoje, type CamadaMapaId, type SetorComCamada } from '@/lib/mapa-setores/camadas'
 import {
   calcularResumoGeral,
   formatarValorCampo,
@@ -46,6 +47,8 @@ import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Collapsible, CollapsibleContent } from '@/components/ui/collapsible'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -61,6 +64,13 @@ type ModoEdicao = 'nenhum' | 'ponto' | 'area' | 'recorte'
 
 const RESUMO_STATUS = ['todos', 'atrasado', 'atencao', 'em_dia', 'concluido', 'sem_dados'] as const
 
+function hojeLocalIso() {
+  const data = new Date()
+  const mes = String(data.getMonth() + 1).padStart(2, '0')
+  const dia = String(data.getDate()).padStart(2, '0')
+  return `${data.getFullYear()}-${mes}-${dia}`
+}
+
 export default function PlantaSetores() {
   const { plantaId } = useParams<{ plantaId: string }>()
   const { userProfile } = useAuth()
@@ -68,6 +78,7 @@ export default function PlantaSetores() {
   const { currentProject } = useProjects()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
   const projetoId = currentProject?.id
+  const hoje = hojeLocalIso()
 
   const { data: planta, isLoading: carregandoPlanta } = usePlantaSetores(plantaId)
   const { data: imagemUrl } = usePlantaSetoresUrl(planta?.arquivo_path)
@@ -79,6 +90,11 @@ export default function PlantaSetores() {
     queryKey: ['programacao_engenheiros_area', projetoId],
     enabled: !!projetoId,
     queryFn: () => listEngenheirosArea(projetoId!),
+  })
+  const { data: atividadesHoje = [] } = useQuery({
+    queryKey: ['programacao_atividades_hoje', organizacaoId, projetoId, hoje],
+    enabled: !!organizacaoId && !!projetoId,
+    queryFn: () => getActivitiesInDateRange(organizacaoId!, projetoId!, hoje, hoje),
   })
 
   useRealtimeMapaSetores(plantaId, projetoId)
@@ -127,13 +143,14 @@ export default function PlantaSetores() {
     return m
   }, [marcadores, vinculosPorMarcador, cronogramaPorId])
 
-  const setoresVisuais = useMemo<SetorVisual[]>(() => {
+  const setoresVisuais = useMemo<SetorComCamada[]>(() => {
     return marcadores.map((marcador) => {
       const campos = camposPorMarcador.get(marcador.id) ?? {}
       const engenheiro = engenheiroPorMarcador.get(marcador.id)
       const previsto = campos.avanco_prev?.tipo === 'percentual' ? campos.avanco_prev.pct : null
       const concluido = campos.avanco_concl?.tipo === 'percentual' ? campos.avanco_concl.pct : null
       const orfao = orfaoPorMarcador.get(marcador.id) ?? false
+      const taskUids = (vinculosPorMarcador.get(marcador.id) ?? []).map((vinculo) => String(vinculo.activityUid))
       return {
         id: marcador.id,
         nome: marcador.nome,
@@ -147,13 +164,17 @@ export default function PlantaSetores() {
         inicio: formatarValorCampo(campos.inicio),
         termino: formatarValorCampo(campos.termino),
         atualizadoEm: marcador.atualizado_em,
+        programacaoHoje: resolverProgramacaoHoje(taskUids, atividadesHoje),
       }
     })
-  }, [marcadores, camposPorMarcador, engenheiroPorMarcador, orfaoPorMarcador])
+  }, [marcadores, camposPorMarcador, engenheiroPorMarcador, orfaoPorMarcador, vinculosPorMarcador, atividadesHoje])
 
   const [filtros, setFiltros] = useState<FiltrosSetores>(FILTROS_SETORES_INICIAIS)
+  const [camada, setCamada] = useState<CamadaMapaId>('status')
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false)
   const [ordenacao, setOrdenacao] = useState<OrdenacaoSetores>('criticidade')
   const [setorSelecionadoId, setSetorSelecionadoId] = useState<string | null>(null)
+  const [sheetOcultoId, setSheetOcultoId] = useState<string | null>(null)
   const [versaoFoco, setVersaoFoco] = useState(0)
   const setoresFiltrados = useMemo(() => filtrarSetores(setoresVisuais, filtros), [setoresVisuais, filtros])
   const setoresOrdenados = useMemo(() => ordenarSetores(setoresFiltrados, ordenacao), [setoresFiltrados, ordenacao])
@@ -171,6 +192,9 @@ export default function PlantaSetores() {
     for (const setor of setoresVisuais) total.set(setor.status, (total.get(setor.status) ?? 0) + 1)
     return total
   }, [setoresVisuais])
+  const legendaCamada = useMemo(() => legendaDaCamada(camada, setoresVisuais), [camada, setoresVisuais])
+  const possuiFiltrosAtivos = filtros.busca || filtros.status !== 'todos' || filtros.engenheiro !== 'todos' || filtros.somenteOrfaos
+  const totalFiltrosAtivos = Number(filtros.status !== 'todos') + Number(filtros.engenheiro !== 'todos') + Number(filtros.somenteOrfaos)
 
   useEffect(() => {
     if (setorSelecionadoId && !idsVisiveis.has(setorSelecionadoId)) setSetorSelecionadoId(null)
@@ -186,8 +210,13 @@ export default function PlantaSetores() {
 
   const areaFullscreenRef = useRef<HTMLDivElement>(null)
   const [emTelaCheia, setEmTelaCheia] = useState(false)
+  const [resumoVisivel, setResumoVisivel] = useState(true)
   useEffect(() => {
-    const atualizar = () => setEmTelaCheia(document.fullscreenElement === areaFullscreenRef.current)
+    const atualizar = () => {
+      const emCheia = document.fullscreenElement === areaFullscreenRef.current
+      setEmTelaCheia(emCheia)
+      if (!emCheia) setResumoVisivel(true)
+    }
     document.addEventListener('fullscreenchange', atualizar)
     return () => document.removeEventListener('fullscreenchange', atualizar)
   }, [])
@@ -225,6 +254,7 @@ export default function PlantaSetores() {
 
   function selecionarELocalizar(id: string) {
     setSetorSelecionadoId(id)
+    setSheetOcultoId(null)
     setVersaoFoco((atual) => atual + 1)
   }
 
@@ -279,158 +309,45 @@ export default function PlantaSetores() {
   const plantaRecortada = planta.crop_x !== 0 || planta.crop_y !== 0 || planta.crop_w !== planta.largura_natural || planta.crop_h !== planta.altura_natural
 
   return (
-    <div className="p-4 sm:p-6 space-y-4">
-      <header className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div className="flex items-center gap-3 min-w-0">
-          <Button asChild variant="ghost" size="icon">
-            <Link to="/dashboard/mapa-setores">
-              <ArrowLeft size={18} />
-            </Link>
-          </Button>
-          <h1 className="text-xl font-semibold truncate">{planta.nome}</h1>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {podeEditar && (
-            <>
-              <Button variant={modo === 'recorte' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('recorte')}>
-                <Crop size={15} className="mr-1" />
-                Definir visualização padrão
-              </Button>
-              {plantaRecortada && (
-                <Button variant="outline" size="sm" onClick={() => setConfirmarRestauracao(true)}>
-                  <RotateCcw size={15} className="mr-1" />
-                  Restaurar planta inteira
-                </Button>
-              )}
-              <Button variant={modo === 'ponto' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('ponto')}>
-                {modo === 'ponto' ? <X size={15} className="mr-1" /> : <MapPin size={15} className="mr-1" />}
-                {modo === 'ponto' ? 'Cancelar' : '+ Ponto'}
-              </Button>
-              <Button variant={modo === 'area' ? 'default' : 'outline'} size="sm" onClick={() => alternarModo('area')}>
-                {modo === 'area' ? <X size={15} className="mr-1" /> : <Square size={15} className="mr-1" />}
-                {modo === 'area' ? 'Cancelar' : '+ Área'}
-              </Button>
-            </>
-          )}
-          <Button variant="outline" size="sm" onClick={() => window.print()}>
-            <Printer size={15} className="mr-1" />
-            Imprimir mapa
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => void alternarTelaCheia()}>
-            {emTelaCheia ? <Minimize2 size={15} className="mr-1" /> : <Maximize2 size={15} className="mr-1" />}
-            {emTelaCheia ? 'Sair da tela cheia' : 'Tela cheia'}
-          </Button>
+    <div className="mx-auto max-w-[1600px] space-y-4 p-4 sm:p-6">
+      <header className="flex flex-col gap-4 border-b border-border/70 pb-5 print:hidden">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button asChild variant="ghost" size="icon" className="shrink-0 rounded-xl">
+              <Link to="/dashboard/mapa-setores"><ArrowLeft size={18} /></Link>
+            </Button>
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-md shadow-primary/20"><Layers3 size={20} /></div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 truncate text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground"><Building2 size={12} />{currentProject?.nome ?? 'Obra selecionada'}</p>
+              <h1 className="mt-1 truncate text-xl font-semibold tracking-tight sm:text-2xl">{planta.nome}</h1>
+              <p className="mt-1 text-xs text-muted-foreground">Mapa operacional · {marcadores.length} {marcadores.length === 1 ? 'setor' : 'setores'}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="flex items-center gap-1">
+              {plantaRecortada && podeEditar && <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => setConfirmarRestauracao(true)} title="Restaurar planta inteira"><RotateCcw size={16} /></Button>}
+              <Button variant="ghost" size="icon" className="rounded-xl" onClick={() => window.print()} title="Imprimir mapa"><Printer size={16} /></Button>
+            </div>
+          </div>
         </div>
       </header>
 
-      {modo !== 'nenhum' && (
-        <p className="text-xs text-muted-foreground print:hidden">
-          {modo === 'recorte' && 'Arraste sobre a planta inteira para selecionar a visualização padrão do layout.'}
-          {modo === 'ponto' && 'Clique na planta para posicionar o setor.'}
-          {modo === 'area' && 'Arraste sobre a planta para desenhar a área do setor.'}
-        </p>
-      )}
+      {marcadores.length > 0 && <section className="rounded-2xl border border-border/70 bg-card p-3 shadow-card print:hidden sm:p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div><p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground"><ListFilter size={13} /> Setores</p><p className="mt-0.5 text-sm font-medium">{setoresFiltrados.length} de {setoresVisuais.length} visíveis</p></div>
+          {possuiFiltrosAtivos && <Button size="sm" variant="ghost" className="rounded-lg" onClick={() => setFiltros(FILTROS_SETORES_INICIAIS)}>Limpar filtros</Button>}
+        </div>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <div className="relative min-w-0 flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input value={filtros.busca} onChange={(e) => setFiltros((atual) => ({ ...atual, busca: e.target.value }))} className="h-10 rounded-xl border-border/80 bg-muted/20 pl-9 shadow-none" placeholder="Buscar setor ou responsável..." /></div>
+          <Select value={ordenacao} onValueChange={(valor) => setOrdenacao(valor as OrdenacaoSetores)}><SelectTrigger aria-label="Ordenar setores" className="h-10 w-full rounded-xl bg-background sm:w-48"><SelectValue placeholder="Ordenar setores" /></SelectTrigger><SelectContent><SelectItem value="criticidade">Mais críticos</SelectItem><SelectItem value="nome">Nome</SelectItem><SelectItem value="concluido">Maior realizado</SelectItem><SelectItem value="desvio">Pior desvio</SelectItem><SelectItem value="engenheiro">Responsável</SelectItem></SelectContent></Select>
+          <Button variant="outline" className="h-10 rounded-xl lg:hidden" onClick={() => setFiltrosAbertos((aberto) => !aberto)} aria-expanded={filtrosAbertos}><ListFilter size={16} /> Filtros{totalFiltrosAtivos > 0 && <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{totalFiltrosAtivos}</span>}</Button>
+        </div>
+        <div className="mt-3 hidden lg:block"><FiltrosDetalhados filtros={filtros} setFiltros={setFiltros} contagemStatus={contagemStatus} setoresVisuais={setoresVisuais} engenheiros={engenheiros} /></div>
+        <Collapsible open={filtrosAbertos} className="lg:hidden"><CollapsibleContent className="mt-3"><FiltrosDetalhados filtros={filtros} setFiltros={setFiltros} contagemStatus={contagemStatus} setoresVisuais={setoresVisuais} engenheiros={engenheiros} /></CollapsibleContent></Collapsible>
+      </section>}
 
-      {marcadores.length > 0 && (
-        <p className="text-xs text-muted-foreground print:hidden">
-          Clique num setor para ver detalhes. Botão direito, ou o botão de ações no card, configura os vínculos.
-        </p>
-      )}
-
-      <section className="rounded-lg border bg-card p-3 space-y-3 print:hidden">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[220px] flex-1 sm:max-w-sm">
-            <Search className="absolute left-2.5 top-2.5 text-muted-foreground" size={16} />
-            <Input
-              value={filtros.busca}
-              onChange={(e) => setFiltros((atual) => ({ ...atual, busca: e.target.value }))}
-              className="pl-8"
-              placeholder="Buscar setor ou responsável..."
-            />
-          </div>
-            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-              <SlidersHorizontal size={15} />
-              {setoresFiltrados.length} de {setoresVisuais.length} setores
-            </div>
-            <select
-              aria-label="Ordenar setores"
-              value={ordenacao}
-              onChange={(e) => setOrdenacao(e.target.value as OrdenacaoSetores)}
-              className="h-9 rounded-md border bg-background px-2 text-sm"
-            >
-              <option value="criticidade">Mais críticos</option>
-              <option value="nome">Nome</option>
-              <option value="concluido">Maior realizado</option>
-              <option value="desvio">Pior desvio</option>
-              <option value="engenheiro">Responsável</option>
-            </select>
-          {(filtros.busca || filtros.status !== 'todos' || filtros.engenheiro !== 'todos' || filtros.somenteOrfaos) && (
-            <Button size="sm" variant="ghost" onClick={() => setFiltros(FILTROS_SETORES_INICIAIS)}>
-              Limpar filtros
-            </Button>
-          )}
-        </div>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
-          {RESUMO_STATUS.map((status) => {
-            const ativo = filtros.status === status
-            const info = status === 'todos' ? null : STATUS_SETORES[status]
-            const quantidade = status === 'todos' ? setoresVisuais.length : contagemStatus.get(status) ?? 0
-            return (
-              <button
-                key={status}
-                type="button"
-                aria-pressed={ativo}
-                onClick={() => setFiltros((atual) => ({ ...atual, status }))}
-                className={`rounded-md border p-2 text-left transition-colors ${
-                  ativo ? 'border-primary bg-primary/10 ring-1 ring-primary/30' : 'border-border hover:bg-muted'
-                }`}
-              >
-                <span className="flex items-center justify-between gap-2">
-                  <span className="text-xs text-muted-foreground">{info?.label ?? 'Total'}</span>
-                  {info && <span className="h-2 w-2 rounded-full" style={{ backgroundColor: info.cor }} />}
-                </span>
-                <b className="mt-1 block text-lg leading-none">{quantidade}</b>
-              </button>
-            )
-          })}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {engenheiros.map((engenheiro) => (
-            <button
-              key={engenheiro}
-              type="button"
-              aria-pressed={filtros.engenheiro === engenheiro}
-              onClick={() => setFiltros((atual) => ({ ...atual, engenheiro: atual.engenheiro === engenheiro ? 'todos' : engenheiro }))}
-              className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                filtros.engenheiro === engenheiro ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'
-              }`}
-            >
-              {engenheiro}
-            </button>
-          ))}
-          <button
-            type="button"
-            aria-pressed={filtros.somenteOrfaos}
-            onClick={() => setFiltros((atual) => ({ ...atual, somenteOrfaos: !atual.somenteOrfaos }))}
-            className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-              filtros.somenteOrfaos ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-border hover:bg-muted'
-            }`}
-          >
-            Vínculos órfãos
-          </button>
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          {Object.values(STATUS_SETORES).map((status) => (
-              <span key={status.id} className="inline-flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: status.cor }} />
-                {status.label}
-            </span>
-          ))}
-        </div>
-      </section>
-
-      <div ref={areaFullscreenRef} className={`grid gap-4 lg:grid-cols-[1fr_320px] ${emTelaCheia ? 'h-full overflow-auto bg-background p-4' : ''}`}>
-        <div className="min-w-0">
+      <div ref={areaFullscreenRef} className={`grid gap-4 ${emTelaCheia ? 'h-full grid-cols-1 bg-background p-0' : 'lg:grid-cols-[minmax(0,1fr)_360px]'}`}>
+        <div className={`min-w-0 ${emTelaCheia ? 'relative h-full' : ''}`}>
           {imagemUrl && (
             <PalcoSetores
               planta={planta}
@@ -439,186 +356,174 @@ export default function PlantaSetores() {
               engenheiroPorMarcador={engenheiroPorMarcador}
               orfaoPorMarcador={orfaoPorMarcador}
               setoresVisuais={setoresVisuais}
+              camada={camada}
+              camadas={CAMADAS_MAPA}
+              legenda={legendaCamada}
+              onCamadaChange={setCamada}
               idsVisiveis={idsVisiveis}
               setorSelecionadoId={setorSelecionadoId}
               versaoFoco={versaoFoco}
               modo={modo}
               podeEditar={podeEditar}
-              onSelecionarSetor={setSetorSelecionadoId}
+              onSelecionarSetor={(id) => {
+                setSetorSelecionadoId(id)
+                setSheetOcultoId(null)
+              }}
               onCriarPendente={(geometria, cardPos) => {
                 setPendente({ geometria, cardPos })
                 setModo('nenhum')
               }}
               onMoverMarcador={(id, campos) => atualizarMarcador.mutate({ id, ...campos })}
-              onRecortar={(crop) => {
-                setRecortePendente(crop)
-              }}
+              onRecortar={(crop) => setRecortePendente(crop)}
+              onCancelarModo={() => setModo('nenhum')}
+              onAlternarModo={alternarModo}
+              emTelaCheia={emTelaCheia}
+              onAlternarTelaCheia={() => void alternarTelaCheia()}
               onConfigurarCaixa={(id) => setConfigurandoCaixaId(id)}
               onPropriedadesCard={(id) => setPropriedadesId(id)}
             />
           )}
         </div>
 
-        <aside className="space-y-4 print:break-inside-avoid lg:sticky lg:top-4 lg:self-start">
-          {emTelaCheia && (
-            <Button variant="outline" size="sm" className="w-full" onClick={() => void alternarTelaCheia()}>
-              <Minimize2 size={15} className="mr-1" /> Sair da tela cheia
-            </Button>
-          )}
-          {setorSelecionado && (
-            <Card className="p-4 space-y-3 border-primary/40">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Setor selecionado</p>
-                  <h2 className="font-semibold leading-tight">{setorSelecionado.nome}</h2>
-                </div>
-                <Badge variant="outline" className={STATUS_SETORES[setorSelecionado.status].classe}>
-                  {STATUS_SETORES[setorSelecionado.status].label}
-                </Badge>
+        {!emTelaCheia && (
+          <aside className="space-y-4 print:break-inside-avoid lg:sticky lg:top-4 lg:self-start">
+            {setorSelecionado && (
+              <Card className="hidden space-y-4 rounded-2xl border-primary/35 p-5 shadow-card lg:block">
+                <DetalhesSetor setor={setorSelecionado} podeEditar={podeEditar} onVinculo={() => setPropriedadesId(setorSelecionado.id)} onCaixa={() => setConfigurandoCaixaId(setorSelecionado.id)} onLocalizar={() => selecionarELocalizar(setorSelecionado.id)} />
+              </Card>
+            )}
+            <Card className="space-y-4 rounded-2xl border-border/70 p-5 shadow-card">
+              <div className="flex items-center gap-2">
+                <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><BarChart3 size={14} /></span>
+                <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Resumo da obra</h3>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Atualizado em {new Date(setorSelecionado.atualizadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-              </p>
-              {setorSelecionado.engenheiro && (
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: setorSelecionado.corEngenheiro }} />
-                  {setorSelecionado.engenheiro}
+              {resumo ? (
+                <>
+                  <div className="grid grid-cols-2 gap-3"><ResumoMetrica label="Previsão" valor={`${resumo.previsao.toFixed(0)}%`} /><ResumoMetrica label="Realizado" valor={`${resumo.avancoTotal.toFixed(0)}%`} destaque /></div>
+                  <div className="space-y-2"><div className="flex items-center justify-between text-xs"><span className="text-muted-foreground">Avanço x previsão</span><span className={resumo.desvio >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-red-600'}>{resumo.desvio >= 0 ? '+' : ''}{resumo.desvio.toFixed(0)} p.p.</span></div><ComparacaoAvanco previsto={resumo.previsao} concluido={resumo.avancoTotal} cor="var(--primary)" /></div>
+                  <div className="space-y-2 border-t border-border/70 pt-3 text-xs"><div className="flex justify-between gap-3"><span className="text-muted-foreground">Meta diária</span><b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b></div><div><span className="text-muted-foreground">Setor com menor avanço</span><p className="mt-1 truncate font-medium text-foreground">{destaqueSetor ? `${destaqueSetor.nome} (${destaqueSetor.avancoConcluido.toFixed(0)}%)` : '—'}</p></div></div>
+                </>
+              ) : (
+                <p className="text-sm text-muted-foreground">Selecione uma obra para ver o resumo.</p>
+              )}
+            </Card>
+
+            <Card className="space-y-4 rounded-2xl border-border/70 p-5 shadow-card print:hidden">
+              <div className="flex items-center justify-between gap-2"><div className="flex items-center gap-2"><span className="flex size-7 items-center justify-center rounded-lg bg-muted text-muted-foreground"><Layers3 size={14} /></span><h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Setores visíveis</h3></div><span className="text-xs tabular-nums text-muted-foreground">{setoresOrdenados.length}</span></div>
+              {marcadores.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhum setor ainda.</p>
+              ) : (
+                <div className="max-h-[min(42dvh,34rem)] space-y-1 overflow-y-auto pr-1">
+                  {setoresOrdenados.map((setor) => (
+                    <button
+                      key={setor.id}
+                      onClick={() => selecionarELocalizar(setor.id)}
+                      className={`w-full rounded-xl border px-3 py-2.5 text-left transition-all ${
+                        setorSelecionadoId === setor.id ? 'border-primary/45 bg-primary/8 shadow-sm' : 'border-transparent hover:border-primary/25 hover:bg-muted/50'
+                      }`}
+                    >
+                      <span className="flex items-center justify-between gap-2">
+                        <span className="flex min-w-0 items-center gap-2 truncate">
+                        <span className="size-2 shrink-0 rounded-full" style={{ backgroundColor: STATUS_SETORES[setor.status].cor }} />
+                        <span className="truncate text-sm font-medium">{setor.nome}</span>
+                        </span>
+                        <b className="shrink-0 text-sm tabular-nums">{setor.concluido != null ? `${setor.concluido.toFixed(0)}%` : '—'}</b>
+                      </span>
+                      <span className="mt-1 flex justify-between gap-2 text-xs text-muted-foreground">
+                        <span className="truncate">{setor.engenheiro ?? STATUS_SETORES[setor.status].label}</span>
+                        <span className={setor.desvio != null && setor.desvio < 0 ? 'font-medium text-red-600' : 'font-medium text-emerald-600'}>
+                          {setor.desvio != null ? `${setor.desvio >= 0 ? '+' : ''}${setor.desvio.toFixed(1)} p.p.` : '—'}
+                        </span>
+                      </span>
+                    </button>
+                  ))}
                 </div>
               )}
-              <div className="grid grid-cols-3 gap-2 text-sm">
-                <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Realizado</p>
-                  <b>{setorSelecionado.concluido != null ? `${setorSelecionado.concluido.toFixed(0)}%` : '—'}</b>
-                </div>
-                <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Planejado</p>
-                  <b>{setorSelecionado.previsto != null ? `${setorSelecionado.previsto.toFixed(0)}%` : '—'}</b>
-                </div>
-                <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Desvio</p>
-                  <b className={setorSelecionado.desvio != null && setorSelecionado.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}>
-                    {setorSelecionado.desvio != null ? `${setorSelecionado.desvio >= 0 ? '+' : ''}${setorSelecionado.desvio.toFixed(1)} p.p.` : '—'}
-                  </b>
-                </div>
-              </div>
-              <div>
-                <div className="mb-1 flex justify-between text-xs text-muted-foreground">
-                  <span>Realizado</span>
-                  <span>Marcador: planejado</span>
-                </div>
-                <ComparacaoAvanco
-                  previsto={setorSelecionado.previsto}
-                  concluido={setorSelecionado.concluido}
-                  cor={STATUS_SETORES[setorSelecionado.status].cor}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2 text-sm">
-                <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Início</p>
-                  <b>{setorSelecionado.inicio}</b>
-                </div>
-                <div className="rounded bg-muted/60 p-2">
-                  <p className="text-xs text-muted-foreground">Término</p>
-                  <b>{setorSelecionado.termino}</b>
-                </div>
-              </div>
-              {setorSelecionado.orfao && <p className="text-xs text-amber-700">Há atividade vinculada que não existe mais no cronograma atual.</p>}
-              <div className="grid grid-cols-2 gap-2">
-                {podeEditar && (
-                  <Button size="sm" variant="outline" onClick={() => setPropriedadesId(setorSelecionado.id)}>
-                    <Settings2 size={14} className="mr-1" /> Vínculo
-                  </Button>
-                )}
-                {podeEditar && (
-                  <Button size="sm" variant="outline" onClick={() => setConfigurandoCaixaId(setorSelecionado.id)}>
-                    <Settings2 size={14} className="mr-1" /> Caixa
-                  </Button>
-                )}
-                <Button size="sm" variant="outline" onClick={() => selecionarELocalizar(setorSelecionado.id)}>
-                  <LocateFixed size={14} className="mr-1" /> Localizar
-                </Button>
-              </div>
             </Card>
-          )}
-          <Card className="p-4 space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Resumo da obra</h3>
-            {resumo ? (
-              <div className="space-y-1.5 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Previsão da obra</span>
-                  <b>{resumo.previsao.toFixed(0)}%</b>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Avanço concluído</span>
-                  <b>{resumo.avancoTotal.toFixed(0)}%</b>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Desvio acumulado</span>
-                  <b className={resumo.desvio >= 0 ? 'text-emerald-600' : 'text-red-600'}>
-                    {resumo.desvio >= 0 ? '+' : ''}
-                    {resumo.desvio.toFixed(0)} p.p.
-                  </b>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Meta diária</span>
-                  <b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">Selecione uma obra para ver o resumo.</p>
-            )}
-          </Card>
+          </aside>
+        )}
 
-          <Card className="p-4 space-y-2">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Destaques da obra</h3>
-            <div className="space-y-1.5 text-sm">
-              <div className="flex justify-between">
-                  <span className="text-muted-foreground">Variação desde a atualização</span>
-                <b>{resumo?.avancoDoDia != null ? `${resumo.avancoDoDia >= 0 ? '+' : ''}${resumo.avancoDoDia.toFixed(1)}%` : '—'}</b>
-              </div>
-              <div>
-                <span className="text-muted-foreground">Menor avanço</span>
-                <div className="font-medium">
-                  {destaqueSetor ? `${destaqueSetor.nome} (${destaqueSetor.avancoConcluido.toFixed(0)}%)` : '—'}
-                </div>
-              </div>
-            </div>
-          </Card>
+        {emTelaCheia && (
+          <>
+            <button
+              type="button"
+              aria-label={resumoVisivel ? 'Ocultar resumo' : 'Mostrar resumo'}
+              className="fixed right-4 top-4 z-40 flex size-9 items-center justify-center rounded-xl border border-border/80 bg-background/90 shadow-elevated backdrop-blur-xl transition-colors hover:bg-muted/80"
+              onClick={() => setResumoVisivel((v) => !v)}
+            >
+              {resumoVisivel ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+            </button>
 
-          <Card className="p-4 space-y-2 print:hidden">
-            <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Setores visíveis</h3>
-            {marcadores.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Nenhum setor ainda.</p>
-            ) : (
-              <div className="space-y-1">
-                {setoresOrdenados.map((setor) => (
-                  <button
-                    key={setor.id}
-                    onClick={() => selecionarELocalizar(setor.id)}
-                    className={`w-full rounded border px-2 py-2 text-left transition-colors ${
-                      setorSelecionadoId === setor.id ? 'border-primary bg-primary/10' : 'hover:border-primary/50'
-                    }`}
-                  >
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="flex min-w-0 items-center gap-2 truncate">
-                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: STATUS_SETORES[setor.status].cor }} />
-                      <span className="truncate">{setor.nome}</span>
-                      </span>
-                      <b className="shrink-0 text-sm">{setor.concluido != null ? `${setor.concluido.toFixed(0)}%` : '—'}</b>
-                    </span>
-                    <span className="mt-1 flex justify-between gap-2 text-xs text-muted-foreground">
-                      <span className="truncate">{setor.engenheiro ?? STATUS_SETORES[setor.status].label}</span>
-                      <span className={setor.desvio != null && setor.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}>
-                        {setor.desvio != null ? `${setor.desvio >= 0 ? '+' : ''}${setor.desvio.toFixed(1)} p.p.` : '—'}
-                      </span>
-                    </span>
+            {resumoVisivel && (
+              <div className="fixed right-4 top-16 bottom-4 z-30 w-[340px] overflow-y-auto rounded-2xl border border-border/80 bg-background/90 p-5 shadow-elevated backdrop-blur-xl animate-in slide-in-from-right duration-200">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><BarChart3 size={14} /></span>
+                    <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Resumo da obra</h3>
+                  </div>
+                  <button type="button" aria-label="Fechar resumo" className="flex size-7 items-center justify-center rounded-lg hover:bg-muted" onClick={() => setResumoVisivel(false)}>
+                    <X size={14} />
                   </button>
-                ))}
+                </div>
+                {resumo ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <ResumoMetrica label="Previsão" valor={`${resumo.previsao.toFixed(0)}%`} />
+                      <ResumoMetrica label="Realizado" valor={`${resumo.avancoTotal.toFixed(0)}%`} destaque />
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Avanço x previsão</span>
+                        <span className={resumo.desvio >= 0 ? 'font-semibold text-emerald-600' : 'font-semibold text-red-600'}>{resumo.desvio >= 0 ? '+' : ''}{resumo.desvio.toFixed(0)} p.p.</span>
+                      </div>
+                      <ComparacaoAvanco previsto={resumo.previsao} concluido={resumo.avancoTotal} cor="var(--primary)" />
+                    </div>
+                    <div className="space-y-2 border-t border-border/70 pt-3 text-xs">
+                      <div className="flex justify-between gap-3">
+                        <span className="text-muted-foreground">Meta diária</span>
+                        <b>{resumo.metaDiaria != null ? `${resumo.metaDiaria.toFixed(2)}%/dia` : '—'}</b>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Setor com menor avanço</span>
+                        <p className="mt-1 truncate font-medium text-foreground">{destaqueSetor ? `${destaqueSetor.nome} (${destaqueSetor.avancoConcluido.toFixed(0)}%)` : '—'}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-muted-foreground">Selecione uma obra para ver o resumo.</p>
+                )}
+
+                {setorSelecionado && (
+                  <div className="mt-4 border-t border-border/70 pt-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-primary"><Layers3 size={14} /></span>
+                      <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Detalhes do setor</h3>
+                    </div>
+                    <DetalhesSetor setor={setorSelecionado} podeEditar={podeEditar} onVinculo={() => setPropriedadesId(setorSelecionado.id)} onCaixa={() => setConfigurandoCaixaId(setorSelecionado.id)} onLocalizar={() => selecionarELocalizar(setorSelecionado.id)} />
+                  </div>
+                )}
+
+                <div className="mt-6 border-t border-border/70 pt-4">
+                  <Button variant="outline" size="sm" className="w-full rounded-xl" onClick={() => void alternarTelaCheia()}>
+                    <Minimize2 size={15} /> Sair da tela cheia
+                  </Button>
+                </div>
               </div>
             )}
-          </Card>
-        </aside>
+          </>
+        )}
       </div>
+
+      {setorSelecionado && sheetOcultoId !== setorSelecionado.id && (
+        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={`Detalhes do setor ${setorSelecionado.nome}`}>
+          <button type="button" aria-label="Fechar detalhes do setor" className="absolute inset-0 bg-slate-950/35 backdrop-blur-[1px] animate-in fade-in duration-200" onClick={() => setSheetOcultoId(setorSelecionado.id)} />
+          <section className="absolute inset-x-0 bottom-0 max-h-[82dvh] overflow-y-auto rounded-t-[1.5rem] border-t border-border bg-card px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 shadow-elevated animate-in slide-in-from-bottom duration-300">
+            <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-muted-foreground/25" />
+            <div className="mb-4 flex items-center justify-between"><p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Detalhes do setor</p><Button variant="ghost" size="icon" className="size-8 rounded-lg" onClick={() => setSheetOcultoId(setorSelecionado.id)}><X size={17} /></Button></div>
+            <DetalhesSetor setor={setorSelecionado} podeEditar={podeEditar} onVinculo={() => setPropriedadesId(setorSelecionado.id)} onCaixa={() => setConfigurandoCaixaId(setorSelecionado.id)} onLocalizar={() => { selecionarELocalizar(setorSelecionado.id); setSheetOcultoId(setorSelecionado.id) }} />
+          </section>
+        </div>
+      )}
 
       {pendente && organizacaoId && plantaId && (
         <NovoSetorDialog
@@ -685,6 +590,75 @@ export default function PlantaSetores() {
           camposAtuais={vinculosPorMarcador.get(marcadorPropriedades.id) ?? []}
         />
       )}
+    </div>
+  )
+}
+
+function FiltrosDetalhados({
+  filtros,
+  setFiltros,
+  contagemStatus,
+  setoresVisuais,
+  engenheiros,
+}: {
+  filtros: FiltrosSetores
+  setFiltros: Dispatch<SetStateAction<FiltrosSetores>>
+  contagemStatus: Map<StatusSetor, number>
+  setoresVisuais: SetorVisual[]
+  engenheiros: string[]
+}) {
+  return (
+    <div className="space-y-3 border-t border-border/70 pt-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        {RESUMO_STATUS.map((status) => {
+          const ativo = filtros.status === status
+          const info = status === 'todos' ? null : STATUS_SETORES[status]
+          const quantidade = status === 'todos' ? setoresVisuais.length : contagemStatus.get(status) ?? 0
+          return (
+            <button key={status} type="button" aria-pressed={ativo} onClick={() => setFiltros((atual) => ({ ...atual, status }))} className={`rounded-xl border p-2.5 text-left transition-all ${ativo ? 'border-primary/45 bg-primary/8 ring-1 ring-primary/15' : 'border-border/80 bg-muted/15 hover:border-primary/25 hover:bg-muted/40'}`}>
+              <span className="flex items-center justify-between gap-2"><span className="text-xs text-muted-foreground">{info?.label ?? 'Total'}</span>{info && <span className="size-2 rounded-full" style={{ backgroundColor: info.cor }} />}</span>
+              <b className="mt-1.5 block text-lg leading-none tabular-nums">{quantidade}</b>
+            </button>
+          )
+        })}
+      </div>
+      {(engenheiros.length > 0 || setoresVisuais.some((setor) => setor.orfao)) && <div className="flex flex-wrap gap-1.5">
+        {engenheiros.map((engenheiro) => <button key={engenheiro} type="button" aria-pressed={filtros.engenheiro === engenheiro} onClick={() => setFiltros((atual) => ({ ...atual, engenheiro: atual.engenheiro === engenheiro ? 'todos' : engenheiro }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${filtros.engenheiro === engenheiro ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted'}`}>{engenheiro}</button>)}
+        {setoresVisuais.some((setor) => setor.orfao) && <button type="button" aria-pressed={filtros.somenteOrfaos} onClick={() => setFiltros((atual) => ({ ...atual, somenteOrfaos: !atual.somenteOrfaos }))} className={`rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${filtros.somenteOrfaos ? 'border-amber-500 bg-amber-50 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300' : 'border-border hover:bg-muted'}`}>Vínculos órfãos</button>}
+      </div>}
+      <div className="flex flex-wrap gap-x-3 gap-y-1 border-t border-border/60 pt-3 text-[11px] text-muted-foreground">
+        {Object.values(STATUS_SETORES).map((status) => <span key={status.id} className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ backgroundColor: status.cor }} />{status.label}</span>)}
+      </div>
+    </div>
+  )
+}
+
+function ResumoMetrica({ label, valor, destaque = false }: { label: string; valor: string; destaque?: boolean }) {
+  return <div className={`rounded-xl border p-3 ${destaque ? 'border-primary/20 bg-primary/7' : 'border-border/70 bg-muted/25'}`}><p className="text-[11px] font-medium text-muted-foreground">{label}</p><b className="mt-1 block text-lg leading-none tabular-nums">{valor}</b></div>
+}
+
+function DetalhesSetor({
+  setor,
+  podeEditar,
+  onVinculo,
+  onCaixa,
+  onLocalizar,
+}: {
+  setor: SetorVisual
+  podeEditar: boolean
+  onVinculo: () => void
+  onCaixa: () => void
+  onLocalizar: () => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">Setor selecionado</p><h2 className="mt-1 truncate text-lg font-semibold tracking-tight">{setor.nome}</h2></div><Badge variant="outline" className={STATUS_SETORES[setor.status].classe}>{STATUS_SETORES[setor.status].label}</Badge></div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"><span>Atualizado em {new Date(setor.atualizadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</span>{setor.engenheiro && <span className="flex items-center gap-1.5"><span className="size-2 rounded-full" style={{ backgroundColor: setor.corEngenheiro }} />{setor.engenheiro}</span>}</div>
+      <div className="grid grid-cols-3 gap-2 text-sm"><ResumoMetrica label="Realizado" valor={setor.concluido != null ? `${setor.concluido.toFixed(0)}%` : '—'} destaque /><ResumoMetrica label="Planejado" valor={setor.previsto != null ? `${setor.previsto.toFixed(0)}%` : '—'} /><div className="rounded-xl border border-border/70 bg-muted/25 p-3"><p className="text-[11px] font-medium text-muted-foreground">Desvio</p><b className={`mt-1 block text-lg leading-none tabular-nums ${setor.desvio != null && setor.desvio < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{setor.desvio != null ? `${setor.desvio >= 0 ? '+' : ''}${setor.desvio.toFixed(1)} p.p.` : '—'}</b></div></div>
+      <div><div className="mb-1.5 flex justify-between text-xs text-muted-foreground"><span>Realizado</span><span>Marcador: planejado</span></div><ComparacaoAvanco previsto={setor.previsto} concluido={setor.concluido} cor={STATUS_SETORES[setor.status].cor} /></div>
+      <div className="grid grid-cols-2 gap-2 text-sm"><div className="rounded-xl border border-border/70 bg-muted/20 p-3"><p className="text-[11px] text-muted-foreground">Início</p><b className="mt-1 block">{setor.inicio}</b></div><div className="rounded-xl border border-border/70 bg-muted/20 p-3"><p className="text-[11px] text-muted-foreground">Término</p><b className="mt-1 block">{setor.termino}</b></div></div>
+      {setor.orfao && <p className="rounded-lg border border-amber-500/30 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">Há atividade vinculada que não existe mais no cronograma atual.</p>}
+      <div className={`grid gap-2 ${podeEditar ? 'grid-cols-3' : 'grid-cols-1'}`}>{podeEditar && <Button size="sm" variant="outline" className="rounded-lg" onClick={onVinculo}><Settings2 size={14} /> Vínculo</Button>}{podeEditar && <Button size="sm" variant="outline" className="rounded-lg" onClick={onCaixa}><Settings2 size={14} /> Caixa</Button>}<Button size="sm" variant="outline" className="rounded-lg" onClick={onLocalizar}><LocateFixed size={14} /> Localizar</Button></div>
     </div>
   )
 }

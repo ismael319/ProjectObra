@@ -209,6 +209,40 @@ export function useExcluirPlantaSetor(organizacaoId: string | undefined, projeto
   })
 }
 
+export interface ResumoSetoresPlanta {
+  total: number
+  ultimaAtualizacao: string | null
+}
+
+/** Contagem de marcadores e última atualização por planta — usado na listagem para
+ * mostrar quantos setores cada planta tem e quando foi mexido por último. Busca só
+ * as colunas leves (planta_id, atualizado_em) e agrupa no cliente. */
+export function useResumoSetores(plantaIds: string[]) {
+  const chave = [...plantaIds].sort().join(',')
+  return useQuery({
+    queryKey: ['mapa_setores_resumo', chave],
+    enabled: plantaIds.length > 0,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('mapa_setores_marcadores')
+        .select('planta_id, atualizado_em')
+        .in('planta_id', plantaIds)
+      if (error) throw error
+      const resumo = new Map<string, ResumoSetoresPlanta>()
+      for (const m of (data as { planta_id: string; atualizado_em: string }[]) ?? []) {
+        const atual = resumo.get(m.planta_id)
+        if (!atual) {
+          resumo.set(m.planta_id, { total: 1, ultimaAtualizacao: m.atualizado_em })
+        } else {
+          atual.total += 1
+          if (m.atualizado_em > (atual.ultimaAtualizacao ?? '')) atual.ultimaAtualizacao = m.atualizado_em
+        }
+      }
+      return resumo
+    },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Marcadores (setores)
 // ---------------------------------------------------------------------------
