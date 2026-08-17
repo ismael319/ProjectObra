@@ -252,9 +252,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const hashedToken = data?.hashed_token as string | undefined
     if (!hashedToken) return { error: 'Falha ao iniciar sessão demo' }
 
+    // type: 'email' (não 'magiclink') de propósito — o email é sempre novo
+    // (gerado na hora pela Edge Function), então admin.generateLink cria o
+    // usuário junto, e o token resultante só é aceito pelo verifyOtp como
+    // 'email'; com 'magiclink' o GoTrue responde "Email link is invalid or
+    // has expired" mesmo com o token certo.
     const { data: otpData, error: otpError } = await supabase.auth.verifyOtp({
       token_hash: hashedToken,
-      type: 'magiclink',
+      type: 'email',
     })
     if (otpError || !otpData.user) return { error: otpError?.message ?? 'Falha ao entrar na conta demo' }
 
