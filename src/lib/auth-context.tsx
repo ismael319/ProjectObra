@@ -54,7 +54,7 @@ interface AuthContextType {
   precisaAceitarTermos: boolean
   perfilCompleto: boolean
   refetchProfile: () => Promise<void>
-  signIn: (email: string, password: string) => Promise<{ error?: string }>
+  signIn: (email: string, password: string, captchaToken?: string) => Promise<{ error?: string }>
   redeemDemoAccess: (id: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, nome?: string, inviteToken?: string, captchaToken?: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
@@ -223,8 +223,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+  const signIn = async (email: string, password: string, captchaToken?: string) => {
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+      options: captchaToken ? { captchaToken } : undefined,
+    })
     return { error: error?.message }
   }
 

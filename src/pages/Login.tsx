@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
@@ -7,6 +7,7 @@ import { Eye, EyeOff, Loader2, Shield, Lock, FileCheck, ArrowRight, PlayCircle }
 import { useAuth } from '@/lib/auth-context'
 import { supabase } from '@/lib/supabase'
 import { ProductTour } from '@/components/ProductTour'
+import TurnstileWidget from '@/components/TurnstileWidget'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const loginSchema = z.object({
@@ -21,6 +22,7 @@ export default function Login() {
   const [error, setError] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [tourOpen, setTourOpen] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -41,7 +43,12 @@ export default function Login() {
       return
     }
 
-    const { error } = await signIn(data.email, data.password)
+    if (!turnstileToken) {
+      setError('Complete a verificação de segurança')
+      return
+    }
+
+    const { error } = await signIn(data.email, data.password, turnstileToken)
     setIsLoading(false)
 
     if (error) {
@@ -51,7 +58,9 @@ export default function Login() {
         p_email: data.email,
         p_ip: '',
       })
-      setError('Email ou senha incorretos')
+      setError(error.toLowerCase().includes('captcha')
+        ? 'A verificação de segurança expirou. Faça-a novamente.'
+        : 'Email ou senha incorretos')
     } else {
       void supabase.rpc('registrar_evento_seguranca', {
         p_event_type: 'login_success',
@@ -62,6 +71,14 @@ export default function Login() {
       navigate('/')
     }
   }
+
+  const onTurnstileVerify = useCallback((token: string) => {
+    setTurnstileToken(token)
+  }, [])
+
+  const onTurnstileExpire = useCallback(() => {
+    setTurnstileToken('')
+  }, [])
 
   return (
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden bg-slate-950 px-4">
@@ -171,9 +188,13 @@ export default function Login() {
               )}
             </div>
 
+            <div className="py-2">
+              <TurnstileWidget onVerify={onTurnstileVerify} onExpire={onTurnstileExpire} />
+            </div>
+
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !turnstileToken}
               className="w-full bg-gradient-to-b from-blue-600 to-blue-700 hover:from-blue-500 hover:to-blue-600 disabled:from-blue-400 disabled:to-blue-400 text-white font-semibold py-3 px-4 rounded-lg shadow-md shadow-blue-600/25 hover:shadow-lg hover:shadow-blue-600/30 hover:-translate-y-px active:translate-y-0 transition-all flex items-center justify-center gap-2"
             >
               {isLoading ? (
