@@ -8,7 +8,11 @@ import { useAuth } from '@/lib/auth-context'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const updateSchema = z.object({
-  password: z.string().min(8, 'Mínimo 8 caracteres'),
+  password: z.string()
+    .min(10, 'Mínimo 10 caracteres')
+    .regex(/[a-z]/, 'Inclua uma letra minúscula')
+    .regex(/[A-Z]/, 'Inclua uma letra maiúscula')
+    .regex(/\d/, 'Inclua um número'),
   confirmPassword: z.string(),
 }).refine((data) => data.password === data.confirmPassword, {
   message: 'Senhas não conferem',
@@ -34,7 +38,7 @@ export default function UpdatePassword() {
     const { error } = await updatePassword(data.password)
     setIsLoading(false)
     if (error) {
-      setError('Erro ao atualizar senha. Tente novamente.')
+      setError(error)
     } else {
       navigate('/')
     }
