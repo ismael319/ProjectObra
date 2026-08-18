@@ -45,6 +45,15 @@ export function papelEfetivo(userProfile: UserProfile | null, moduloKey: string)
   return userProfile.papelPorModulo?.[moduloKey] ?? userProfile.papel
 }
 
+interface OrganizacaoMembership {
+  organizacao_id: string
+  nome: string
+  papel: PapelUsuario
+  is_demo: boolean
+  demo_expira_em: string | null
+  is_piloto: boolean
+}
+
 interface AuthContextType {
   session: Session | null
   user: User | null
@@ -62,6 +71,9 @@ interface AuthContextType {
   updatePassword: (password: string) => Promise<{ error?: string }>
   aceitarTermos: () => Promise<void>
   completarPerfil: (nome: string, funcao: string, assinaturaEstilo?: AssinaturaEstilo) => Promise<{ error?: string }>
+  trocarOrganizacao: (organizacaoId: string) => Promise<{ error?: string }>
+  minhasOrganizacoes: OrganizacaoMembership[]
+  carregarMinhasOrganizacoes: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -73,6 +85,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoadingProfile, setIsLoadingProfile] = useState(true)
   const [precisaAceitarTermos, setPrecisaAceitarTermos] = useState(false)
   const [perfilCompleto, setPerfilCompleto] = useState(false)
+  const [minhasOrganizacoes, setMinhasOrganizacoes] = useState<OrganizacaoMembership[]>([])
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -331,6 +344,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return { error: error?.message }
   }
 
+  const carregarMinhasOrganizacoes = async () => {
+    const { data, error } = await supabase.rpc('listar_minhas_organizacoes')
+    if (!error && data) {
+      setMinhasOrganizacoes(data as OrganizacaoMembership[])
+    }
+  }
+
+  const trocarOrganizacao = async (organizacaoId: string) => {
+    const { error } = await supabase.rpc('trocar_organizacao', { p_organizacao_id: organizacaoId })
+    if (error) return { error: error.message }
+    await refetchProfile()
+    return {}
+  }
+
   return (
     <AuthContext.Provider
       value={{
@@ -350,6 +377,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updatePassword,
         aceitarTermos,
         completarPerfil,
+        trocarOrganizacao,
+        minhasOrganizacoes,
+        carregarMinhasOrganizacoes,
       }}
     >
       {children}

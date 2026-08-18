@@ -26,7 +26,7 @@ export default function DashboardLayout() {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
-  const { user, signOut, userProfile } = useAuth()
+  const { user, signOut, userProfile, minhasOrganizacoes, carregarMinhasOrganizacoes, trocarOrganizacao } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
@@ -67,6 +67,10 @@ export default function DashboardLayout() {
   useEffect(() => {
     if (isMobile) setMobileMenuOpen(false)
   }, [isMobile])
+
+  useEffect(() => {
+    carregarMinhasOrganizacoes()
+  }, [carregarMinhasOrganizacoes])
 
   const { data: validacoesPendentes = [] } = usePendenciasValidacao()
   const { data: meusRejeitados = [] } = useMeusRejeitados()
@@ -156,11 +160,17 @@ export default function DashboardLayout() {
     brandColor,
     isDark,
     chatbotEnabled,
+    organizacaoAtual: minhasOrganizacoes.find((o) => o.organizacao_id === userProfile?.organizacao_id)?.nome,
+    minhasOrganizacoes,
     onOpenMenu: () => setMobileMenuOpen(true),
     onNavigate: navigate,
     onToggleTheme: toggle,
     onToggleChatbot: toggleChatbot,
     onSignOut: () => { signOut(); navigate('/login') },
+    onTrocarOrganizacao: async (orgId: string) => {
+      await trocarOrganizacao(orgId)
+      window.location.reload()
+    },
   }
 
   const navigationProps = {

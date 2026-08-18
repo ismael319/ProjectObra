@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, ChevronDown, CreditCard, FileText, FolderOpen, LogOut, Menu, MessageCircle, Moon, ShieldCheck, Sun, User } from 'lucide-react'
+import { Bell, Building2, ChevronDown, CreditCard, FileText, FolderOpen, LogOut, Menu, MessageCircle, Moon, ShieldCheck, Sun, User } from 'lucide-react'
 import fgiLogo from '@/assets/fgi-logo.png'
+
+export interface OrganizacaoMembership {
+  organizacao_id: string
+  nome: string
+  papel: string
+  is_demo: boolean
+  demo_expira_em: string | null
+  is_piloto: boolean
+}
 
 export interface DashboardHeaderProps {
   variant: 'mobile' | 'desktop'
@@ -19,11 +28,14 @@ export interface DashboardHeaderProps {
   brandColor: string
   isDark: boolean
   chatbotEnabled: boolean
+  organizacaoAtual?: string
+  minhasOrganizacoes?: OrganizacaoMembership[]
   onOpenMenu: () => void
   onNavigate: (path: string) => void
   onToggleTheme: () => void
   onToggleChatbot: () => void
   onSignOut: () => void
+  onTrocarOrganizacao?: (organizacaoId: string) => void
 }
 
 export function DashboardHeader({
@@ -43,16 +55,21 @@ export function DashboardHeader({
   brandColor,
   isDark,
   chatbotEnabled,
+  organizacaoAtual,
+  minhasOrganizacoes = [],
   onOpenMenu,
   onNavigate,
   onToggleTheme,
   onToggleChatbot,
   onSignOut,
+  onTrocarOrganizacao,
 }: DashboardHeaderProps) {
   const isMobile = variant === 'mobile'
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const [orgMenuOpen, setOrgMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const accountButtonRef = useRef<HTMLButtonElement>(null)
+  const orgMenuRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     if (!userMenuOpen) return
@@ -79,6 +96,27 @@ export function DashboardHeader({
     }
   }, [userMenuOpen])
 
+  useEffect(() => {
+    if (!orgMenuOpen) return
+    const handleClickOutside = (event: MouseEvent) => {
+      if (orgMenuRef.current && !orgMenuRef.current.contains(event.target as Node)) {
+        setOrgMenuOpen(false)
+      }
+    }
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        setOrgMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [orgMenuOpen])
+
   return (
     <header className={`dashboard-app-header fixed top-0 left-0 right-0 bg-slate-900 border-b border-white/10 shadow-[0_1px_0_0_rgba(0,0,0,0.4)] z-40 ${isMobile ? 'mobile-app-header h-14 px-3' : 'h-16 px-6'}`}>
       <div className="flex items-center justify-between h-full">
@@ -104,6 +142,51 @@ export function DashboardHeader({
               </div>
               <div className="h-6 w-px bg-white/10" />
             </>
+          )}
+
+          {!isInsercaoPontual && !isMobile && minhasOrganizacoes.length > 1 && (
+            <div className="relative" ref={orgMenuRef}>
+              <button
+                onClick={() => setOrgMenuOpen(!orgMenuOpen)}
+                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-white/5 hover:text-white"
+              >
+                <Building2 size={16} />
+                <span className="max-w-[140px] truncate">{organizacaoAtual ?? 'Empresa'}</span>
+                <ChevronDown size={14} className={`text-slate-400 transition-transform ${orgMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {orgMenuOpen && (
+                <div className="absolute left-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-xl shadow-2xl ring-1 ring-black/5 border border-gray-100 dark:border-gray-700 overflow-hidden z-50">
+                  <div className="px-4 py-2.5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/60 dark:bg-gray-900/40">
+                    <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">Trocar empresa</p>
+                  </div>
+                  <div className="py-1">
+                    {minhasOrganizacoes.map((org) => (
+                      <button
+                        key={org.organizacao_id}
+                        onClick={() => {
+                          setOrgMenuOpen(false)
+                          onTrocarOrganizacao?.(org.organizacao_id)
+                        }}
+                        className={`w-full flex items-center gap-3 px-4 py-2.5 text-sm transition-colors ${
+                          org.organizacao_id === minhasOrganizacoes.find((o) => o.nome === organizacaoAtual)?.organizacao_id
+                            ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 font-medium'
+                            : 'text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700'
+                        }`}
+                      >
+                        <Building2 size={16} className="shrink-0" />
+                        <span className="flex-1 text-left truncate">{org.nome}</span>
+                        {org.is_piloto && (
+                          <span className="text-[10px] font-bold bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">PILOTO</span>
+                        )}
+                        {org.is_demo && (
+                          <span className="text-[10px] font-bold bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 px-1.5 py-0.5 rounded">DEMO</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           )}
 
           {!isInsercaoPontual && !isMobile && (
