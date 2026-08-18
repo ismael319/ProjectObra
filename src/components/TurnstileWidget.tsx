@@ -55,7 +55,7 @@ export default function TurnstileWidget({ onVerify, onExpire }: TurnstileWidgetP
     const timer = setTimeout(() => {
       if (containerRef.current && window.turnstile) {
         widgetIdRef.current = window.turnstile.render(containerRef.current, {
-          sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY || '1x00000000000000000000AA',
+          sitekey: import.meta.env.VITE_TURNSTILE_SITE_KEY || '0x4AAAAAAETWGt3rtxTDndLD',
           callback: onVerify,
           'expired-callback': onExpire,
           theme: 'auto',
