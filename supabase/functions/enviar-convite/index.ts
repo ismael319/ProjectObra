@@ -3,7 +3,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2'
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY')
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')
-const APP_ORIGIN = Deno.env.get('APP_ORIGIN') ?? 'https://project-obra.vercel.app'
+const APP_ORIGIN = Deno.env.get('APP_ORIGIN') ?? 'https://siga-solucoes.vercel.app'
 
 const PAPEL_LABELS: Record<string, string> = {
   edicao: 'Edição',
