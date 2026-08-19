@@ -71,9 +71,9 @@ export default function CompletarPerfil() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl mb-4 p-2.5 shadow-lg">
-            <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+            <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-white">FGI Decision</h1>
+          <h1 className="text-2xl font-bold text-white">SIGA SOLUÇÕES</h1>
           <p className="text-blue-200/60 text-sm mt-1">Complete seu perfil para continuar</p>
         </div>
 
@@ -223,7 +223,7 @@ export default function CompletarPerfil() {
 
         <div className="mt-6 text-center">
           <p className="text-blue-200/40 text-xs">
-            © 2026 FGI Decision · Planejamento e Controle
+            © 2026 SIGA SOLUÇÕES · Planejamento e Controle
           </p>
         </div>
       </div>

@@ -378,9 +378,9 @@ export function ProductTour({ open, onOpenChange }: { open: boolean; onOpenChang
         <div className="w-full sm:w-56 shrink-0 bg-slate-950 flex flex-col p-4 overflow-y-auto">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-7 h-7 bg-white rounded-lg p-1">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+              <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
             </div>
-            <span className="text-white font-bold text-sm">FGI Decision</span>
+            <span className="text-white font-bold text-sm">SIGA SOLUÇÕES</span>
           </div>
           <p className="text-[10px] text-blue-300/50 uppercase tracking-wider mb-0.5">Tour de produto</p>
           <p className="text-blue-300 text-xs font-semibold mb-4">{passo + 1} / {STEPS.length}</p>

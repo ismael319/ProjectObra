@@ -123,7 +123,7 @@ export function DashboardHeader({
         <div className={`flex items-center min-w-0 ${isMobile ? 'gap-3' : 'gap-4'}`}>
           {isMobile ? (
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-white p-1">
-              <img src={fgiLogo} alt="FGI Decision" className="h-full w-full object-contain" />
+              <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="h-full w-full object-contain" />
             </div>
           ) : (
             <button
@@ -138,7 +138,7 @@ export function DashboardHeader({
           {!isMobile && (
             <>
               <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-white p-1 shrink-0">
-                <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+                <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
               </div>
               <div className="h-6 w-px bg-white/10" />
             </>

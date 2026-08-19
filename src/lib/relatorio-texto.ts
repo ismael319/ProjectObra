@@ -62,6 +62,6 @@ export function buildTextoRelatorioVisual(params: {
     }
   }
 
-  linhas.push("_ProjectObra · gerado automaticamente_");
+  linhas.push("_SIGA Soluções · gerado automaticamente_");
   return linhas.join("\n").trim();
 }

@@ -99,9 +99,9 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl mb-4 p-2.5 shadow-lg shadow-blue-950/50 ring-1 ring-white/10">
-            <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+            <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">FGI Decision</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">SIGA SOLUÇÕES</h1>
           <p className="text-blue-200/60 text-sm mt-1">Plataforma Corporativa</p>
         </div>
 
@@ -234,7 +234,7 @@ export default function Login() {
 
         {/* Footer */}
         <div className="mt-6 text-center">
-          <p className="text-blue-200/40 text-xs mb-3">© 2026 FGI Decision · Planejamento e Controle</p>
+          <p className="text-blue-200/40 text-xs mb-3">© 2026 SIGA SOLUÇÕES · Planejamento e Controle</p>
           <div className="flex items-center justify-center gap-4 text-blue-200/50 text-xs mb-3">
             <span className="flex items-center gap-1">
               <Lock size={12} />

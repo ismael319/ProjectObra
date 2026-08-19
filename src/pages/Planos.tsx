@@ -35,11 +35,11 @@ const CICLO_LABEL: Record<Ciclo, string> = {
   anual: 'Anual',
 }
 
+// A partir da migration de nomenclatura SIGA, `categoria` já vem do banco
+// com o nome de exibição pronto (ex.: "SIGA Planejamento") para os módulos
+// que pertencem a um produto SIGA. Chatbot IA e WhatsApp RDO são add-ons
+// transversais e continuam com categoria técnica — por isso o mapa abaixo.
 const CATEGORIA_LABEL: Record<string, string> = {
-  engenharia: 'Planejamento & Cronograma',
-  qualidade: 'Qualidade',
-  administracao: 'Administração & RH',
-  suprimentos: 'Suprimentos',
   produtividade: 'Produtividade',
   integracoes: 'Integrações',
 }
@@ -145,9 +145,9 @@ export default function Planos() {
           </Link>
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-white rounded-lg p-1">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+              <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
             </div>
-            <span className="text-white font-semibold text-sm">FGI Decision</span>
+            <span className="text-white font-semibold text-sm">SIGA SOLUÇÕES</span>
           </div>
         </div>
 

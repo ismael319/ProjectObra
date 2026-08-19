@@ -127,9 +127,9 @@ Deno.serve(async (request: Request) => {
         <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:520px;background-color:#ffffff;border-radius:12px;padding:32px;border:1px solid #e5e7eb;">
           <tr>
             <td>
-              <h1 style="margin:0 0 16px;font-size:20px;color:#111827;">Você foi convidado para o ProjectObra</h1>
+              <h1 style="margin:0 0 16px;font-size:20px;color:#111827;">Você foi convidado para o SIGA Soluções</h1>
               <p style="margin:0 0 12px;font-size:14px;line-height:1.6;color:#374151;">
-                Olá! O seu acesso à plataforma ProjectObra foi liberado pela equipe da organização
+                Olá! O seu acesso à plataforma SIGA Soluções foi liberado pela equipe da organização
                 <strong>${orgName}</strong> com o papel
                 <strong>${papelLabel}</strong>.
               </p>
@@ -159,9 +159,9 @@ Deno.serve(async (request: Request) => {
       Authorization: `Bearer ${RESEND_API_KEY}`,
     },
     body: JSON.stringify({
-      from: 'ProjectObra <onboarding@resend.dev>',
+      from: 'SIGA Soluções <onboarding@resend.dev>',
       to: [email],
-      subject: 'Você foi convidado para o ProjectObra',
+      subject: 'Você foi convidado para o SIGA Soluções',
       html,
     }),
   })

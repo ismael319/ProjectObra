@@ -47,16 +47,23 @@ export function buildNavSections(modulos: string[]): NavSection[] {
   const temAdministracao = modulos.includes('administracao')
   const temQualidade = modulos.includes('qualidade')
 
-  const engenhariaItems: NavItem[] = temEngenharia ? [
+  // SIGA Planejamento: cronograma e curva S da obra.
+  const planejamentoItems: NavItem[] = temEngenharia ? [
     {
       icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
       children: [
         { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
         { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
         { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-        { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
       ],
     },
+  ] : []
+
+  // SIGA Execução: acompanhamento do dia a dia da obra (efetivo, setores,
+  // ocorrências). Mesmo módulo técnico "engenharia" de Planejamento, mas
+  // agrupado à parte no menu por ser outro produto SIGA.
+  const execucaoItems: NavItem[] = temEngenharia ? [
+    { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
     {
       icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
       children: [
@@ -100,19 +107,20 @@ export function buildNavSections(modulos: string[]): NavSection[] {
   ] : []
 
   return [
-    ...(temEngenharia ? [{ title: 'Engenharia', items: engenhariaItems }] : []),
-    ...(temSeguranca ? [{ title: 'Segurança', items: segurancaItems }] : []),
+    ...(temEngenharia ? [{ title: 'SIGA Planejamento', items: planejamentoItems }] : []),
+    ...(temEngenharia ? [{ title: 'SIGA Execução', items: execucaoItems }] : []),
+    ...(temSeguranca ? [{ title: 'SIGA Segurança', items: segurancaItems }] : []),
     ...(temSuprimentos
-      ? [{ title: 'Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
+      ? [{ title: 'SIGA Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
       : []),
     ...(temAdministracao
       ? [{
-          title: 'Administração', items: [
+          title: 'SIGA Pessoas', items: [
             { icon: UserCog, label: 'Controle de Funcionários', path: '/dashboard/administracao' },
           ],
         }]
       : []),
-    ...(temQualidade ? [{ title: 'Qualidade', items: qualidadeItems }] : []),
+    ...(temQualidade ? [{ title: 'SIGA Análise', items: qualidadeItems }] : []),
   ]
 }
 
@@ -177,5 +185,5 @@ export function getDashboardRouteTitle(pathname: string): string {
   const match = dashboardRouteTitles.find(([path]) =>
     pathname === path || (path !== '/dashboard' && pathname.startsWith(`${path}/`)),
   )
-  return match?.[1] ?? 'FGI Decision'
+  return match?.[1] ?? 'SIGA SOLUÇÕES'
 }

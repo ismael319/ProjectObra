@@ -1,4 +1,4 @@
-# FGI Decision — Gestão de Obras
+# SIGA SOLUÇÕES — Gestão de Obras
 
 Sistema de gestão de obras para engenharia civil: planejamento (Gantt, Curva S, programação semanal),
 apontamento de mão de obra, controle de efetivo, segurança do trabalho (RDR), qualidade do concreto,

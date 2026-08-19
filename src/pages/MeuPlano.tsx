@@ -133,7 +133,7 @@ export default function MeuPlano() {
           </div>
         ) : (
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Nenhum plano configurado ainda. Fale com o time FGI Decision para contratar.
+            Nenhum plano configurado ainda. Fale com o time SIGA SOLUÇÕES para contratar.
           </p>
         )}
       </div>
@@ -228,7 +228,7 @@ export default function MeuPlano() {
       </div>
 
       <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-        Quer mudar de plano ou contratar um módulo avulso? Fale com o time FGI Decision.
+        Quer mudar de plano ou contratar um módulo avulso? Fale com o time SIGA SOLUÇÕES.
       </p>
     </div>
   )

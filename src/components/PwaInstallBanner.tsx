@@ -17,7 +17,7 @@ export function PwaInstallBanner() {
           <Smartphone aria-hidden="true" size={20} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold">Instale o FGI Decision</p>
+          <p className="font-semibold">Instale o SIGA SOLUÇÕES</p>
           <p className="mt-1 text-sm text-violet-800 dark:text-violet-200">
             Acesse pela tela inicial e tenha uma experiência de aplicativo no celular.
           </p>

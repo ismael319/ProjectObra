@@ -106,7 +106,7 @@ const CardRelatorioVisual = forwardRef<HTMLDivElement, Props>(function CardRelat
       )}
 
       <p className="text-center text-[11px] pt-1" style={{ color: COR.gray400 }}>
-        ProjectObra · gerado automaticamente a partir da programação diária
+        SIGA Soluções · gerado automaticamente a partir da programação diária
       </p>
     </div>
   )

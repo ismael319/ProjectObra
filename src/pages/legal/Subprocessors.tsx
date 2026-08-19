@@ -47,7 +47,7 @@ export default function Subprocessors() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 md:p-12">
           <div className="flex items-center gap-3 mb-6">
             <div className="inline-flex items-center justify-center w-10 h-10 bg-blue-600 rounded-xl p-2">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+              <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Sub-processadores</h1>
@@ -57,7 +57,7 @@ export default function Subprocessors() {
 
           <div className="prose prose-gray max-w-none">
             <p className="text-gray-600 dark:text-gray-300 mb-6">
-              Esta página lista os sub-processadores contratados pela <strong>FGI Decision</strong> para viabilizar o
+              Esta página lista os sub-processadores contratados pela <strong>SIGA SOLUÇÕES</strong> para viabilizar o
               funcionamento da plataforma. O uso destes parceiros pode configurar transferência internacional de dados,
               em conformidade com o art. 33 da LGPD.
             </p>
@@ -93,7 +93,7 @@ export default function Subprocessors() {
 
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-4">Notificação de Alterações</h2>
             <p className="text-gray-600 dark:text-gray-300">
-              Caso a FGI Decision contrate novo sub-processador ou substitua um existente, esta página será atualizada
+              Caso a SIGA SOLUÇÕES contrate novo sub-processador ou substitua um existente, esta página será atualizada
               com antecedência mínima de 30 dias. Clientes que desejarem ser notificados ativamente podem solicitar
               inclusão na lista via{' '}
               <a href="mailto:dpo@fgidecision.com.br" className="text-blue-600 hover:underline">dpo@fgidecision.com.br</a>.

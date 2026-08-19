@@ -54,7 +54,7 @@ export async function gerarPdfRegistro(record: RdrRecord): Promise<void> {
   }
   doc.setFontSize(10)
   doc.setTextColor(100)
-  doc.text("Segurança — ProjectObra", pageWidth - 14, 15, { align: "right" })
+  doc.text("Segurança — SIGA Soluções", pageWidth - 14, 15, { align: "right" })
   doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, pageWidth - 14, 20, { align: "right" })
   doc.setDrawColor(200)
   doc.setLineWidth(0.3)

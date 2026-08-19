@@ -14,7 +14,7 @@ export default function Privacy() {
         <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl p-8 md:p-12">
           <div className="flex items-center gap-3 mb-6">
             <div className="inline-flex items-center justify-center w-10 h-10 bg-blue-600 rounded-xl p-2">
-              <img src={fgiLogo} alt="FGI Decision" className="w-full h-full object-contain" />
+              <img src={fgiLogo} alt="SIGA SOLUÇÕES" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Política de Privacidade</h1>
@@ -24,7 +24,7 @@ export default function Privacy() {
 
           <div className="prose prose-gray max-w-none">
             <p className="text-gray-600 dark:text-gray-300">
-              A <strong>FGI Decision</strong> tem o compromisso de proteger a privacidade e os dados pessoais de seus
+              A <strong>SIGA SOLUÇÕES</strong> tem o compromisso de proteger a privacidade e os dados pessoais de seus
               usuários e clientes. Esta Política de Privacidade descreve como coletamos, usamos, armazenamos e protegemos
               suas informações, em total conformidade com a Lei Geral de Proteção de Dados (Lei nº 13.709/2018 — LGPD).
             </p>
@@ -74,7 +74,7 @@ export default function Privacy() {
               <div className="bg-gray-50 dark:bg-gray-950 rounded-lg p-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Dados armazenados localmente (Modo Offline / PWA)</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                  Quando o usuário utiliza o aplicativo FGI Decision (PWA), uma cópia funcional de dados de projetos,
+                  Quando o usuário utiliza o aplicativo SIGA SOLUÇÕES (PWA), uma cópia funcional de dados de projetos,
                   colaboradores, apontamentos pendentes e fila de sincronização é armazenada localmente (IndexedDB / cache
                   do navegador) para permitir a operação sem conexão. Esses dados permanecem no dispositivo até o logout,
                   limpeza de dados do aplicativo/navegador ou desinstalação.
@@ -102,7 +102,7 @@ export default function Privacy() {
               <div className="bg-gray-50 dark:bg-gray-950 rounded-lg p-4">
                 <h3 className="font-semibold text-gray-900 dark:text-white">Como Controladora</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
-                  A FGI Decision atua como controladora estritamente em relação aos dados cadastrais dos seus usuários
+                  A SIGA SOLUÇÕES atua como controladora estritamente em relação aos dados cadastrais dos seus usuários
                   diretos (dados necessários para a criação da conta, login e controle de acesso).
                 </p>
               </div>
@@ -110,7 +110,7 @@ export default function Privacy() {
                 <h3 className="font-semibold text-gray-900 dark:text-white">Como Operadora</h3>
                 <p className="text-sm text-gray-600 dark:text-gray-300 mt-1">
                   Em relação a todos os dados de obras, relatórios, cronogramas e dados de colaboradores inseridos pelos
-                  clientes na plataforma, a FGI Decision atua exclusivamente como Operadora dos dados. A responsabilidade
+                  clientes na plataforma, a SIGA SOLUÇÕES atua exclusivamente como Operadora dos dados. A responsabilidade
                   legal pela coleta, veracidade, qualidade e base legal adequada para o tratamento desses dados é
                   integralmente do Cliente (que figura como Controlador).
                 </p>
@@ -119,7 +119,7 @@ export default function Privacy() {
 
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-4">4. Compartilhamento e Transferência Internacional de Dados</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              A FGI Decision não vende, aluga ou comercializa dados pessoais com terceiros. Para viabilizar a operação
+              A SIGA SOLUÇÕES não vende, aluga ou comercializa dados pessoais com terceiros. Para viabilizar a operação
               da plataforma com alta disponibilidade, segurança e performance, os dados são compartilhados com parceiros
               tecnológicos estratégicos:
             </p>
@@ -203,7 +203,7 @@ export default function Privacy() {
 
             <h2 className="text-xl font-bold text-gray-900 dark:text-white mt-8 mb-4">7. Direitos dos Titulares</h2>
             <p className="text-gray-600 dark:text-gray-300 mb-4">
-              A qualquer momento, os usuários e titulares de dados podem solicitar à FGI Decision:
+              A qualquer momento, os usuários e titulares de dados podem solicitar à SIGA SOLUÇÕES:
             </p>
             <ul className="list-disc pl-6 space-y-1 text-gray-600 dark:text-gray-300">
               <li>Confirmação da existência de tratamento e acesso aos seus dados cadastrais</li>
@@ -219,7 +219,7 @@ export default function Privacy() {
             <div className="bg-gray-50 dark:bg-gray-950 rounded-lg p-4">
               <p className="text-gray-600 dark:text-gray-300">
                 Para exercer seus direitos de titular, tirar dúvidas ou realizar requisições sobre como os dados são
-                tratados na FGI Decision, utilize exclusivamente os canais oficiais abaixo:
+                tratados na SIGA SOLUÇÕES, utilize exclusivamente os canais oficiais abaixo:
               </p>
               <div className="mt-3 space-y-2">
                 <p className="text-sm">

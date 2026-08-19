@@ -75,7 +75,7 @@ export default function Sidebar({
 
   const navSections = !temProjeto ? [] : isInsercaoPontual ? navSectionsInsercaoPontual : buildNavSections(modulos)
   const [expandedSections, setExpandedSections] = useState<Set<string>>(
-    new Set(['Visão Geral', 'Engenharia', 'Distribuição Efetivo'])
+    new Set(['SIGA Planejamento', 'SIGA Execução'])
   )
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const location = useLocation()

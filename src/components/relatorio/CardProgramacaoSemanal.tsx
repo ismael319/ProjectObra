@@ -146,7 +146,7 @@ const CardProgramacaoSemanal = forwardRef<HTMLDivElement, Props>(function CardPr
       </div>
 
       <p className="text-center text-[11px] pt-1" style={{ color: COR.gray400 }}>
-        ProjectObra · gerado automaticamente a partir da programação semanal
+        SIGA Soluções · gerado automaticamente a partir da programação semanal
       </p>
     </div>
   )
