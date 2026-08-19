@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock, Upload, RefreshCw, FileUp, Save, X, AlertTriangle } from 'lucide-react'
 import { useProjects, type CronogramaInfo } from '@/lib/project-store'
-import { parseMSProjectXML, decodeXmlBytes } from '@/lib/xml-parser'
+import { parseMSProjectXML, decodeXmlBytes, applyMetodoAvanco } from '@/lib/xml-parser'
 import CronogramaUploadModal from './CronogramaUploadModal'
 
 type PendingChange = Partial<Pick<CronogramaInfo, 'peso' | 'dados' | 'dataUpload'>>
@@ -114,7 +114,13 @@ export default function CronogramaManager() {
           const buffer = ev.target?.result as ArrayBuffer
           const text = decodeXmlBytes(buffer)
           const parsed = parseMSProjectXML(text)
-          setPendingChanges((prev) => ({ ...prev, [cronogramaId]: { ...prev[cronogramaId], dados: parsed, dataUpload: new Date().toISOString() } }))
+          // Reaplica o método de avanço já configurado pro cronograma (padrão ou
+          // por quantidade) na versão nova do arquivo — sem isso, um reenvio de um
+          // cronograma "por quantidade" voltaria a usar o % Concluído nativo do
+          // MS Project em vez da fórmula Número3/Número1.
+          const metodoAvanco = cronogramas.find((c) => c.id === cronogramaId)?.metodoAvanco ?? 'padrao'
+          const dados = applyMetodoAvanco(parsed, metodoAvanco)
+          setPendingChanges((prev) => ({ ...prev, [cronogramaId]: { ...prev[cronogramaId], dados, dataUpload: new Date().toISOString() } }))
         } catch (err) {
           console.error('[CronogramaManager] Falha ao parsear XML:', err)
           const detail = err instanceof Error ? err.message : String(err)

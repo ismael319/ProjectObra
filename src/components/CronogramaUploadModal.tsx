@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { X, Upload, FileText } from 'lucide-react'
-import { parseMSProjectXML, decodeXmlBytes } from '@/lib/xml-parser'
+import { parseMSProjectXML, decodeXmlBytes, applyMetodoAvanco, type MetodoAvanco } from '@/lib/xml-parser'
 import type { CronogramaInfo } from '@/lib/project-store'
 import { CRON_COLORS_CONST } from '@/lib/project-store'
 
@@ -33,6 +33,7 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [tipo, setTipo] = useState<CronogramaInfo['tipo']>('Geral')
+  const [metodoAvanco, setMetodoAvanco] = useState<MetodoAvanco>('padrao')
   const [peso, setPeso] = useState(1)
   const [fileName, setFileName] = useState('')
   const [fileSizeMB, setFileSizeMB] = useState(0)
@@ -130,7 +131,8 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
       peso,
       cor,
       dataUpload: new Date().toISOString(),
-      dados: parsedRef.current,
+      metodoAvanco,
+      dados: applyMetodoAvanco(parsedRef.current, metodoAvanco),
     }
     // Espera o envio pra nuvem terminar antes de fechar — senão a tela some
     // e o usuário acha que salvou, mesmo se o envio remoto tiver falhado.
@@ -144,6 +146,7 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
     setNome('')
     setDescricao('')
     setTipo('Geral')
+    setMetodoAvanco('padrao')
     setPeso(1)
     setFileName('')
     setFileSizeMB(0)
@@ -272,6 +275,23 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
                 className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Como este cronograma mede o avanço?</label>
+            <select
+              value={metodoAvanco}
+              onChange={(e) => setMetodoAvanco(e.target.value as MetodoAvanco)}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="padrao">Padrão — % Concluído do MS Project (trabalho/HH)</option>
+              <option value="quantidade">Por quantidade de serviço (Número1/2/3)</option>
+            </select>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {metodoAvanco === 'padrao'
+                ? 'Usa o "% Concluído" que já vem calculado no arquivo do MS Project.'
+                : 'Recalcula o avanço de cada atividade como quantidade executada / quantidade total planejada, lendo os campos Número1 (total), Número2 (planejado até a data de status) e Número3 (executado até a data de status).'}
+            </p>
           </div>
 
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">

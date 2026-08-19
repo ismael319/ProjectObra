@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from 'react'
 import { toast } from 'sonner'
-import type { ParsedProject } from '@/lib/xml-parser'
+import type { ParsedProject, MetodoAvanco } from '@/lib/xml-parser'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
 import { fetchWithOfflineCacheDetailed, type OfflineCacheResult } from '@/lib/offline-query'
@@ -50,6 +50,15 @@ export interface CronogramaInfo {
   cor: string
   dataUpload: string
   dados: ParsedProject
+  /**
+   * Como o avanço (% Concluído) das tarefas deste cronograma foi calculado:
+   * 'padrao' lê direto o que o MS Project já gravou (PercentComplete/Work);
+   * 'quantidade' recalcula pela fórmula Número3/Número1 (avanço por medição de
+   * serviço) — ver applyMetodoAvanco em xml-parser.ts. Escolhido uma vez no
+   * upload; pra mudar é preciso reenviar o arquivo. Ausente em cronogramas
+   * salvos antes desse campo existir → tratar como 'padrao'.
+   */
+  metodoAvanco: MetodoAvanco
 }
 
 export interface Project {
@@ -161,6 +170,10 @@ interface CronogramaRow {
   peso: number | string | null
   cor: string | null
   data_upload: string
+  // Coluna nova (migration 20260818...) — pode não existir ainda em bancos que
+  // não rodaram a migration; por isso mapCronogramaRow/mapCronogramaMetaRow
+  // tratam null/undefined como 'padrao' em vez de assumir que sempre vem preenchida.
+  metodo_avanco: string | null
   dados: ParsedProject
 }
 
@@ -285,6 +298,7 @@ async function mapCronogramaRow(row: CronogramaRow): Promise<CronogramaInfo> {
     peso: Number(row.peso ?? 0),
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
+    metodoAvanco: (row.metodo_avanco as MetodoAvanco) ?? 'padrao',
     dados: await decompressDados(row.dados),
   }
 }
@@ -302,6 +316,7 @@ async function mapCronogramaMetaRow(row: CronogramaMetaRow): Promise<CronogramaI
     peso: Number(row.peso ?? 0),
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
+    metodoAvanco: (row.metodo_avanco as MetodoAvanco) ?? 'padrao',
     dados: EMPTY_PARSED_PROJECT,
   }
 }
@@ -385,6 +400,7 @@ async function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
     peso: c.peso,
     cor: c.cor,
     data_upload: c.dataUpload,
+    metodo_avanco: c.metodoAvanco,
     dados: await compressDados(c.dados),
   }
 }
@@ -416,7 +432,7 @@ async function loadProjectsRemote(organizacaoId: string | null, cacheScope: stri
   return fetchWithOfflineCacheDetailed(`projects:v1:${cacheScope}`, async () => {
     let query = supabase
     .from('projetos')
-    .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload)')
+    .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload, metodo_avanco)')
     .order('criado_em', { ascending: true })
 
     if (organizacaoId) query = query.eq('organizacao_id', organizacaoId)
@@ -548,22 +564,36 @@ function calcAvancoFromCronogramas(cronogramas: CronogramaInfo[]): number {
 // mesmo motivo de percentual_avanco: o servidor não tem como recalcular isso a
 // partir do `dados` comprimido de cada cronograma — o valor precisa nascer no
 // navegador e ser gravado como um número simples.
+// Cronogramas com metodoAvanco === 'quantidade' já trazem, por tarefa, o avanço
+// planejado calculado pela fórmula por quantidade (a.percentPlanejadoQuantidade
+// — ver applyMetodoAvanco em xml-parser.ts); os demais usam a fração de tempo
+// decorrida (mesma lógica de sempre). Os dois são combinados aqui, ponderados
+// por custo, pra dar um único percentual agregado — igual já acontecia entre
+// tarefas de cronogramas 'padrao' diferentes.
 function calcPlanejadoFromCronogramas(cronogramas: CronogramaInfo[]): number {
   const active = cronogramas.filter((c) => c.ativo)
   if (active.length === 0) return 0
-  const allNonSummary = active.flatMap((c) => c.dados.activities.filter((a) => !a.isSummary))
-  if (allNonSummary.length === 0) return 0
-  const bac = allNonSummary.reduce((sum, a) => sum + (a.cost || 0), 0)
-  if (bac <= 0) return 0
   const now = new Date().getTime()
-  const pv = allNonSummary.reduce((sum, a) => {
-    const start = new Date(a.start).getTime()
-    const finish = new Date(a.finish).getTime()
-    const totalDuration = finish - start
-    const elapsed = Math.min(now - start, totalDuration)
-    const progress = totalDuration > 0 ? Math.max(0, elapsed / totalDuration) : 0
-    return sum + (a.cost || 0) * progress
-  }, 0)
+  let bac = 0
+  let pv = 0
+  for (const c of active) {
+    for (const a of c.dados.activities) {
+      if (a.isSummary) continue
+      const cost = a.cost || 0
+      bac += cost
+      if (c.metodoAvanco === 'quantidade') {
+        pv += cost * ((a.percentPlanejadoQuantidade ?? 0) / 100)
+        continue
+      }
+      const start = new Date(a.start).getTime()
+      const finish = new Date(a.finish).getTime()
+      const totalDuration = finish - start
+      const elapsed = Math.min(now - start, totalDuration)
+      const progress = totalDuration > 0 ? Math.max(0, elapsed / totalDuration) : 0
+      pv += cost * progress
+    }
+  }
+  if (bac <= 0) return 0
   return Math.round((pv / bac) * 100)
 }
 
