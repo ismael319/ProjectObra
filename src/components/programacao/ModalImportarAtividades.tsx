@@ -101,14 +101,21 @@ export default function ModalImportarAtividades({
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [importing, setImporting] = useState(false)
 
-  // Quando o modal abre com preSelectedKeys, inicializa a seleção
+  // Inicializa a seleção só na transição fechado -> aberto. `preSelectedKeys`
+  // é recriado (novo objeto Set) a cada re-render do componente pai, então
+  // colocá-lo nas dependências do efeito faria a seleção do usuário ser
+  // sobrescrita de volta pro estado original a qualquer re-render da tela por
+  // trás do modal — mesmo sem nenhum clique novo do usuário. Reagir só à
+  // transição de `open` evita isso.
   useEffect(() => {
-    if (open && preSelectedKeys && preSelectedKeys.size > 0) {
+    if (!open) return
+    if (preSelectedKeys && preSelectedKeys.size > 0) {
       setSelected(new Set(preSelectedKeys))
-    } else if (open) {
+    } else {
       setSelected(new Set())
     }
-  }, [open, preSelectedKeys])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   const sourcesById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources])
 
