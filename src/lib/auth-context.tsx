@@ -67,7 +67,7 @@ interface AuthContextType {
   redeemDemoAccess: (id: string) => Promise<{ error?: string }>
   signUp: (email: string, password: string, nome?: string, inviteToken?: string, captchaToken?: string) => Promise<{ error?: string }>
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<{ error?: string }>
+  resetPassword: (email: string, captchaToken?: string) => Promise<{ error?: string }>
   updatePassword: (password: string) => Promise<{ error?: string }>
   aceitarTermos: () => Promise<void>
   completarPerfil: (nome: string, funcao: string, assinaturaEstilo?: AssinaturaEstilo) => Promise<{ error?: string }>
@@ -311,9 +311,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut()
   }
 
-  const resetPassword = async (email: string) => {
+  const resetPassword = async (email: string, captchaToken?: string) => {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/update-password`,
+      ...(captchaToken ? { captchaToken } : {}),
     })
     return { error: error?.message }
   }

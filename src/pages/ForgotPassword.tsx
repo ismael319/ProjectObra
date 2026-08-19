@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { Loader2, ArrowLeft, Shield, Lock, FileCheck, Mail } from 'lucide-react'
 import { useAuth } from '@/lib/auth-context'
+import TurnstileWidget from '@/components/TurnstileWidget'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 const forgotSchema = z.object({
@@ -17,6 +18,7 @@ export default function ForgotPassword() {
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [turnstileToken, setTurnstileToken] = useState('')
   const { resetPassword } = useAuth()
 
   const { register, handleSubmit, formState: { errors } } = useForm<ForgotFormData>({
@@ -26,8 +28,12 @@ export default function ForgotPassword() {
   const onSubmit = async (data: ForgotFormData) => {
     setError('')
     setSuccess('')
+    if (!turnstileToken) {
+      setError('Complete a verificação de segurança')
+      return
+    }
     setIsLoading(true)
-    const { error } = await resetPassword(data.email)
+    const { error } = await resetPassword(data.email, turnstileToken)
     setIsLoading(false)
     if (error) {
       setError('Erro ao enviar email. Tente novamente.')
@@ -35,6 +41,14 @@ export default function ForgotPassword() {
       setSuccess('Email de recuperação enviado! Verifique sua caixa de entrada.')
     }
   }
+
+  const onTurnstileVerify = useCallback((token: string) => {
+    setTurnstileToken(token)
+  }, [])
+
+  const onTurnstileExpire = useCallback(() => {
+    setTurnstileToken('')
+  }, [])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 px-4">
@@ -92,9 +106,13 @@ export default function ForgotPassword() {
               )}
             </div>
 
+            <div className="py-2">
+              <TurnstileWidget onVerify={onTurnstileVerify} onExpire={onTurnstileExpire} />
+            </div>
+
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={isLoading || !turnstileToken}
               className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-medium py-3 px-4 rounded-lg transition flex items-center justify-center gap-2"
             >
               {isLoading ? (
