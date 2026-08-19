@@ -19,7 +19,6 @@ import {
   PackageSearch,
   PieChart,
   Search,
-  TrendingUp,
   Truck,
   UserCog,
 } from 'lucide-react'
@@ -47,23 +46,19 @@ export function buildNavSections(modulos: string[]): NavSection[] {
   const temAdministracao = modulos.includes('administracao')
   const temQualidade = modulos.includes('qualidade')
 
-  // SIGA Planejamento: cronograma e curva S da obra.
+  // SIGA Planejamento: cronograma, curva S e histograma da obra — itens
+  // direto na seção, sem um item "Planejamento" pai redundante.
   const planejamentoItems: NavItem[] = temEngenharia ? [
-    {
-      icon: TrendingUp, label: 'Planejamento', path: '/dashboard/planning',
-      children: [
-        { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
-        { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
-        { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
-      ],
-    },
+    { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
+    { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
+    { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
+    { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
   ] : []
 
   // SIGA Execução: acompanhamento do dia a dia da obra (efetivo, setores,
   // ocorrências). Mesmo módulo técnico "engenharia" de Planejamento, mas
   // agrupado à parte no menu por ser outro produto SIGA.
   const execucaoItems: NavItem[] = temEngenharia ? [
-    { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
     {
       icon: PieChart, label: 'Distribuição Efetivo', path: '/dashboard/people',
       children: [
@@ -120,7 +115,7 @@ export function buildNavSections(modulos: string[]): NavSection[] {
           ],
         }]
       : []),
-    ...(temQualidade ? [{ title: 'SIGA Análise', items: qualidadeItems }] : []),
+    ...(temQualidade ? [{ title: 'SIGA CONCRETO', items: qualidadeItems }] : []),
   ]
 }
 

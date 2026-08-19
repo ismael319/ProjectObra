@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useFuncionarios, useRhCargos } from "@/lib/administracao/catalog";
 import type { FuncionarioRow } from "@/lib/administracao/db";
 import { useAlertasDocumentos } from "@/lib/administracao/catalog";
@@ -14,11 +15,13 @@ import CadastroTiposDocumento from "./CadastroTiposDocumento";
 
 export default function Documentacao() {
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
 
-  const { data: funcionariosTodos = [] } = useFuncionarios(organizacaoId);
+  const { data: funcionariosTodos = [] } = useFuncionarios(organizacaoId, projetoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
-  const { data: alertas = [], isLoading: carregandoAlertas } = useAlertasDocumentos(organizacaoId);
+  const { data: alertas = [], isLoading: carregandoAlertas } = useAlertasDocumentos(organizacaoId, projetoId);
 
   const [busca, setBusca] = useState("");
   const [verDocumentos, setVerDocumentos] = useState<FuncionarioRow | null>(null);

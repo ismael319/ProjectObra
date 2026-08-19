@@ -106,13 +106,14 @@ function CampoCatalogo({
 
 interface Props {
   organizacaoId: string;
+  projetoId: string;
   userId?: string | null;
   funcionario: FuncionarioRow | null;
   onClose: () => void;
   onSaved: () => void;
 }
 
-export default function FuncionarioFormModal({ organizacaoId, userId, funcionario, onClose, onSaved }: Props) {
+export default function FuncionarioFormModal({ organizacaoId, projetoId, userId, funcionario, onClose, onSaved }: Props) {
   const editando = !!funcionario;
 
   const { data: cargos = [], refetch: refetchCargos } = useRhCargos(organizacaoId);
@@ -131,8 +132,9 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
     encarregadoId: funcionario?.encarregado_id ?? null,
     indicacao: funcionario?.indicacao ?? null,
     dataAdmissao: funcionario?.data_admissao ?? "",
-    obraCodigo: funcionario?.obra_codigo ?? null,
-    projetoId: funcionario?.projeto_id ?? null,
+    // Ao criar um funcionário novo, já vem preenchido com a obra selecionada
+    // no momento (currentProject) — evita esquecer de vincular a obra.
+    projetoId: funcionario?.projeto_id ?? projetoId,
     local: funcionario?.local ?? null,
     statusBdr: funcionario?.status_bdr ?? "aguardando_documentacao",
     statusFs: funcionario?.status_fs ?? "bloqueado",
@@ -161,6 +163,10 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
   async function handleSalvar() {
     if (!form.matricula.trim() || !form.nome.trim() || !form.dataAdmissao) {
       toast.error("Matrícula, Nome e Data de admissão são obrigatórios.");
+      return;
+    }
+    if (!form.projetoId) {
+      toast.error("Projeto (obra) é obrigatório.");
       return;
     }
     if (!form.statusBdr || !form.statusFs) {
@@ -285,15 +291,11 @@ export default function FuncionarioFormModal({ organizacaoId, userId, funcionari
             <Input value={form.indicacao ?? ""} onChange={(e) => set("indicacao", e.target.value || null)} />
           </div>
           <div className="space-y-1.5">
-            <Label>Obra</Label>
-            <Input value={form.obraCodigo ?? ""} onChange={(e) => set("obraCodigo", e.target.value || null)} />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Projeto</Label>
+            <Label>Projeto (obra) *</Label>
             <Combobox
               options={projects.map((p) => ({ value: p.id, label: p.nome }))}
               value={form.projetoId}
-              onChange={(v) => set("projetoId", v)}
+              onChange={(v) => set("projetoId", v ?? projetoId)}
               placeholder="Selecione o projeto"
             />
           </div>

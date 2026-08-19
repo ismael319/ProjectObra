@@ -11,6 +11,7 @@ import { Combobox, MultiCombobox } from "@/components/ui/combobox";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import {
   useFuncionarios, useRhCargos, useRhSetores, useRhEncarregados, useRhGrupos,
   useUltimaImportacaoEfetivo,
@@ -48,14 +49,16 @@ const FILTROS_INICIAIS: Filtros = { busca: "", status: "todos", statusBdr: null,
 export default function Funcionarios() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
 
-  const { data: funcionarios = [], isLoading } = useFuncionarios(organizacaoId);
+  const { data: funcionarios = [], isLoading } = useFuncionarios(organizacaoId, projetoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
   const { data: setores = [] } = useRhSetores(organizacaoId);
   const { data: encarregados = [] } = useRhEncarregados(organizacaoId);
   const { data: grupos = [] } = useRhGrupos(organizacaoId);
-  const { data: ultimaImportacao } = useUltimaImportacaoEfetivo(organizacaoId);
+  const { data: ultimaImportacao } = useUltimaImportacaoEfetivo(organizacaoId, projetoId);
 
   const [filtros, setFiltros] = useState<Filtros>(FILTROS_INICIAIS);
   const [page, setPage] = useState(0);
@@ -107,8 +110,8 @@ export default function Funcionarios() {
   }
 
   function invalidar() {
-    qc.invalidateQueries({ queryKey: ["funcionarios", organizacaoId] });
-    qc.invalidateQueries({ queryKey: ["demissoes", organizacaoId] });
+    qc.invalidateQueries({ queryKey: ["funcionarios", organizacaoId, projetoId] });
+    qc.invalidateQueries({ queryKey: ["demissoes", organizacaoId, projetoId] });
   }
 
   // Ligar o toggle abre Desligar (precisa de motivo + data); desligar
@@ -328,9 +331,10 @@ export default function Funcionarios() {
         )}
       </div>
 
-      {editando && organizacaoId && (
+      {editando && organizacaoId && projetoId && (
         <FuncionarioFormModal
           organizacaoId={organizacaoId}
+          projetoId={projetoId}
           userId={user?.id}
           funcionario={editando === "novo" ? null : editando}
           onClose={() => setEditando(null)}

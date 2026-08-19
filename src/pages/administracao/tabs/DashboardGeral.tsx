@@ -3,6 +3,7 @@ import { AlertTriangle, Users, UserCheck, FileWarning } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, PieChart, Pie, Cell, ResponsiveContainer } from "recharts";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useMediaQuery } from "@/lib/use-media-query";
 import { useFuncionarios, useRhCargos, useRhSetores, useRhGrupos, useAlertasDocumentos } from "@/lib/administracao/catalog";
 import { funcaoBase } from "@/lib/administracao/cargo-nivel";
@@ -35,14 +36,16 @@ function truncarLabel(valor: string, limite: number): string {
 
 export default function DashboardGeral() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const isMobile = useMediaQuery("(max-width: 639px)");
 
-  const { data: funcionariosTodos = [], isLoading } = useFuncionarios(organizacaoId);
+  const { data: funcionariosTodos = [], isLoading } = useFuncionarios(organizacaoId, projetoId);
   const { data: cargos = [] } = useRhCargos(organizacaoId);
   const { data: setores = [] } = useRhSetores(organizacaoId);
   const { data: grupos = [] } = useRhGrupos(organizacaoId);
-  const { data: alertasDocumentos = [] } = useAlertasDocumentos(organizacaoId);
+  const { data: alertasDocumentos = [] } = useAlertasDocumentos(organizacaoId, projetoId);
 
   // Dashboard é sobre o efetivo atual — desligados não entram nas contagens.
   const funcionarios = useMemo(() => funcionariosTodos.filter((f) => f.ativo), [funcionariosTodos]);

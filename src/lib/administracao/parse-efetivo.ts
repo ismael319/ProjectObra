@@ -12,7 +12,6 @@ export type FuncionarioParseado = {
   cpf: string | null;
   encarregadoNome: string | null;
   indicacao: string | null;
-  obraCodigo: string | null;
   local: "obra" | "alojamento" | "em_viagem" | "turno_noite" | null;
   statusBdr: "liberado_fs" | "integracao" | "aguardando_documentacao" | null;
   statusFs: "liberado" | "bloqueado" | null;
@@ -37,7 +36,6 @@ const CANDIDATOS = {
   cpf: ["CPF"],
   encarregado: ["ENCARREGADO", "F.S"],
   indicacao: ["INDICACAO"],
-  obra: ["OBRA"],
   local: ["LOCAL"],
   statusBdr: ["STATUS BDR"],
   statusFs: ["STATUS FS"],
@@ -146,7 +144,6 @@ export function parseEfetivo(linhas: LinhaTabela[]): ResultadoParseEfetivo {
   const colCpf = idx(CANDIDATOS.cpf);
   const colEncarregado = idx(CANDIDATOS.encarregado);
   const colIndicacao = idx(CANDIDATOS.indicacao);
-  const colObra = idx(CANDIDATOS.obra);
   const colLocal = idx(CANDIDATOS.local);
   const colStatusBdr = idx(CANDIDATOS.statusBdr);
   const colStatusFs = idx(CANDIDATOS.statusFs);
@@ -271,7 +268,6 @@ export function parseEfetivo(linhas: LinhaTabela[]): ResultadoParseEfetivo {
       cpf: colCpf !== -1 ? (linha[colCpf] || "").trim() || null : null,
       encarregadoNome: colEncarregado !== -1 ? (linha[colEncarregado] || "").trim() || null : null,
       indicacao: colIndicacao !== -1 ? (linha[colIndicacao] || "").trim() || null : null,
-      obraCodigo: colObra !== -1 ? (linha[colObra] || "").trim() || null : null,
       local,
       statusBdr,
       statusFs,

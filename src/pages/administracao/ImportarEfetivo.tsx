@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, FileSpreadsheet, Loader2, Upload, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { lerAbasComoLinhas } from "@/lib/administracao/parse-shared";
@@ -13,7 +14,9 @@ type Estagio = "idle" | "processando" | "pronto" | "importando" | "concluido";
 
 export default function ImportarEfetivoPage() {
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
 
   const [estagio, setEstagio] = useState<Estagio>("idle");
   const [fileName, setFileName] = useState("");
@@ -48,10 +51,10 @@ export default function ImportarEfetivoPage() {
   }
 
   async function handleConfirmar() {
-    if (!resultado || !organizacaoId) return;
+    if (!resultado || !organizacaoId || !projetoId) return;
     setEstagio("importando");
     try {
-      const r = await importarEfetivo({ organizacaoId, userId: user?.id, arquivoNome: fileName, linhas: resultado.linhas });
+      const r = await importarEfetivo({ organizacaoId, projetoId, userId: user?.id, arquivoNome: fileName, linhas: resultado.linhas });
       setResumo(r);
       setEstagio("concluido");
       toast.success(`${r.totalLinhas} funcionário(s) importado(s).`);
@@ -77,11 +80,19 @@ export default function ImportarEfetivoPage() {
           <ArrowLeft size={14} /> Administração
         </Link>
         <h1 className="text-2xl font-bold mt-1">Importar Controle de Efetivo</h1>
-        <p className="text-sm text-muted-foreground">Envie a planilha de cadastro mestre (XLSX ou CSV). Reimportar atualiza quem já existe pela matrícula, sem duplicar.</p>
+        <p className="text-sm text-muted-foreground">
+          Envie a planilha de cadastro mestre (XLSX ou CSV) da obra <strong>{currentProject?.nome ?? "selecionada"}</strong>.
+          Reimportar atualiza quem já existe pela matrícula, sem duplicar.
+        </p>
       </div>
 
       <Card>
         <CardContent className="pt-6 space-y-4">
+          {!projetoId && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-700 dark:text-amber-300 text-sm">
+              Selecione uma obra em "Meus Projetos" antes de importar — os funcionários importados ficam vinculados à obra atual.
+            </div>
+          )}
           {erro && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-300 text-sm">
               {erro}
@@ -160,7 +171,7 @@ export default function ImportarEfetivoPage() {
         ) : (
           <Button
             onClick={handleConfirmar}
-            disabled={!resultado || resultado.linhas.length === 0 || estagio === "importando" || estagio === "processando"}
+            disabled={!resultado || !projetoId || resultado.linhas.length === 0 || estagio === "importando" || estagio === "processando"}
           >
             {estagio === "importando" ? "Importando..." : "Confirmar importação"}
           </Button>

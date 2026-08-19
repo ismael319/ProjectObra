@@ -51,11 +51,12 @@ export type ResumoImportacaoEfetivo = {
 
 export async function importarEfetivo(params: {
   organizacaoId: string;
+  projetoId: string;
   userId?: string | null;
   arquivoNome: string;
   linhas: FuncionarioParseado[];
 }): Promise<ResumoImportacaoEfetivo> {
-  const { organizacaoId, userId, arquivoNome, linhas } = params;
+  const { organizacaoId, projetoId, userId, arquivoNome, linhas } = params;
   if (linhas.length === 0) {
     return { totalLinhas: 0, novos: 0, atualizados: 0, documentosGravados: 0, catalogosCriados: [], documentosSemTipoConhecido: [] };
   }
@@ -143,6 +144,10 @@ export async function importarEfetivo(params: {
 
     linhasParaGravar.push({
       organizacao_id: organizacaoId,
+      // Importar é uma ação de "esta planilha é o efetivo desta obra" — ao
+      // contrário dos outros campos, projeto_id não preserva o valor
+      // anterior, sempre confirma a obra sendo importada agora.
+      projeto_id: projetoId,
       matricula: f.matricula,
       nome: comPrioridadeExistente(existente?.nome, f.nome),
       cpf: comPrioridadeExistente(existente?.cpf, f.cpf),
@@ -151,7 +156,6 @@ export async function importarEfetivo(params: {
       encarregado_id: comPrioridadeExistente(existente?.encarregado_id, encarregadoId),
       indicacao: comPrioridadeExistente(existente?.indicacao, f.indicacao),
       data_admissao: comPrioridadeExistente(existente?.data_admissao, f.admissao),
-      obra_codigo: comPrioridadeExistente(existente?.obra_codigo, f.obraCodigo),
       local: comPrioridadeExistente(existente?.local, f.local),
       status_bdr: comPrioridadeExistente(existente?.status_bdr, statusBdr),
       status_fs: comPrioridadeExistente(existente?.status_fs, statusFs),
@@ -202,6 +206,7 @@ export async function importarEfetivo(params: {
       for (const doc of docs) {
         documentosParaGravar.push({
           organizacao_id: organizacaoId,
+          projeto_id: projetoId,
           funcionario_id: funcionarioId,
           tipo_documento_id: doc.tipo_documento_id,
           data_emissao: doc.data_emissao,
@@ -225,6 +230,7 @@ export async function importarEfetivo(params: {
     // desfaz o import (os funcionários já foram gravados de verdade).
     await supabase.from("efetivo_importacoes").insert({
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       arquivo_nome: arquivoNome,
       total_linhas: linhasParaGravar.length,
       novos,
@@ -254,19 +260,24 @@ export type ResumoImportacaoPonto = {
 
 export async function importarPonto(params: {
   organizacaoId: string;
+  projetoId: string;
   userId?: string | null;
   arquivoNome: string;
   linhas: PontoParseado[];
 }): Promise<ResumoImportacaoPonto> {
-  const { organizacaoId, userId, arquivoNome, linhas } = params;
+  const { organizacaoId, projetoId, userId, arquivoNome, linhas } = params;
   if (linhas.length === 0) {
     return { totalLinhas: 0, matriculasEncontradas: 0, matriculasNaoEncontradas: 0, diasDistintos: 0 };
   }
 
+  // Só reconcilia contra funcionários DESTA obra — uma matrícula que existe
+  // só em outra obra da mesma empresa conta como "não encontrada" aqui, com
+  // razão (ela pertence a outro efetivo).
   const { data: funcionariosData, error: erroFuncionarios } = await supabase
     .from("funcionarios")
     .select("id,matricula,setor_id,cargo_id")
-    .eq("organizacao_id", organizacaoId);
+    .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId);
   if (erroFuncionarios) throw new Error(erroFuncionarios.message);
 
   const funcionarioPorMatricula = new Map(
@@ -281,6 +292,7 @@ export async function importarPonto(params: {
     if (funcionario) matriculasEncontradas += 1;
     return {
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       matricula: p.matricula,
       matricula_normalizada: p.matriculaNormalizada,
       funcionario_id: funcionario?.id ?? null,
@@ -322,6 +334,7 @@ export async function importarPonto(params: {
 
     const linhasAgregadas = [...agregado.values()].map((a) => ({
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       data: a.data,
       setor_id: a.setor_id,
       cargo_id: a.cargo_id,
@@ -375,7 +388,6 @@ export type FuncionarioRow = {
   encarregado_id: string | null;
   indicacao: string | null;
   data_admissao: string;
-  obra_codigo: string | null;
   projeto_id: string | null;
   local: Local | null;
   status_bdr: StatusBdr;
@@ -411,8 +423,13 @@ export async function criarItemCatalogo(
 // Traz todo mundo (ativo ou não) — a aba Funcionários mostra o quadro
 // completo; quem precisa só de ativos (Dashboard/Efetivo do Dia/alertas de
 // Documentação) filtra por conta própria ou já filtra na própria query.
-export async function listarFuncionarios(organizacaoId: string): Promise<FuncionarioRow[]> {
-  const { data, error } = await supabase.from("funcionarios").select("*").eq("organizacao_id", organizacaoId).order("nome");
+export async function listarFuncionarios(organizacaoId: string, projetoId: string): Promise<FuncionarioRow[]> {
+  const { data, error } = await supabase
+    .from("funcionarios")
+    .select("*")
+    .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId)
+    .order("nome");
   if (error) throw new Error(error.message);
   return data as FuncionarioRow[];
 }
@@ -425,11 +442,12 @@ export type UltimaImportacaoEfetivo = {
   importadoEm: string;
 };
 
-export async function listarUltimaImportacaoEfetivo(organizacaoId: string): Promise<UltimaImportacaoEfetivo | null> {
+export async function listarUltimaImportacaoEfetivo(organizacaoId: string, projetoId: string): Promise<UltimaImportacaoEfetivo | null> {
   const { data, error } = await supabase
     .from("efetivo_importacoes")
     .select("arquivo_nome, total_linhas, novos, atualizados, importado_em")
     .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId)
     .order("importado_em", { ascending: false })
     .limit(1)
     .maybeSingle();
@@ -454,8 +472,7 @@ export type FuncionarioInput = {
   encarregadoId: string | null;
   indicacao: string | null;
   dataAdmissao: string;
-  obraCodigo: string | null;
-  projetoId: string | null;
+  projetoId: string;
   local: Local | null;
   statusBdr: StatusBdr;
   statusFs: StatusFs;
@@ -479,7 +496,6 @@ export async function salvarFuncionario(params: {
     encarregado_id: input.encarregadoId,
     indicacao: input.indicacao,
     data_admissao: input.dataAdmissao,
-    obra_codigo: input.obraCodigo,
     projeto_id: input.projetoId,
     local: input.local,
     status_bdr: input.statusBdr,
@@ -522,6 +538,7 @@ export async function desligarFuncionario(params: {
 
   const { error: erroInsert } = await supabase.from("demissoes").insert({
     organizacao_id: organizacaoId,
+    projeto_id: funcionario.projeto_id,
     funcionario_origem_id: funcionario.id,
     matricula: funcionario.matricula,
     nome: funcionario.nome,
@@ -562,11 +579,12 @@ export type DemissaoRow = {
   criado_em: string;
 };
 
-export async function listarDemissoes(organizacaoId: string): Promise<DemissaoRow[]> {
+export async function listarDemissoes(organizacaoId: string, projetoId: string): Promise<DemissaoRow[]> {
   const { data, error } = await supabase
     .from("demissoes")
     .select("*")
     .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId)
     .order("data_demissao", { ascending: false });
   if (error) throw new Error(error.message);
   return data as DemissaoRow[];
@@ -589,16 +607,18 @@ export async function listarDocumentosPorFuncionario(funcionarioId: string): Pro
 
 export async function renovarDocumento(params: {
   organizacaoId: string;
+  projetoId: string;
   funcionarioId: string;
   tipoDocumentoId: string;
   validadeDias: number;
   dataEmissao: string;
   userId?: string | null;
 }): Promise<void> {
-  const { organizacaoId, funcionarioId, tipoDocumentoId, validadeDias, dataEmissao, userId } = params;
+  const { organizacaoId, projetoId, funcionarioId, tipoDocumentoId, validadeDias, dataEmissao, userId } = params;
   const { error } = await supabase.from("documentos_funcionario").upsert(
     {
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       funcionario_id: funcionarioId,
       tipo_documento_id: tipoDocumentoId,
       data_emissao: dataEmissao,
@@ -621,11 +641,12 @@ export type AlertaDocumento = {
 // "Vencido"/"vencendo em X dias" é calculado aqui (lógica de app sobre a
 // data atual), não no banco — data_vencimento é a única coisa persistida
 // (coluna gerada), como já decidido no schema.
-export async function listarAlertasDocumentos(organizacaoId: string, diasJanela = 30): Promise<AlertaDocumento[]> {
+export async function listarAlertasDocumentos(organizacaoId: string, projetoId: string, diasJanela = 30): Promise<AlertaDocumento[]> {
   const { data, error } = await supabase
     .from("documentos_funcionario")
-    .select("funcionario_id, data_vencimento, funcionarios!inner(nome, organizacao_id, ativo), tipos_documento(nome)")
+    .select("funcionario_id, data_vencimento, funcionarios!inner(nome, organizacao_id, projeto_id, ativo), tipos_documento(nome)")
     .eq("funcionarios.organizacao_id", organizacaoId)
+    .eq("funcionarios.projeto_id", projetoId)
     .eq("funcionarios.ativo", true);
   if (error) throw new Error(error.message);
 
@@ -671,8 +692,8 @@ export type EfetivoDoDiaLinha = {
 export async function efetivoDoDia(organizacaoId: string, projetoId: string, data: string): Promise<EfetivoDoDiaLinha[]> {
   const [setoresResp, funcionariosResp, pontoResp, campoResp] = await Promise.all([
     supabase.from("rh_setores").select("id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
-    supabase.from("funcionarios").select("setor_id").eq("organizacao_id", organizacaoId).eq("ativo", true),
-    supabase.from("rh_efetivo_ponto_diario").select("setor_id,total_presentes").eq("organizacao_id", organizacaoId).eq("data", data),
+    supabase.from("funcionarios").select("setor_id").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId).eq("ativo", true),
+    supabase.from("rh_efetivo_ponto_diario").select("setor_id,total_presentes").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId).eq("data", data),
     supabase
       .from("apontamentos_diarios")
       .select("setor_nome,pedreiro,servente,carpinteiro,qntdd_funcao")

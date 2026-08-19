@@ -63,19 +63,19 @@ export function useTiposDocumento(organizacaoId?: string) {
   return useRhCatalogo<TipoDocumento>("tipos_documento", organizacaoId, "id,key,nome,validade_dias,ativo");
 }
 
-export function useFuncionarios(organizacaoId?: string) {
+export function useFuncionarios(organizacaoId?: string, projetoId?: string) {
   return useQuery({
-    queryKey: ["funcionarios", organizacaoId],
-    queryFn: () => listarFuncionarios(organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["funcionarios", organizacaoId, projetoId],
+    queryFn: () => listarFuncionarios(organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
   });
 }
 
-export function useDemissoes(organizacaoId?: string) {
+export function useDemissoes(organizacaoId?: string, projetoId?: string) {
   return useQuery({
-    queryKey: ["demissoes", organizacaoId],
-    queryFn: () => listarDemissoes(organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["demissoes", organizacaoId, projetoId],
+    queryFn: () => listarDemissoes(organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
   });
 }
 
@@ -87,11 +87,11 @@ export function useDocumentosFuncionario(funcionarioId?: string) {
   });
 }
 
-export function useAlertasDocumentos(organizacaoId?: string) {
+export function useAlertasDocumentos(organizacaoId?: string, projetoId?: string) {
   return useQuery({
-    queryKey: ["alertas_documentos", organizacaoId],
-    queryFn: () => listarAlertasDocumentos(organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["alertas_documentos", organizacaoId, projetoId],
+    queryFn: () => listarAlertasDocumentos(organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
   });
 }
 
@@ -103,10 +103,10 @@ export function useEfetivoDoDia(organizacaoId: string | undefined, projetoId: st
   });
 }
 
-export function useUltimaImportacaoEfetivo(organizacaoId?: string) {
+export function useUltimaImportacaoEfetivo(organizacaoId?: string, projetoId?: string) {
   return useQuery({
-    queryKey: ["ultima_importacao_efetivo", organizacaoId],
-    queryFn: () => listarUltimaImportacaoEfetivo(organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["ultima_importacao_efetivo", organizacaoId, projetoId],
+    queryFn: () => listarUltimaImportacaoEfetivo(organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
   });
 }

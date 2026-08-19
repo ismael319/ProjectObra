@@ -21,7 +21,7 @@ const STATUS_FS_LABEL: Record<StatusFs, string> = {
 
 const HEADERS = [
   "MAT", "NOME", "CARGO", "SETOR", "ENCARREGADO", "INDICAÇÃO", "ADMISSÃO",
-  "CATEGORIA", "CPF", "OBRA", "LOCAL", "STATUS BDR", "STATUS FS", "GRUPO",
+  "CATEGORIA", "CPF", "LOCAL", "STATUS BDR", "STATUS FS", "GRUPO",
 ];
 
 type Nomes = {
@@ -58,7 +58,6 @@ export async function buildFuncionariosWorkbook(funcionarios: FuncionarioRow[], 
       f.data_admissao,
       f.categoria ?? "",
       f.cpf ?? "",
-      f.obra_codigo ?? "",
       f.local ? LOCAL_LABEL[f.local] : "",
       STATUS_BDR_LABEL[f.status_bdr],
       STATUS_FS_LABEL[f.status_fs],

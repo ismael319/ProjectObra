@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, ChevronDown, ChevronRight, Save, Pencil } from 'lucide-react'
+import { X, Loader2, ChevronDown, ChevronRight, Save, Pencil, FolderKanban } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import UserApprovalManagement from '@/pages/UserApprovalManagement'
@@ -41,6 +41,13 @@ interface MembroRow {
   email: string | null
   papel: PapelUsuario | null
   funcao: string | null
+  escopo_projetos: 'todos' | 'vinculados'
+}
+
+interface ProjetoRow {
+  id: string
+  nome: string
+  codigo: string | null
 }
 
 const PAPEL_LABELS: Record<PapelUsuario, string> = {
@@ -87,11 +94,89 @@ export default function OrganizacaoDetailModal({
   const [modulosVisiveis, setModulosVisiveis] = useState<Record<string, Set<string> | null>>({})
   const [savingModulosId, setSavingModulosId] = useState<string | null>(null)
 
+  // Acesso por obra: pra cada obra da empresa, quem enxerga ela — membros com
+  // escopo 'todos' (acesso automático a qualquer obra) + membros 'vinculados'
+  // que tenham uma linha em projeto_usuarios pra essa obra específica.
+  const [projetos, setProjetos] = useState<ProjetoRow[]>([])
+  const [isLoadingProjetos, setIsLoadingProjetos] = useState(true)
+  const [projetoSelecionadoId, setProjetoSelecionadoId] = useState<string>('')
+  const [acessosProjeto, setAcessosProjeto] = useState<Set<string>>(new Set())
+  const [isLoadingAcessos, setIsLoadingAcessos] = useState(false)
+  const [savingAcessoUserId, setSavingAcessoUserId] = useState<string | null>(null)
+
+  const carregarProjetos = useCallback(async () => {
+    setIsLoadingProjetos(true)
+    const { data, error } = await supabase
+      .from('projetos')
+      .select('id, nome, codigo')
+      .eq('organizacao_id', organizacao.id)
+      .order('nome')
+    if (error) {
+      toast.error(`Erro ao carregar obras: ${error.message}`)
+    } else {
+      const lista = (data as ProjetoRow[]) ?? []
+      setProjetos(lista)
+      setProjetoSelecionadoId((atual) => atual || lista[0]?.id || '')
+    }
+    setIsLoadingProjetos(false)
+  }, [organizacao.id])
+
+  useEffect(() => {
+    carregarProjetos()
+  }, [carregarProjetos])
+
+  useEffect(() => {
+    if (!projetoSelecionadoId) {
+      setAcessosProjeto(new Set())
+      return
+    }
+    let cancelado = false
+    setIsLoadingAcessos(true)
+    supabase.from('projeto_usuarios').select('user_id').eq('projeto_id', projetoSelecionadoId)
+      .then(({ data, error }) => {
+        if (cancelado) return
+        if (error) {
+          toast.error(`Erro ao carregar acessos da obra: ${error.message}`)
+        } else {
+          setAcessosProjeto(new Set((data ?? []).map((r) => r.user_id as string)))
+        }
+        setIsLoadingAcessos(false)
+      })
+    return () => { cancelado = true }
+  }, [projetoSelecionadoId])
+
+  const handleToggleAcessoObra = async (membro: MembroRow, concedido: boolean) => {
+    if (!projetoSelecionadoId) return
+    setSavingAcessoUserId(membro.id)
+    if (concedido) {
+      const { error } = await supabase
+        .from('projeto_usuarios')
+        .delete()
+        .eq('projeto_id', projetoSelecionadoId)
+        .eq('user_id', membro.id)
+      if (error) {
+        toast.error(`Não foi possível remover o acesso: ${error.message}`)
+      } else {
+        setAcessosProjeto((prev) => { const n = new Set(prev); n.delete(membro.id); return n })
+      }
+    } else {
+      const { error } = await supabase
+        .from('projeto_usuarios')
+        .upsert({ projeto_id: projetoSelecionadoId, user_id: membro.id, atribuido_por: user?.id ?? null }, { onConflict: 'projeto_id,user_id' })
+      if (error) {
+        toast.error(`Não foi possível conceder o acesso: ${error.message}`)
+      } else {
+        setAcessosProjeto((prev) => new Set(prev).add(membro.id))
+      }
+    }
+    setSavingAcessoUserId(null)
+  }
+
   const carregar = useCallback(async () => {
     setIsLoadingMembros(true)
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('id, email, papel, funcao')
+      .select('id, email, papel, funcao, escopo_projetos')
       .eq('organizacao_id', organizacao.id)
       .eq('status_solicitacao', 'aprovado')
       .order('email')
@@ -450,6 +535,69 @@ export default function OrganizacaoDetailModal({
                     </div>
                   )
                 })}
+              </div>
+            )}
+          </section>
+
+          {/* Acesso por obra */}
+          <section>
+            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              Acesso por obra
+            </h3>
+            {isLoadingProjetos ? (
+              <div className="flex items-center py-2">
+                <Loader2 className="animate-spin text-blue-600" size={18} />
+              </div>
+            ) : projetos.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">Nenhuma obra cadastrada nessa empresa ainda.</p>
+            ) : (
+              <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+                <div className="flex items-center gap-2 px-3 py-2.5 bg-gray-50 dark:bg-gray-900/40 border-b border-gray-200 dark:border-gray-700">
+                  <FolderKanban size={14} className="text-gray-400 dark:text-gray-500 shrink-0" />
+                  <select
+                    value={projetoSelecionadoId}
+                    onChange={(e) => setProjetoSelecionadoId(e.target.value)}
+                    className="text-sm border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 px-2 py-1.5 flex-1 min-w-0"
+                  >
+                    {projetos.map((p) => (
+                      <option key={p.id} value={p.id}>{p.codigo ? `${p.codigo} - ` : ''}{p.nome}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="p-3">
+                  {membros.length === 0 ? (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Nenhum membro aprovado nessa empresa ainda.</p>
+                  ) : isLoadingAcessos ? (
+                    <div className="flex items-center justify-center py-4">
+                      <Loader2 className="animate-spin text-blue-600" size={18} />
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      {membros.map((membro) => {
+                        const acessoAutomatico = membro.escopo_projetos === 'todos'
+                        const temAcesso = acessoAutomatico || acessosProjeto.has(membro.id)
+                        return (
+                          <label
+                            key={membro.id}
+                            className={`flex items-center gap-2 text-sm py-1 ${acessoAutomatico ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-200 cursor-pointer'}`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={temAcesso}
+                              disabled={acessoAutomatico || savingAcessoUserId === membro.id}
+                              onChange={() => handleToggleAcessoObra(membro, temAcesso)}
+                              className="w-3.5 h-3.5"
+                            />
+                            <span className="flex-1 min-w-0 truncate">{membro.email ?? membro.id}</span>
+                            {acessoAutomatico && (
+                              <span className="text-[11px] shrink-0">acesso automático (todas as obras)</span>
+                            )}
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
           </section>

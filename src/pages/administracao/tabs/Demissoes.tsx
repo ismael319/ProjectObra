@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Combobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useDemissoes } from "@/lib/administracao/catalog";
 import type { MotivoDemissao } from "@/lib/administracao/db";
 
@@ -18,8 +19,10 @@ const MOTIVO_LABEL: Record<MotivoDemissao, string> = {
 
 export default function Demissoes() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
-  const { data: demissoes = [], isLoading } = useDemissoes(organizacaoId);
+  const projetoId = currentProject?.id ?? undefined;
+  const { data: demissoes = [], isLoading } = useDemissoes(organizacaoId, projetoId);
 
   const [busca, setBusca] = useState("");
   const [motivo, setMotivo] = useState<MotivoDemissao | null>(null);

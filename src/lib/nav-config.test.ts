@@ -5,8 +5,21 @@ describe('nav-config', () => {
   it('expõe somente os módulos contratados', () => {
     const sections = buildNavSections(['engenharia', 'qualidade'])
 
-    expect(sections.map((section) => section.title)).toEqual(['SIGA Planejamento', 'SIGA Execução', 'SIGA Análise'])
+    expect(sections.map((section) => section.title)).toEqual(['SIGA Planejamento', 'SIGA Execução', 'SIGA CONCRETO'])
     expect(sections[2].items[0].children?.[0].path).toBe('/dashboard/qualidade/concreto/dashboard')
+  })
+
+  it('lista os itens de Planejamento direto na seção, incluindo o Histograma', () => {
+    const sections = buildNavSections(['engenharia'])
+
+    expect(sections[0].title).toBe('SIGA Planejamento')
+    expect(sections[0].items.map((item) => item.path)).toEqual([
+      '/dashboard/planning',
+      '/dashboard/daily',
+      '/dashboard/gantt',
+      '/dashboard/histograma-mo',
+    ])
+    expect(sections[0].items.every((item) => !item.children)).toBe(true)
   })
 
   it('mantém o apontador restrito ao lançamento de efetivo', () => {
@@ -16,11 +29,9 @@ describe('nav-config', () => {
 
   it('usa destino alternativo somente para agrupadores sem página própria', () => {
     const sections = buildNavSections(['engenharia', 'qualidade'])
-    const planejamento = sections[0].items[0]
-    const efetivo = sections[1].items[1]
+    const efetivo = sections[1].items[0]
     const concreto = sections[2].items[0]
 
-    expect(getNavItemDestination(planejamento)).toBe('/dashboard/planning')
     expect(getNavItemDestination(efetivo)).toBe('/dashboard/people')
     expect(getNavItemDestination(concreto)).toBe('/dashboard/qualidade/concreto/dashboard')
   })

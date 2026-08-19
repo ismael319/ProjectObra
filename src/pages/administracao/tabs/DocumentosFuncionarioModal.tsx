@@ -69,8 +69,12 @@ export default function DocumentosFuncionarioModal({ organizacaoId, userId, func
   const documentoPorTipo = new Map(documentos.map((d) => [d.tipo_documento_id, d]));
 
   async function handleRenovar(tipoDocumentoId: string, validadeDias: number, dataEmissao: string) {
+    if (!funcionario.projeto_id) {
+      toast.error("Esse funcionário ainda não está vinculado a um Projeto (obra) — edite o cadastro antes de renovar documentos.");
+      return;
+    }
     try {
-      await renovarDocumento({ organizacaoId, funcionarioId: funcionario.id, tipoDocumentoId, validadeDias, dataEmissao, userId });
+      await renovarDocumento({ organizacaoId, projetoId: funcionario.projeto_id, funcionarioId: funcionario.id, tipoDocumentoId, validadeDias, dataEmissao, userId });
       toast.success("Documento renovado.");
       qc.invalidateQueries({ queryKey: ["documentos_funcionario", funcionario.id] });
       qc.invalidateQueries({ queryKey: ["alertas_documentos", organizacaoId] });
