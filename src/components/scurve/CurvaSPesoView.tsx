@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
-import { BarChart3, Filter, Layers, Table2 } from 'lucide-react'
+import { BarChart3, Filter, Layers, SlidersHorizontal, Table2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { calcularCurvaSPorPeso, CURVA_S_CONFIG_PADRAO, CURVA_S_DISCIPLINA_GERAL, DIAS_SEMANA, type CurvaSConfig, type CurvaSSemana, type CurvaSResultado } from '@/lib/curva-s-peso'
@@ -8,6 +8,7 @@ import { COLOR_REAL, COLOR_FORECAST, COLOR_PLANNED, BL_COLORS } from '@/lib/curv
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
 import { PesoTooltip } from '@/components/scurve/PesoTooltip'
+import { CurvaSConfigPanel } from '@/components/scurve/CurvaSConfigPanel'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
 import { useAuth } from '@/lib/auth-context'
@@ -113,8 +114,9 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [showTable, setShowTable] = useState(false)
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(cronogramas.map((c) => c.id))
-  const [openPanel, setOpenPanel] = useState<'filtros' | null>(null)
+  const [openPanel, setOpenPanel] = useState<'filtros' | 'opcoes' | null>(null)
   const [collapsedFilterCronogramas, setCollapsedFilterCronogramas] = useState<Set<string>>(new Set())
+  const [hiddenCurves, setHiddenCurves] = useState<string[]>([])
 
   const [activityExclusions, setActivityExclusions] = useState<Record<string, number[]>>({})
   const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>([])
@@ -439,6 +441,58 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                 </>
               )}
             </div>
+
+            <div className="relative">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    onClick={() => setOpenPanel((prev) => prev === 'opcoes' ? null : 'opcoes')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg border text-sm font-medium transition ${
+                      openPanel === 'opcoes'
+                        ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
+                        : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                    }`}
+                  >
+                    <SlidersHorizontal size={16} /> Opcoes
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  Configuracao da Curva S por peso: dia de corte, folga, feriados e visibilidade das curvas.
+                </TooltipContent>
+              </Tooltip>
+              {openPanel === 'opcoes' && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
+                  <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-64 space-y-4">
+                    <div>
+                      <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Curvas visiveis</span>
+                      <div className="space-y-1">
+                        {[
+                          { key: 'Planejado', color: COLOR_PLANNED },
+                          { key: 'Executado', color: COLOR_REAL },
+                          { key: 'Forecast', color: COLOR_FORECAST },
+                        ].map((curve) => (
+                          <label key={curve.key} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!hiddenCurves.includes(curve.key)}
+                              onChange={() => setHiddenCurves((prev) => prev.includes(curve.key) ? prev.filter((k) => k !== curve.key) : [...prev, curve.key])}
+                              className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
+                            />
+                            <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: curve.color }} />
+                            {curve.key}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                      <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Configuracao da Curva S</span>
+                      <CurvaSConfigPanel projetoId={project.id} />
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
         </div>
 
@@ -487,9 +541,9 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               {statusWeekLabel && (
                 <ReferenceLine x={statusWeekLabel} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: 'Status', position: 'top', fill: '#ef4444', fontSize: 10, fontWeight: 600 }} />
               )}
-              <Line type="monotone" dataKey="Planejado" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />
-              <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />
-              <Line type="monotone" dataKey="Forecast" stroke={COLOR_FORECAST} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />
+              {!hiddenCurves.includes('Planejado') && <Line type="monotone" dataKey="Planejado" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />}
+              {!hiddenCurves.includes('Executado') && <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />}
+              {!hiddenCurves.includes('Forecast') && <Line type="monotone" dataKey="Forecast" stroke={COLOR_FORECAST} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />}
             </LineChart>
           </ResponsiveContainer>
         </div>
