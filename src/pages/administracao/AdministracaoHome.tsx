@@ -5,6 +5,7 @@ import Funcionarios from "./tabs/Funcionarios";
 import Documentacao from "./tabs/Documentacao";
 import EfetivoDoDia from "./tabs/EfetivoDoDia";
 import Demissoes from "./tabs/Demissoes";
+import Transferencias from "./tabs/Transferencias";
 import CadastroCargos from "./tabs/CadastroCargos";
 
 const ABAS = [
@@ -13,6 +14,7 @@ const ABAS = [
   { value: "documentacao", label: "Documentação e Treinamentos" },
   { value: "efetivo", label: "Efetivo do Dia" },
   { value: "demissoes", label: "Demissões" },
+  { value: "transferencias", label: "Transferências" },
   { value: "cargos", label: "Cadastro de Cargos" },
 ] as const;
 
@@ -47,6 +49,9 @@ export default function AdministracaoHome() {
         </TabsContent>
         <TabsContent value="demissoes" className="space-y-4">
           {aba === "demissoes" && <Demissoes />}
+        </TabsContent>
+        <TabsContent value="transferencias" className="space-y-4">
+          {aba === "transferencias" && <Transferencias />}
         </TabsContent>
         <TabsContent value="cargos" className="space-y-4">
           {aba === "cargos" && <CadastroCargos />}

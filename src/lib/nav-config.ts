@@ -106,7 +106,13 @@ export function buildNavSections(modulos: string[]): NavSection[] {
     ...(temEngenharia ? [{ title: 'SIGA Execução', items: execucaoItems }] : []),
     ...(temSeguranca ? [{ title: 'SIGA Segurança', items: segurancaItems }] : []),
     ...(temSuprimentos
-      ? [{ title: 'SIGA Suprimentos', items: [{ icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' }] }]
+      ? [{
+          title: 'SIGA Suprimentos',
+          items: [
+            { icon: PackageSearch, label: 'Alertas Sienge', path: '/dashboard/suprimentos' },
+            { icon: Truck, label: 'Entrega de Materiais', path: '/dashboard/suprimentos/entrega-materiais' },
+          ],
+        }]
       : []),
     ...(temAdministracao
       ? [{
@@ -164,6 +170,7 @@ const dashboardRouteTitles = [
   ['/dashboard/mapa-chuvas', 'Mapa de Chuvas'],
   ['/dashboard/mapa-setores', 'Mapa de Setores'],
   ['/dashboard/administracao', 'Administração'],
+  ['/dashboard/suprimentos/entrega-materiais', 'Entrega de Materiais'],
   ['/dashboard/suprimentos', 'Alertas Sienge'],
   ['/dashboard/occurrences', 'Ocorrências'],
   ['/dashboard/activities', 'Atividades'],

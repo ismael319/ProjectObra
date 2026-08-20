@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Search, Plus, Upload, Download, Pencil, ChevronLeft, ChevronRight, User } from "lucide-react";
+import { Search, Plus, Upload, Download, Pencil, ChevronLeft, ChevronRight, User, ArrowRightLeft } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +21,7 @@ import { buildFuncionariosWorkbook, downloadFuncionariosWorkbook } from "@/lib/a
 import { StatusBdrPill, StatusFsPill } from "../status-pills";
 import FuncionarioFormModal from "./FuncionarioFormModal";
 import DesligarDialog from "./DesligarDialog";
+import TransferirDialog from "./TransferirDialog";
 
 const OPCOES_PAGE_SIZE = [10, 25, 50, 100] as const;
 
@@ -49,7 +50,7 @@ const FILTROS_INICIAIS: Filtros = { busca: "", status: "todos", statusBdr: null,
 export default function Funcionarios() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
-  const { currentProject } = useProjects();
+  const { currentProject, projects } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
   const projetoId = currentProject?.id ?? undefined;
 
@@ -66,6 +67,12 @@ export default function Funcionarios() {
   const [pageSize, setPageSize] = useState<number | "todos">(25);
   const [editando, setEditando] = useState<FuncionarioRow | null | "novo">(null);
   const [desligando, setDesligando] = useState<FuncionarioRow | null>(null);
+  const [transferindo, setTransferindo] = useState<FuncionarioRow | null>(null);
+
+  const obrasDisponiveis = useMemo(
+    () => projects.filter((p) => p.id !== projetoId).map((p) => ({ id: p.id, nome: p.nome })),
+    [projects, projetoId]
+  );
 
   const cargoNomePorId = useMemo(() => new Map(cargos.map((c) => [c.id, c.nome])), [cargos]);
   const setorNomePorId = useMemo(() => new Map(setores.map((s) => [s.id, s.nome])), [setores]);
@@ -112,6 +119,7 @@ export default function Funcionarios() {
   function invalidar() {
     qc.invalidateQueries({ queryKey: ["funcionarios", organizacaoId, projetoId] });
     qc.invalidateQueries({ queryKey: ["demissoes", organizacaoId, projetoId] });
+    qc.invalidateQueries({ queryKey: ["transferencias", organizacaoId, projetoId] });
   }
 
   // Ligar o toggle abre Desligar (precisa de motivo + data); desligar
@@ -292,9 +300,16 @@ export default function Funcionarios() {
                       <Switch checked={f.ativo} onCheckedChange={() => handleToggleAtivo(f)} title={f.ativo ? "Desligar" : "Reativar"} />
                     </TableCell>
                     <TableCell>
-                      <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditando(f)} title="Editar">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      <div className="flex gap-1">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setEditando(f)} title="Editar">
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
+                        {f.ativo && obrasDisponiveis.length > 0 && (
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => setTransferindo(f)} title="Transferir para outra obra">
+                            <ArrowRightLeft className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                   );
@@ -350,6 +365,18 @@ export default function Funcionarios() {
           setorNome={desligando.setor_id ? setorNomePorId.get(desligando.setor_id) ?? null : null}
           onClose={() => setDesligando(null)}
           onDesligado={invalidar}
+        />
+      )}
+
+      {transferindo && organizacaoId && (
+        <TransferirDialog
+          organizacaoId={organizacaoId}
+          funcionario={transferindo}
+          cargoNome={transferindo.cargo_id ? cargoNomePorId.get(transferindo.cargo_id) ?? null : null}
+          setorNome={transferindo.setor_id ? setorNomePorId.get(transferindo.setor_id) ?? null : null}
+          obrasDisponiveis={obrasDisponiveis}
+          onClose={() => setTransferindo(null)}
+          onTransferido={invalidar}
         />
       )}
     </div>

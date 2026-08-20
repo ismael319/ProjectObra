@@ -14,6 +14,7 @@ import { SCurveChart } from '@/components/scurve/SCurveChart'
 import { SCurveWideTable } from '@/components/scurve/SCurveWideTable'
 import { SCurveWbsTable } from '@/components/scurve/SCurveWbsTable'
 import { SCurveDiagnostic } from '@/components/scurve/SCurveDiagnostic'
+import { CurvaSPesoView } from '@/components/scurve/CurvaSPesoView'
 import {
   BL_COLORS,
   buildCurveFromRawPoints,
@@ -161,6 +162,18 @@ export default function SCurve() {
     const padrao = padraoId ? selectedCronogramasData.find((c) => c.id === padraoId) : null
     return (padrao || selectedCronogramasData[0])?.dados?.weekStartDay ?? 5
   }, [selectedCronogramasData, currentProject])
+
+  // Qual motor de Curva S usar — decidido no Gerenciar Cronograma (ver
+  // CronogramaManager.tsx), não nesta tela. Mesma resolução de "cronograma de
+  // referência" do weekStartDay acima: o padrão do projeto, senão o primeiro
+  // ativo. Usa activeCronogramas (não selectedCronogramasData) — o tipo da
+  // curva não deveria mudar conforme o usuário liga/desliga filtro de
+  // cronograma, só quando o cronograma padrão de fato é outro.
+  const tipoCurvaS = useMemo(() => {
+    const padraoId = currentProject?.cronogramaPadraoId
+    const padrao = padraoId ? activeCronogramas.find((c) => c.id === padraoId) : null
+    return (padrao || activeCronogramas[0])?.tipoCurvaS ?? 'hh'
+  }, [activeCronogramas, currentProject])
 
   // Aviso: cronogramas selecionados com "início de semana" diferente entre si.
   // Todos são agregados com o weekStartDay acima (do cronograma padrão/primeiro),
@@ -582,6 +595,14 @@ export default function SCurve() {
         <p className="text-gray-500 dark:text-gray-400 mt-2">Faça o upload de um arquivo XML para visualizar a Curva S</p>
       </div>
     )
+  }
+
+  // Tipo de Curva S decidido no Gerenciar Cronograma (ver tipoCurvaS acima) —
+  // 'peso' usa um motor e uma tela inteiramente separados do resto desta
+  // página (curva-s-peso.ts), sem nenhuma das opções de baseline/consolidação
+  // por HH abaixo, que não fazem sentido nesse modo.
+  if (tipoCurvaS === 'peso') {
+    return <CurvaSPesoView project={project} cronogramas={activeCronogramas} />
   }
 
   return (

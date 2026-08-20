@@ -3,6 +3,7 @@ import { supabase } from "@/lib/supabase";
 import {
   listarFuncionarios,
   listarDemissoes,
+  listarTransferencias,
   listarDocumentosPorFuncionario,
   listarAlertasDocumentos,
   listarUltimaImportacaoEfetivo,
@@ -75,6 +76,14 @@ export function useDemissoes(organizacaoId?: string, projetoId?: string) {
   return useQuery({
     queryKey: ["demissoes", organizacaoId, projetoId],
     queryFn: () => listarDemissoes(organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
+  });
+}
+
+export function useTransferencias(organizacaoId?: string, projetoId?: string) {
+  return useQuery({
+    queryKey: ["transferencias", organizacaoId, projetoId],
+    queryFn: () => listarTransferencias(organizacaoId!, projetoId!),
     enabled: !!organizacaoId && !!projetoId,
   });
 }

@@ -563,6 +563,68 @@ export async function reativarFuncionario(funcionarioId: string): Promise<void> 
   if (error) throw new Error(error.message);
 }
 
+// Mesma ordem defensiva de desligarFuncionario: grava a cópia em
+// transferencias ANTES de mover o funcionário — se algo falhar entre as
+// duas, o pior caso é uma linha de histórico "solta", nunca perder o
+// vínculo sem deixar rastro. projeto_origem_id vem do funcionário (obra
+// atual), não é escolhido na tela.
+export async function transferirFuncionario(params: {
+  organizacaoId: string;
+  funcionario: FuncionarioRow;
+  cargoNome: string | null;
+  setorNome: string | null;
+  projetoDestinoId: string;
+  dataTransferencia: string;
+  motivo: string | null;
+}): Promise<void> {
+  const { organizacaoId, funcionario, cargoNome, setorNome, projetoDestinoId, dataTransferencia, motivo } = params;
+  if (!funcionario.projeto_id) throw new Error("Funcionário sem obra atual definida.");
+
+  const { error: erroInsert } = await supabase.from("transferencias").insert({
+    organizacao_id: organizacaoId,
+    funcionario_id: funcionario.id,
+    matricula: funcionario.matricula,
+    nome: funcionario.nome,
+    cargo_nome: cargoNome,
+    setor_nome: setorNome,
+    projeto_origem_id: funcionario.projeto_id,
+    projeto_destino_id: projetoDestinoId,
+    data_transferencia: dataTransferencia,
+    motivo,
+  });
+  if (erroInsert) throw new Error(erroInsert.message);
+
+  const { error: erroUpdate } = await supabase
+    .from("funcionarios")
+    .update({ projeto_id: projetoDestinoId, atualizado_em: new Date().toISOString() })
+    .eq("id", funcionario.id);
+  if (erroUpdate) throw new Error(erroUpdate.message);
+}
+
+export type TransferenciaRow = {
+  id: string;
+  matricula: string;
+  nome: string;
+  cargo_nome: string | null;
+  setor_nome: string | null;
+  projeto_origem_id: string;
+  projeto_destino_id: string;
+  data_transferencia: string;
+  motivo: string | null;
+  criado_em: string;
+};
+
+export async function listarTransferencias(organizacaoId: string, projetoId: string): Promise<TransferenciaRow[]> {
+  const { data, error } = await supabase
+    .from("transferencias")
+    .select("*")
+    .eq("organizacao_id", organizacaoId)
+    .eq("projeto_origem_id", projetoId)
+    .order("data_transferencia", { ascending: false });
+  if (error) throw new Error(error.message);
+  return data as TransferenciaRow[];
+}
+
 export type DemissaoRow = {
   id: string;
   matricula: string;

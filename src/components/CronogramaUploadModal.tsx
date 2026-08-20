@@ -1,15 +1,22 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Upload, FileText } from 'lucide-react'
+import { X, Upload, FileText, ArrowLeft } from 'lucide-react'
 import { parseMSProjectXML, decodeXmlBytes, applyMetodoAvanco, type MetodoAvanco } from '@/lib/xml-parser'
 import type { CronogramaInfo } from '@/lib/project-store'
 import { CRON_COLORS_CONST } from '@/lib/project-store'
+import { CurvaSConfigPanel } from './scurve/CurvaSConfigPanel'
 
 interface Props {
   open: boolean
   onClose: () => void
   onUpload: (cronograma: CronogramaInfo) => Promise<void>
   existingColors: string[]
+  /** Projeto ao qual o cronograma será anexado — usado só pro 2º passo (config. da
+   * Curva S por peso), que é gravada por projeto, não por cronograma (ver
+   * CurvaSConfigPanel). */
+  projetoId: string
 }
+
+type Step = 'dados' | 'curva-s'
 
 const TIPOS = ['Geral', 'Frente', 'Disciplina', 'Contratado', 'Outro'] as const
 
@@ -29,11 +36,13 @@ function pickCor(existingColors: string[]): string {
   return [...counts.entries()].sort((a, b) => a[1] - b[1])[0][0]
 }
 
-export default function CronogramaUploadModal({ open, onClose, onUpload, existingColors }: Props) {
+export default function CronogramaUploadModal({ open, onClose, onUpload, existingColors, projetoId }: Props) {
+  const [step, setStep] = useState<Step>('dados')
   const [nome, setNome] = useState('')
   const [descricao, setDescricao] = useState('')
   const [tipo, setTipo] = useState<CronogramaInfo['tipo']>('Geral')
   const [metodoAvanco, setMetodoAvanco] = useState<MetodoAvanco>('padrao')
+  const [tipoCurvaS, setTipoCurvaS] = useState<CronogramaInfo['tipoCurvaS']>('hh')
   const [peso, setPeso] = useState(1)
   const [fileName, setFileName] = useState('')
   const [fileSizeMB, setFileSizeMB] = useState(0)
@@ -116,9 +125,23 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
     reader.readAsArrayBuffer(file)
   }
 
-  const handleUpload = async () => {
+  // Se o cronograma usa Curva S por peso, o próximo clique vai pro 2º passo
+  // (config. de corte/folga/feriados) em vez de subir direto — essas
+  // configurações fazem mais sentido logo depois de escolher "por peso" do
+  // que escondidas num botão na tela de resultado (ver CurvaSPesoView.tsx).
+  const handleNext = () => {
     if (!nome.trim()) { setError('Informe o nome do cronograma.'); return }
     if (!parsedRef.current) { setError('Selecione um arquivo XML válido.'); return }
+    setError('')
+    if (tipoCurvaS === 'peso') {
+      setStep('curva-s')
+    } else {
+      void handleUpload()
+    }
+  }
+
+  const handleUpload = async () => {
+    if (!nome.trim() || !parsedRef.current) return
 
     setLoading(true)
     const cronograma: CronogramaInfo = {
@@ -132,6 +155,9 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
       cor,
       dataUpload: new Date().toISOString(),
       metodoAvanco,
+      dataStatusModo: 'cronograma',
+      dataStatusManual: null,
+      tipoCurvaS,
       dados: applyMetodoAvanco(parsedRef.current, metodoAvanco),
     }
     // Espera o envio pra nuvem terminar antes de fechar — senão a tela some
@@ -143,10 +169,12 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
   }
 
   const resetForm = () => {
+    setStep('dados')
     setNome('')
     setDescricao('')
     setTipo('Geral')
     setMetodoAvanco('padrao')
+    setTipoCurvaS('hh')
     setPeso(1)
     setFileName('')
     setFileSizeMB(0)
@@ -170,7 +198,12 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
           </div>
         )}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 dark:border-gray-700">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Upload de Cronograma</h2>
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+              {step === 'dados' ? 'Upload de Cronograma' : 'Configuração da Curva S'}
+            </h2>
+            {step === 'curva-s' && <p className="text-xs text-gray-400 dark:text-gray-500 mt-0.5">Passo 2 de 2</p>}
+          </div>
           <button onClick={onClose} disabled={loading} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed">
             <X size={20} className="text-gray-500 dark:text-gray-400" />
           </button>
@@ -183,6 +216,8 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
             </div>
           )}
 
+          {step === 'dados' && (
+          <>
           {/* Upload da arquivo */}
           <div>
             <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Arquivo XML *</label>
@@ -285,12 +320,29 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
               className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
             >
               <option value="padrao">Padrão — % Concluído do MS Project (trabalho/HH)</option>
-              <option value="quantidade">Por quantidade de serviço (Número1/2/3)</option>
+              <option value="quantidade">Por quantidade de serviço (Número2/3/4)</option>
             </select>
             <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
               {metodoAvanco === 'padrao'
                 ? 'Usa o "% Concluído" que já vem calculado no arquivo do MS Project.'
-                : 'Recalcula o avanço de cada atividade como quantidade executada / quantidade total planejada, lendo os campos Número1 (total), Número2 (planejado até a data de status) e Número3 (executado até a data de status).'}
+                : 'Recalcula o avanço de cada atividade como quantidade executada / quantidade total planejada, lendo os campos Número2 (total), Número3 (planejado até a data de status) e Número4 (executado até a data de status). Número1 fica reservado para o peso atribuído (R$) da Curva S.'}
+            </p>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700 dark:text-gray-300 block mb-1">Tipo de Curva S</label>
+            <select
+              value={tipoCurvaS}
+              onChange={(e) => setTipoCurvaS(e.target.value as CronogramaInfo['tipoCurvaS'])}
+              className="w-full px-3 py-2 border border-gray-200 dark:border-gray-600 rounded-lg text-sm bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="hh">Por Trabalho/HH (padrão)</option>
+              <option value="peso">Por Peso Atribuído (Número1)</option>
+            </select>
+            <p className="text-xs text-gray-400 dark:text-gray-500 mt-1">
+              {tipoCurvaS === 'hh'
+                ? 'A tela de Curva S mostra o gráfico atual, calculado a partir do trabalho/HH do MS Project.'
+                : 'A tela de Curva S mostra o gráfico por peso atribuído (R$), medindo avanço pela coluna Número1 de cada atividade. Pode ser trocado depois no Gerenciar Cronograma.'}
             </p>
           </div>
 
@@ -298,23 +350,57 @@ export default function CronogramaUploadModal({ open, onClose, onUpload, existin
             <div className="w-3 h-3 rounded-full" style={{ backgroundColor: cor }} />
             <span>Cor de identificação: {cor}</span>
           </div>
+          </>
+          )}
+
+          {step === 'curva-s' && (
+            <>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Como "{nome.trim()}" usa Curva S por Peso Atribuído, ajuste aqui o dia de corte semanal, o dia de
+                folga e os feriados usados pra calcular o avanço planejado. Pode ser mudado depois em Gerenciar
+                Cronograma.
+              </p>
+              <CurvaSConfigPanel projetoId={projetoId} />
+            </>
+          )}
         </div>
 
-        <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
-          <button
-            onClick={() => { resetForm(); onClose() }}
-            disabled={loading}
-            className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={handleUpload}
-            disabled={loading || !parsedRef.current}
-            className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Enviando...' : 'Upload'}
-          </button>
+        <div className="flex justify-between gap-3 px-6 py-4 border-t border-gray-200 dark:border-gray-700">
+          {step === 'dados' ? (
+            <>
+              <button
+                onClick={() => { resetForm(); onClose() }}
+                disabled={loading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleNext}
+                disabled={loading || !parsedRef.current}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {tipoCurvaS === 'peso' ? 'Próximo' : (loading ? 'Enviando...' : 'Upload')}
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setStep('dados')}
+                disabled={loading}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ArrowLeft size={14} /> Voltar
+              </button>
+              <button
+                onClick={handleUpload}
+                disabled={loading}
+                className="px-4 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Enviando...' : 'Concluir Upload'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

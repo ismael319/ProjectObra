@@ -3,6 +3,7 @@ import { Trash2, ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Layers, Clock,
 import { useProjects, type CronogramaInfo } from '@/lib/project-store'
 import { parseMSProjectXML, decodeXmlBytes, applyMetodoAvanco } from '@/lib/xml-parser'
 import CronogramaUploadModal from './CronogramaUploadModal'
+import { CurvaSConfigPanel } from './scurve/CurvaSConfigPanel'
 
 type PendingChange = Partial<Pick<CronogramaInfo, 'peso' | 'dados' | 'dataUpload'>>
 
@@ -392,6 +393,46 @@ export default function CronogramaManager() {
                           </p>
                         </div>
                       </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-gray-200 dark:border-gray-600">
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400 text-xs block mb-1">Tipo de Curva S</span>
+                          <select
+                            value={c.tipoCurvaS}
+                            onChange={(e) => updateCronograma(currentProject.id, c.id, { tipoCurvaS: e.target.value as CronogramaInfo['tipoCurvaS'] })}
+                            className="w-full px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                          >
+                            <option value="hh">Por Trabalho/HH (padrão)</option>
+                            <option value="peso">Por Peso Atribuído (Número1)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <span className="text-gray-500 dark:text-gray-400 text-xs block mb-1">Data de status</span>
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={c.dataStatusModo}
+                              onChange={(e) => updateCronograma(currentProject.id, c.id, { dataStatusModo: e.target.value as CronogramaInfo['dataStatusModo'] })}
+                              className="flex-1 px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                            >
+                              <option value="cronograma">Usar do cronograma (XML)</option>
+                              <option value="manual">Manual</option>
+                            </select>
+                            {c.dataStatusModo === 'manual' && (
+                              <input
+                                type="date"
+                                value={c.dataStatusManual ?? ''}
+                                onChange={(e) => updateCronograma(currentProject.id, c.id, { dataStatusManual: e.target.value || null })}
+                                className="px-2 py-1.5 text-xs border border-gray-200 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-white outline-none"
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      {c.tipoCurvaS === 'peso' && (
+                        <div className="pt-2 border-t border-gray-200 dark:border-gray-600">
+                          <span className="text-gray-500 dark:text-gray-400 text-xs block mb-2">Configuração da Curva S (corte semanal, folga, feriados)</span>
+                          <CurvaSConfigPanel projetoId={currentProject.id} />
+                        </div>
+                      )}
                       <div className="flex items-center gap-4 text-xs text-gray-500 dark:text-gray-400 pt-2 border-t border-gray-200 dark:border-gray-600">
                         <div className="flex items-center gap-1">
                           <Clock size={12} />
@@ -435,6 +476,7 @@ export default function CronogramaManager() {
         onClose={() => setShowUpload(false)}
         onUpload={handleUpload}
         existingColors={cronogramas.map((c) => c.cor)}
+        projetoId={currentProject.id}
       />
     </div>
   )

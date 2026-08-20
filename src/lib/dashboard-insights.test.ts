@@ -39,9 +39,11 @@ function activity(overrides: Partial<WBSActivity> = {}): WBSActivity {
     text1: '',
     text2: '',
     text3: '',
+    text7: '',
     number1: 0,
     number2: 0,
     number3: 0,
+    number4: 0,
     ...overrides,
   }
 }

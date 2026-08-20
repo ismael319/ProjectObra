@@ -88,15 +88,24 @@ export interface WBSActivity {
   text1: string
   text2: string
   text3: string
+  // Texto7 é onde o módulo Curva S por peso lê a disciplina da tarefa (Civil,
+  // Mecânica, Elétrica, Externa...) — convenção própria desse módulo, distinta
+  // do campo `discipline` acima (que vem de text3/responsible, usado pelo
+  // resto do app). "Externa" é sempre excluída do cálculo de peso da Curva S.
+  text7: string
+  // Número1 é reservado para o peso atribuído (R$) da Curva S por peso — não usar
+  // pra nenhum outro cálculo (ver módulo Curva S). Número2/3/4 são os campos do
+  // avanço por quantidade (ver abaixo); Número1 fica de fora desse trio de propósito.
   number1: number
   number2: number
   number3: number
+  number4: number
   // Presente só quando o cronograma usa "avanço por quantidade" (metodoAvanco
   // === 'quantidade' — ver applyMetodoAvanco) e percentComplete foi sobrescrito
-  // pela fórmula Número3/Número1: guarda o valor original vindo do MS Project
+  // pela fórmula Número4/Número2: guarda o valor original vindo do MS Project
   // (PercentComplete/PercentWorkComplete) para efeito de comparação.
   percentCompleteOriginal?: number
-  // Avanço PLANEJADO calculado pela fórmula por quantidade (Número2/Número1,
+  // Avanço PLANEJADO calculado pela fórmula por quantidade (Número3/Número2,
   // com fallback por datas de linha de base) — só presente quando
   // metodoAvanco === 'quantidade'. Não existe um campo "planejado" padrão
   // equivalente por atividade: no método padrão o planejado só é calculado
@@ -242,7 +251,7 @@ export interface ParsedProject {
    * Data de status do projeto, extraída de <StatusDate> do <Project> (Arquivo >
    * Informações do Projeto > "Data de status" no MS Project). Usada como "hoje"
    * nas fórmulas de avanço por quantidade (applyMetodoAvanco) quando a tarefa não
-   * tem Número1/Número2/Número3 preenchidos (fallback por datas). Ausente no XML
+   * tem Número2/Número3/Número4 preenchidos (fallback por datas). Ausente no XML
    * → undefined, e as fórmulas usam a data atual do navegador nesse caso.
    */
   statusDate?: Date
@@ -254,13 +263,15 @@ export interface ParsedProject {
 //
 // Alguns cronogramas não usam o "% Concluído" nativo do MS Project (calculado a
 // partir do trabalho/HH apontado) — em vez disso, medem avanço físico por
-// quantidade de serviço executada, com um par de campos numéricos genéricos do
+// quantidade de serviço executada, com um trio de campos numéricos genéricos do
 // MS Project reaproveitados pra essa finalidade:
-//   Número1 = quantidade TOTAL planejada da atividade (ex.: m³ de concreto)
-//   Número2 = quantidade planejada ACUMULADA até a data de status
-//   Número3 = quantidade executada ACUMULADA até a data de status
-// Avanço real = Número3/Número1 × 100; avanço planejado = Número2/Número1 × 100.
-// Quando Número1 não está preenchido (tarefa sem medição por quantidade), cai
+//   Número2 = quantidade TOTAL planejada da atividade (ex.: m³ de concreto)
+//   Número3 = quantidade planejada ACUMULADA até a data de status
+//   Número4 = quantidade executada ACUMULADA até a data de status
+// Avanço real = Número4/Número2 × 100; avanço planejado = Número3/Número2 × 100.
+// Número1 é reservado pro peso atribuído (R$) do módulo Curva S — não entra
+// nessa fórmula, mesmo em cronogramas que usam os dois recursos ao mesmo tempo.
+// Quando Número2 não está preenchido (tarefa sem medição por quantidade), cai
 // pro mesmo fallback por datas que o MS Project usa nesses casos: 0% antes do
 // início, 100% depois do término, e interpolação linear entre início e fim no
 // meio do caminho (linha de base, no caso do planejado).
@@ -278,20 +289,20 @@ function fracaoDecorrida(inicio: Date | undefined, fim: Date | undefined, dataSt
 }
 
 function calcPercentRealQuantidade(a: WBSActivity, dataStatus: Date): number {
-  if (a.number1 > 0) return Math.round((a.number3 / a.number1) * 100)
+  if (a.number2 > 0) return Math.round((a.number4 / a.number2) * 100)
   return Math.round(fracaoDecorrida(a.start, a.finish, dataStatus) * 100)
 }
 
 function calcPercentPlanejadoQuantidade(a: WBSActivity, dataStatus: Date): number {
-  if (a.number1 > 0) return Math.round((a.number2 / a.number1) * 100)
+  if (a.number2 > 0) return Math.round((a.number3 / a.number2) * 100)
   return Math.round(fracaoDecorrida(a.baselineStart, a.baselineFinish, dataStatus) * 100)
 }
 
 /**
  * Aplica o método de avanço por quantidade a um cronograma já parseado.
- * Com metodo === 'padrao' (ou sem Número1 em nenhuma tarefa), devolve `parsed`
+ * Com metodo === 'padrao' (ou sem Número2 em nenhuma tarefa), devolve `parsed`
  * sem alterações. Com 'quantidade', recalcula percentComplete de cada tarefa
- * não-resumo pela fórmula Número3/Número1 (guardando o valor original do MS
+ * não-resumo pela fórmula Número4/Número2 (guardando o valor original do MS
  * Project em percentCompleteOriginal, pra comparação) e grava o avanço
  * planejado calculado em percentPlanejadoQuantidade. Tarefas-resumo ficam de
  * fora — o rollup que o MS Project já calcula pra elas continua valendo.
@@ -473,6 +484,19 @@ function dayKey(date: Date): string {
 // pro slot da Baseline 0. Comparar o valor exato (em vez de um limiar de "taxa
 // implausível") evita falso-positivo em tarefas legítimas com trabalho concentrado.
 const DUPLICATE_WORK_EPSILON_MINUTES = 1
+
+// FieldIDs padrão do MS Project pros campos de texto/número customizados que o
+// app usa (Text1/2/3/7, Number1-4) — constantes fixas da Microsoft, iguais em
+// qualquer arquivo/idioma do Project (não dependem do Alias que o usuário deu
+// à coluna). Confirmado no export "CRE - 735 001 - FS Armazém IV PVA" via
+// <Project><ExtendedAttributes><ExtendedAttribute><FieldID>/<FieldName>. Usados
+// como fallback quando a Task não traz mais a tag plana <Text1>/<Number1> (ver
+// uso abaixo em parseMSProjectXML) — algumas exportações do Project só gravam
+// esses campos dentro de <ExtendedAttribute><FieldID>/<Value>.
+const STANDARD_FIELD_ID = {
+  text1: '188743731', text2: '188743734', text3: '188743737', text7: '188743747',
+  number1: '188743767', number2: '188743768', number3: '188743769', number4: '188743770',
+}
 
 function hasBl0DuplicatingBl10(assignment: Element, minutesPerDay: number): boolean {
   let bl0Work: number | undefined
@@ -952,10 +976,6 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
     const actualDuration = parseDuration(task.querySelector('ActualDuration')?.textContent || undefined, minutesPerDay)
     const remainingDuration = parseDuration(task.querySelector('RemainingDuration')?.textContent || undefined, minutesPerDay)
 
-    const baselineStart = parseDate(task.querySelector('BaselineStart')?.textContent || undefined)
-    const baselineFinish = parseDate(task.querySelector('BaselineFinish')?.textContent || undefined)
-    const baselineDuration = parseDuration(task.querySelector('BaselineDuration')?.textContent || undefined, minutesPerDay)
-
     const cost = parseFloat(task.querySelector('Cost')?.textContent || '0')
     const actualCost = parseFloat(task.querySelector('ActualCost')?.textContent || '0')
     const work = parseDuration(task.querySelector('Work')?.textContent || undefined, minutesPerDay)
@@ -1009,17 +1029,22 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
       if (w > 0) baselines[num].work = w
     })
 
-    // Campos personalizados MS Project
-    const text1 = task.querySelector('Text1')?.textContent || ''
-    const text2 = task.querySelector('Text2')?.textContent || ''
-    const text3 = task.querySelector('Text3')?.textContent || ''
-    const number1 = parseFloat(task.querySelector('Number1')?.textContent || '0')
-    const number2 = parseFloat(task.querySelector('Number2')?.textContent || '0')
-    const number3 = parseFloat(task.querySelector('Number3')?.textContent || '0')
+    // baselineStart/baselineFinish/baselineDuration: algumas exportações (ex.: Project
+    // Online, alguns templates) não geram mais as tags planas <BaselineStart>/
+    // <BaselineFinish>/<BaselineDuration> da Task — só o bloco aninhado <Baseline>
+    // acima, já capturado em baselines[0]. Cai pra ele quando a tag plana falta, senão
+    // baselineStart/Finish saem undefined mesmo com a linha de base salva no Project
+    // (foi o caso reportado: Curva S por peso dando "sem dados" apesar de a linha de
+    // base existir — o parser só olhava a tag plana, ausente nesse export).
+    const baselineStart = parseDate(task.querySelector('BaselineStart')?.textContent || undefined) ?? baselines[0]?.start
+    const baselineFinish = parseDate(task.querySelector('BaselineFinish')?.textContent || undefined) ?? baselines[0]?.finish
+    const baselineDuration = parseDuration(task.querySelector('BaselineDuration')?.textContent || undefined, minutesPerDay)
 
     // Campos personalizados (Extended Attributes) — qualquer coluna que o usuário
-    // criou/renomeou no MS Project (ex.: "Disciplina", "Categoria"), não só os 3
-    // campos de texto genéricos acima. Chaveado por FieldID (string).
+    // criou/renomeou no MS Project (ex.: "Disciplina", "Categoria"), não só os
+    // campos de texto/número padrão abaixo. Chaveado por FieldID (string). Extraído
+    // antes deles porque, no mesmo tipo de exportação sem tags planas (ver acima),
+    // Text1/2/3/7 e Number1-4 também só vêm por aqui — nunca como <Text1>/<Number1>.
     const customFields: Record<string, string> = {}
     task.querySelectorAll(':scope > ExtendedAttribute').forEach((ea) => {
       const fieldId = ea.querySelector('FieldID')?.textContent || ''
@@ -1028,6 +1053,18 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
       customFields[fieldId] = value
       usedCustomFieldIds.add(fieldId)
     })
+
+    // Campos personalizados MS Project — cai pro ExtendedAttribute (customFields,
+    // por FieldID padrão da Microsoft, fixo em qualquer arquivo/idioma do Project)
+    // quando a tag plana não existe no export.
+    const text1 = task.querySelector('Text1')?.textContent || customFields[STANDARD_FIELD_ID.text1] || ''
+    const text2 = task.querySelector('Text2')?.textContent || customFields[STANDARD_FIELD_ID.text2] || ''
+    const text3 = task.querySelector('Text3')?.textContent || customFields[STANDARD_FIELD_ID.text3] || ''
+    const text7 = task.querySelector('Text7')?.textContent || customFields[STANDARD_FIELD_ID.text7] || ''
+    const number1 = parseFloat(task.querySelector('Number1')?.textContent || customFields[STANDARD_FIELD_ID.number1] || '0')
+    const number2 = parseFloat(task.querySelector('Number2')?.textContent || customFields[STANDARD_FIELD_ID.number2] || '0')
+    const number3 = parseFloat(task.querySelector('Number3')?.textContent || customFields[STANDARD_FIELD_ID.number3] || '0')
+    const number4 = parseFloat(task.querySelector('Number4')?.textContent || customFields[STANDARD_FIELD_ID.number4] || '0')
 
     const predecessorUids: number[] = []
     const links = task.querySelectorAll('PredecessorLink')
@@ -1071,7 +1108,7 @@ export function parseMSProjectXML(xmlString: string): ParsedProject {
         baselines,
         responsible, discipline, area, notes,
         priority, calendarName,
-        text1, text2, text3, number1, number2, number3,
+        text1, text2, text3, text7, number1, number2, number3, number4,
         customFields,
       })
     }

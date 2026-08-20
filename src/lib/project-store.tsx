@@ -53,12 +53,28 @@ export interface CronogramaInfo {
   /**
    * Como o avanço (% Concluído) das tarefas deste cronograma foi calculado:
    * 'padrao' lê direto o que o MS Project já gravou (PercentComplete/Work);
-   * 'quantidade' recalcula pela fórmula Número3/Número1 (avanço por medição de
+   * 'quantidade' recalcula pela fórmula Número4/Número2 (avanço por medição de
    * serviço) — ver applyMetodoAvanco em xml-parser.ts. Escolhido uma vez no
    * upload; pra mudar é preciso reenviar o arquivo. Ausente em cronogramas
    * salvos antes desse campo existir → tratar como 'padrao'.
    */
   metodoAvanco: MetodoAvanco
+  /**
+   * Origem da "data de status" usada pela Curva S por peso (ver
+   * src/lib/curva-s-peso.ts): 'cronograma' usa o <StatusDate> do próprio XML
+   * (dados.statusDate); 'manual' usa dataStatusManual em vez disso. Ausente em
+   * cronogramas salvos antes desse campo existir → tratar como 'cronograma'.
+   */
+  dataStatusModo: 'cronograma' | 'manual'
+  /** Data de status manual (ISO yyyy-mm-dd), só usada quando dataStatusModo === 'manual'. */
+  dataStatusManual: string | null
+  /**
+   * Qual motor a tela de Curva S usa pra este cronograma: 'hh' (curve-utils.ts,
+   * trabalho/HH do MS Project, comportamento de sempre) ou 'peso' (curva-s-peso.ts,
+   * peso atribuído em R$ — Número1). Escolhido aqui, não na própria tela da
+   * Curva S. Ausente em cronogramas salvos antes desse campo existir → 'hh'.
+   */
+  tipoCurvaS: 'hh' | 'peso'
 }
 
 export interface Project {
@@ -174,6 +190,12 @@ interface CronogramaRow {
   // não rodaram a migration; por isso mapCronogramaRow/mapCronogramaMetaRow
   // tratam null/undefined como 'padrao' em vez de assumir que sempre vem preenchida.
   metodo_avanco: string | null
+  // Colunas novas (migration 20260819010000, Curva S) — mesmo tratamento de
+  // ausência que metodo_avanco acima.
+  data_status_modo: string | null
+  data_status_manual: string | null
+  // Coluna nova (migration 20260819020000, Curva S) — mesmo tratamento de ausência.
+  tipo_curva_s: string | null
   dados: ParsedProject
 }
 
@@ -299,6 +321,9 @@ async function mapCronogramaRow(row: CronogramaRow): Promise<CronogramaInfo> {
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
     metodoAvanco: (row.metodo_avanco as MetodoAvanco) ?? 'padrao',
+    dataStatusModo: (row.data_status_modo as CronogramaInfo['dataStatusModo']) ?? 'cronograma',
+    dataStatusManual: row.data_status_manual ?? null,
+    tipoCurvaS: (row.tipo_curva_s as CronogramaInfo['tipoCurvaS']) ?? 'hh',
     dados: await decompressDados(row.dados),
   }
 }
@@ -317,6 +342,9 @@ async function mapCronogramaMetaRow(row: CronogramaMetaRow): Promise<CronogramaI
     cor: row.cor ?? CRON_COLORS[0],
     dataUpload: row.data_upload,
     metodoAvanco: (row.metodo_avanco as MetodoAvanco) ?? 'padrao',
+    dataStatusModo: (row.data_status_modo as CronogramaInfo['dataStatusModo']) ?? 'cronograma',
+    dataStatusManual: row.data_status_manual ?? null,
+    tipoCurvaS: (row.tipo_curva_s as CronogramaInfo['tipoCurvaS']) ?? 'hh',
     dados: EMPTY_PARSED_PROJECT,
   }
 }
@@ -401,6 +429,9 @@ async function cronogramaToRow(projetoId: string, c: CronogramaInfo) {
     cor: c.cor,
     data_upload: c.dataUpload,
     metodo_avanco: c.metodoAvanco,
+    data_status_modo: c.dataStatusModo,
+    data_status_manual: c.dataStatusManual,
+    tipo_curva_s: c.tipoCurvaS,
     dados: await compressDados(c.dados),
   }
 }
@@ -432,7 +463,7 @@ async function loadProjectsRemote(organizacaoId: string | null, cacheScope: stri
   return fetchWithOfflineCacheDetailed(`projects:v1:${cacheScope}`, async () => {
     let query = supabase
     .from('projetos')
-    .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload, metodo_avanco)')
+    .select('*, projeto_cronogramas(id, nome, descricao, tipo, versao, ativo, peso, cor, data_upload, metodo_avanco, data_status_modo, data_status_manual, tipo_curva_s)')
     .order('criado_em', { ascending: true })
 
     if (organizacaoId) query = query.eq('organizacao_id', organizacaoId)
