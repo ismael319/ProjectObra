@@ -305,20 +305,6 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
             Curva S - Percentual Acumulado (%)
           </h3>
           <div className="flex flex-wrap items-center gap-3">
-            {resultados.length > 1 && (
-              <select
-                value={disciplina}
-                onChange={(e) => setDisciplina(e.target.value)}
-                className="text-sm border border-gray-200 dark:border-gray-600 rounded-lg px-3 py-1.5 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
-              >
-                {resultados.map((r) => (
-                  <option key={r.disciplina} value={r.disciplina}>
-                    {r.disciplina === CURVA_S_DISCIPLINA_GERAL ? 'Geral (todas as disciplinas)' : r.disciplina}
-                  </option>
-                ))}
-              </select>
-            )}
-
             <div className="relative">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -346,6 +332,23 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
                   <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-[min(380px,calc(100vw-1rem))] space-y-4">
+                    {resultados.length > 1 && (
+                      <div>
+                        <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Disciplina</span>
+                        <select
+                          value={disciplina}
+                          onChange={(e) => setDisciplina(e.target.value)}
+                          className="w-full text-sm border border-gray-200 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-700 text-gray-700 dark:text-gray-200"
+                        >
+                          {resultados.map((r) => (
+                            <option key={r.disciplina} value={r.disciplina}>
+                              {r.disciplina === CURVA_S_DISCIPLINA_GERAL ? 'Geral (todas as disciplinas)' : r.disciplina}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
                     {cronogramas.length > 0 && (
                       <div>
                         <div className="flex items-center gap-2 mb-2">
