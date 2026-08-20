@@ -43,7 +43,7 @@ const CARGA_SELECT = `id, codigo_rastreabilidade, data, numero_carga, cod_labora
 // Busca TODAS as cargas da organização, sem filtro nem paginação — usada só pelo
 // botão "Exportar tudo" (o banco completo, não o recorte filtrado da tela). Pagina
 // internamente em lotes de 1000 (limite padrão do Supabase por chamada).
-export async function listarTodasCargasConcreto(organizacaoId: string): Promise<CargaRow[]> {
+export async function listarTodasCargasConcreto(organizacaoId: string, projetoId: string): Promise<CargaRow[]> {
   const PAGE_SIZE = 1000;
   const rows: CargaRow[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -51,6 +51,7 @@ export async function listarTodasCargasConcreto(organizacaoId: string): Promise<
       .from("cargas_concreto")
       .select(CARGA_SELECT)
       .eq("organizacao_id", organizacaoId)
+      .eq("projeto_id", projetoId)
       .order("data", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
@@ -177,7 +178,7 @@ const ENSAIOS_HEADERS = [
   "TEMPERATURA", "SLUMP", "OBSERVAÇÕES",
 ];
 
-export async function listarTodosEnsaiosConcreto(organizacaoId: string): Promise<EnsaioRow[]> {
+export async function listarTodosEnsaiosConcreto(organizacaoId: string, projetoId: string): Promise<EnsaioRow[]> {
   const PAGE_SIZE = 1000;
   const rows: EnsaioRow[] = [];
   for (let from = 0; ; from += PAGE_SIZE) {
@@ -185,6 +186,7 @@ export async function listarTodosEnsaiosConcreto(organizacaoId: string): Promise
       .from("vw_ensaios_concreto")
       .select(ENSAIO_SELECT)
       .eq("organizacao_id", organizacaoId)
+      .eq("projeto_id", projetoId)
       .order("data_moldagem", { ascending: false })
       .range(from, from + PAGE_SIZE - 1);
     if (error) throw error;

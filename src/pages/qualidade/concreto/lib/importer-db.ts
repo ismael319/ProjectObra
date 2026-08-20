@@ -32,15 +32,16 @@ type AreaConcretoResolvida = { areaConcretoId: string; setorConcretoId: string }
 class ResolvedorDeAreasConcreto {
   private porNomeArea = new Map<string, AreaConcretoResolvida>(); // normNome área -> {areaConcretoId, setorConcretoId}
   private porNomeSetor = new Map<string, string>(); // normNome setor -> setorConcretoId
-  private organizacaoCarregada: string | null = null;
+  private carregadoPara: string | null = null; // `${organizacaoId}:${projetoId}`
   areasCriadas = 0;
   setoresCriados = 0;
 
-  private async carregarSeNecessario(organizacaoId: string) {
-    if (this.organizacaoCarregada === organizacaoId) return;
+  private async carregarSeNecessario(organizacaoId: string, projetoId: string) {
+    const chaveCarga = `${organizacaoId}:${projetoId}`;
+    if (this.carregadoPara === chaveCarga) return;
     const [{ data: areas, error: errAreas }, { data: setores, error: errSetores }] = await Promise.all([
-      supabase.from("areas_concreto").select("id,setor_concreto_id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
-      supabase.from("setores_concreto").select("id,nome").eq("organizacao_id", organizacaoId).eq("ativo", true),
+      supabase.from("areas_concreto").select("id,setor_concreto_id,nome").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId).eq("ativo", true),
+      supabase.from("setores_concreto").select("id,nome").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId).eq("ativo", true),
     ]);
     if (errAreas) throw new Error(errAreas.message);
     if (errSetores) throw new Error(errSetores.message);
@@ -52,25 +53,25 @@ class ResolvedorDeAreasConcreto {
     for (const s of (setores ?? []) as { id: string; nome: string }[]) {
       this.porNomeSetor.set(normalizarTexto(s.nome), s.id);
     }
-    this.organizacaoCarregada = organizacaoId;
+    this.carregadoPara = chaveCarga;
   }
 
-  async resolverOuCriar(organizacaoId: string, nome: string): Promise<AreaConcretoResolvida> {
-    await this.carregarSeNecessario(organizacaoId);
+  async resolverOuCriar(organizacaoId: string, projetoId: string, nome: string): Promise<AreaConcretoResolvida> {
+    await this.carregarSeNecessario(organizacaoId, projetoId);
     const chave = normalizarTexto(nome);
     const existente = this.porNomeArea.get(chave);
     if (existente) return existente;
 
     let setorConcretoId = this.porNomeSetor.get(chave);
     if (!setorConcretoId) {
-      const { data, error } = await supabase.from("setores_concreto").insert({ organizacao_id: organizacaoId, nome }).select("id").single();
+      const { data, error } = await supabase.from("setores_concreto").insert({ organizacao_id: organizacaoId, projeto_id: projetoId, nome }).select("id").single();
       if (error || !data) throw new Error(error?.message ?? `Falha ao criar setor "${nome}".`);
       setorConcretoId = (data as { id: string }).id;
       this.porNomeSetor.set(chave, setorConcretoId);
       this.setoresCriados++;
     }
 
-    const { data, error } = await supabase.from("areas_concreto").insert({ organizacao_id: organizacaoId, setor_concreto_id: setorConcretoId, nome }).select("id").single();
+    const { data, error } = await supabase.from("areas_concreto").insert({ organizacao_id: organizacaoId, projeto_id: projetoId, setor_concreto_id: setorConcretoId, nome }).select("id").single();
     if (error || !data) throw new Error(error?.message ?? `Falha ao criar área "${nome}".`);
     const resolvida: AreaConcretoResolvida = { areaConcretoId: (data as { id: string }).id, setorConcretoId };
     this.porNomeArea.set(chave, resolvida);
@@ -98,11 +99,12 @@ export type TracoCatalogo = {
 // Garante que os 6 traços canônicos existam na organização (baseline pra
 // organização nova) — não sobrescreve nem duplica traços já cadastrados
 // (inclusive customizados pelo cliente).
-async function seedTracosCanonicos(organizacaoId: string): Promise<void> {
+async function seedTracosCanonicos(organizacaoId: string, projetoId: string): Promise<void> {
   const { data: existentes, error: errBusca } = await supabase
     .from("tracos_concreto")
     .select("nome")
-    .eq("organizacao_id", organizacaoId);
+    .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId);
   if (errBusca) throw new Error(errBusca.message);
   const nomesExistentes = new Set((existentes ?? []).map((t) => normalizarTexto((t as { nome: string }).nome)));
 
@@ -110,6 +112,7 @@ async function seedTracosCanonicos(organizacaoId: string): Promise<void> {
     if (nomesExistentes.has(normalizarTexto(canonico.nome))) continue;
     const { error } = await supabase.from("tracos_concreto").insert({
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       nome: canonico.nome,
       fck_mpa: canonico.fckMpa,
       consumo_cimento_kg_m3: canonico.consumo_cimento_kg_m3,
@@ -126,13 +129,14 @@ async function seedTracosCanonicos(organizacaoId: string): Promise<void> {
   }
 }
 
-/** Semeia os traços canônicos (se faltarem) e devolve o catálogo completo da organização. */
-export async function carregarTracos(organizacaoId: string): Promise<TracoCatalogo[]> {
-  await seedTracosCanonicos(organizacaoId);
+/** Semeia os traços canônicos (se faltarem) e devolve o catálogo completo da obra. */
+export async function carregarTracos(organizacaoId: string, projetoId: string): Promise<TracoCatalogo[]> {
+  await seedTracosCanonicos(organizacaoId, projetoId);
   const { data, error } = await supabase
     .from("tracos_concreto")
     .select("id,nome,fck_mpa,consumo_cimento_kg_m3,consumo_brita00_kg_m3,consumo_brita01_kg_m3,consumo_po_brita_kg_m3,consumo_areia_kg_m3")
-    .eq("organizacao_id", organizacaoId);
+    .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId);
   if (error) throw new Error(error.message);
   return (data ?? []) as TracoCatalogo[];
 }
@@ -163,27 +167,28 @@ type EtapaCatalogo = { id: string; nome: string };
 
 class ResolvedorDeEtapas {
   private porChave = new Map<string, string>(); // normNome -> etapaId
-  private organizacaoCarregada: string | null = null;
+  private carregadoPara: string | null = null;
   criadas = 0;
 
-  private async carregarSeNecessario(organizacaoId: string) {
-    if (this.organizacaoCarregada === organizacaoId) return;
-    const { data, error } = await supabase.from("etapas_concreto").select("id,nome").eq("organizacao_id", organizacaoId);
+  private async carregarSeNecessario(organizacaoId: string, projetoId: string) {
+    const chaveCarga = `${organizacaoId}:${projetoId}`;
+    if (this.carregadoPara === chaveCarga) return;
+    const { data, error } = await supabase.from("etapas_concreto").select("id,nome").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId);
     if (error) throw new Error(error.message);
     this.porChave.clear();
     for (const e of (data ?? []) as EtapaCatalogo[]) {
       this.porChave.set(normalizarTexto(e.nome), e.id);
     }
-    this.organizacaoCarregada = organizacaoId;
+    this.carregadoPara = chaveCarga;
   }
 
-  async resolverOuCriar(organizacaoId: string, nome: string): Promise<string> {
-    await this.carregarSeNecessario(organizacaoId);
+  async resolverOuCriar(organizacaoId: string, projetoId: string, nome: string): Promise<string> {
+    await this.carregarSeNecessario(organizacaoId, projetoId);
     const chave = normalizarTexto(nome);
     const existente = this.porChave.get(chave);
     if (existente) return existente;
 
-    const { data, error } = await supabase.from("etapas_concreto").insert({ organizacao_id: organizacaoId, nome }).select("id").single();
+    const { data, error } = await supabase.from("etapas_concreto").insert({ organizacao_id: organizacaoId, projeto_id: projetoId, nome }).select("id").single();
     if (error || !data) throw new Error(error?.message ?? `Falha ao criar etapa "${nome}".`);
     const id = (data as { id: string }).id;
     this.porChave.set(chave, id);
@@ -200,27 +205,28 @@ type FornecedorCatalogo = { id: string; nome: string };
 
 class ResolvedorDeFornecedores {
   private porChave = new Map<string, string>(); // normNome -> fornecedorId
-  private organizacaoCarregada: string | null = null;
+  private carregadoPara: string | null = null;
   criados = 0;
 
-  private async carregarSeNecessario(organizacaoId: string) {
-    if (this.organizacaoCarregada === organizacaoId) return;
-    const { data, error } = await supabase.from("fornecedores_concreto").select("id,nome").eq("organizacao_id", organizacaoId);
+  private async carregarSeNecessario(organizacaoId: string, projetoId: string) {
+    const chaveCarga = `${organizacaoId}:${projetoId}`;
+    if (this.carregadoPara === chaveCarga) return;
+    const { data, error } = await supabase.from("fornecedores_concreto").select("id,nome").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId);
     if (error) throw new Error(error.message);
     this.porChave.clear();
     for (const f of (data ?? []) as FornecedorCatalogo[]) {
       this.porChave.set(normalizarTexto(f.nome), f.id);
     }
-    this.organizacaoCarregada = organizacaoId;
+    this.carregadoPara = chaveCarga;
   }
 
-  async resolverOuCriar(organizacaoId: string, nome: string, tipo: "propria" | "externa"): Promise<string> {
-    await this.carregarSeNecessario(organizacaoId);
+  async resolverOuCriar(organizacaoId: string, projetoId: string, nome: string, tipo: "propria" | "externa"): Promise<string> {
+    await this.carregarSeNecessario(organizacaoId, projetoId);
     const chave = normalizarTexto(nome);
     const existente = this.porChave.get(chave);
     if (existente) return existente;
 
-    const { data, error } = await supabase.from("fornecedores_concreto").insert({ organizacao_id: organizacaoId, nome, tipo }).select("id").single();
+    const { data, error } = await supabase.from("fornecedores_concreto").insert({ organizacao_id: organizacaoId, projeto_id: projetoId, nome, tipo }).select("id").single();
     if (error || !data) throw new Error(error?.message ?? `Falha ao criar fornecedor "${nome}".`);
     const id = (data as { id: string }).id;
     this.porChave.set(chave, id);
@@ -231,12 +237,15 @@ class ResolvedorDeFornecedores {
 
 // ---------- Substituição total ----------
 // A importação é sempre "substitui tudo": o arquivo importado passa a ser a
-// única fonte de verdade dos lançamentos da organização — qualquer carga já
-// existente (lançada manualmente ou de uma importação anterior) é apagada
-// antes de gravar as novas. destinos_carga cai junto via ON DELETE CASCADE
+// única fonte de verdade dos lançamentos DA OBRA sendo importada — qualquer
+// carga já existente NESSA OBRA (lançada manualmente ou de uma importação
+// anterior) é apagada antes de gravar as novas. Obras diferentes da mesma
+// empresa não são tocadas (antes desta migration, o DELETE não filtrava por
+// projeto_id e apagava a organização inteira — bug corrigido junto com a
+// separação por obra). destinos_carga cai junto via ON DELETE CASCADE
 // (destinos_carga.carga_id → cargas_concreto.id). Cadastros (fornecedores/
 // traços/etapas) NÃO são tocados aqui.
-async function apagarLancamentosExistentes(organizacaoId: string): Promise<number> {
+async function apagarLancamentosExistentes(organizacaoId: string, projetoId: string): Promise<number> {
   // Apaga em lotes pequeños pra não estourar limite de query do Supabase
   // quando há muitos registros.
   let totalApagado = 0;
@@ -245,6 +254,7 @@ async function apagarLancamentosExistentes(organizacaoId: string): Promise<numbe
       .from("cargas_concreto")
       .delete()
       .eq("organizacao_id", organizacaoId)
+      .eq("projeto_id", projetoId)
       .select("id");
     if (error) throw new Error(`Falha ao apagar lançamentos existentes: ${error.message}`);
     const apagados = (data ?? []).length;
@@ -257,18 +267,25 @@ async function apagarLancamentosExistentes(organizacaoId: string): Promise<numbe
 // ---------- Geração de código de rastreabilidade no cliente ----------
 // Em vez de depender do trigger (que pode gerar códigos duplicados quando
 // o counter do banco está dessincronizado com os registros reais), geramos
-// os códigos aqui e resetamos o counter antes de inserir.
+// os códigos aqui e resetamos o counter antes de inserir. Formato por obra:
+// CC-{código da obra}-{ano}-{número}, contador isolado por
+// (organizacao_id, projeto_id, ano) — ver migration
+// 20260820000000_separa_concreto_por_obra.sql.
 async function gerarCodigosRastreabilidade(
   organizacaoId: string,
+  projetoId: string,
   cargaRows: Record<string, unknown>[],
 ): Promise<void> {
-  // 1. Busca a sigla da organização
-  const { data: orgData } = await supabase
-    .from("organizacoes")
-    .select("sigla")
-    .eq("id", organizacaoId)
+  // 1. Busca o código da obra
+  const { data: projetoData, error: erroProjeto } = await supabase
+    .from("projetos")
+    .select("codigo")
+    .eq("id", projetoId)
     .single();
-  const sigla = ((orgData as { sigla: string | null } | null)?.sigla ?? "").trim();
+  if (erroProjeto || !projetoData?.codigo) {
+    throw new Error("Não foi possível identificar o código da obra atual para gerar os códigos de rastreabilidade.");
+  }
+  const codigoObra = (projetoData as { codigo: string }).codigo;
 
   // 2. Agrupa por ano e conta quantas cargas por ano
   const contagemPorAno = new Map<number, number>();
@@ -279,29 +296,30 @@ async function gerarCodigosRastreabilidade(
   }
 
   // 3. Zera o counter pra cada ano (pra trigger não gerar mais nada) e
-  //    busca o último número usado de verdade no banco
+  //    busca o último número usado de verdade no banco, só desta obra
   for (const [ano] of contagemPorAno) {
     const { data: maxRow } = await supabase
       .from("cargas_concreto")
       .select("codigo_rastreabilidade")
       .eq("organizacao_id", organizacaoId)
-      .like("codigo_rastreabilidade", `%CC-${ano}-%`)
+      .eq("projeto_id", projetoId)
+      .like("codigo_rastreabilidade", `%-${ano}-%`)
       .order("codigo_rastreabilidade", { ascending: false })
       .limit(1)
       .maybeSingle();
 
     let ultimoNumero = 0;
     if (maxRow?.codigo_rastreabilidade) {
-      const match = maxRow.codigo_rastreabilidade.match(/(\d{4})$/);
+      const match = maxRow.codigo_rastreabilidade.match(/-(\d+)$/);
       if (match) ultimoNumero = parseInt(match[1], 10);
     }
 
-    // Reseta o counter pra esse ano, começando do último número real + 1
+    // Reseta o counter pra esse ano, começando do último número real
     await supabase
       .from("codigo_rastreabilidade_contadores")
       .upsert(
-        { organizacao_id: organizacaoId, ano, ultimo_numero: ultimoNumero },
-        { onConflict: "organizacao_id,ano" }
+        { organizacao_id: organizacaoId, projeto_id: projetoId, ano, ultimo_numero: ultimoNumero },
+        { onConflict: "organizacao_id,projeto_id,ano" }
       );
   }
 
@@ -313,6 +331,7 @@ async function gerarCodigosRastreabilidade(
       .from("codigo_rastreabilidade_contadores")
       .select("ultimo_numero")
       .eq("organizacao_id", organizacaoId)
+      .eq("projeto_id", projetoId)
       .eq("ano", ano)
       .single();
     contadores.set(ano, (counterRow as { ultimo_numero: number } | null)?.ultimo_numero ?? 0);
@@ -323,8 +342,7 @@ async function gerarCodigosRastreabilidade(
     const ano = Number(data.slice(0, 4));
     const contador = (contadores.get(ano) ?? 0) + 1;
     contadores.set(ano, contador);
-    const prefixo = sigla ? `${sigla}-` : "";
-    row.codigo_rastreabilidade = `${prefixo}CC-${ano}-${String(contador).padStart(4, "0")}`;
+    row.codigo_rastreabilidade = `CC-${codigoObra}-${ano}-${String(contador).padStart(4, "0")}`;
   }
 
   // 5. Atualiza o counter no banco pra refletir o último código gerado
@@ -332,8 +350,8 @@ async function gerarCodigosRastreabilidade(
     await supabase
       .from("codigo_rastreabilidade_contadores")
       .upsert(
-        { organizacao_id: organizacaoId, ano, ultimo_numero: ultimo },
-        { onConflict: "organizacao_id,ano" }
+        { organizacao_id: organizacaoId, projeto_id: projetoId, ano, ultimo_numero: ultimo },
+        { onConflict: "organizacao_id,projeto_id,ano" }
       );
   }
 }
@@ -353,13 +371,14 @@ export type ResumoImportacaoConcreto = {
 
 export async function commitarImportacaoConcreto(params: {
   organizacaoId: string;
+  projetoId: string;
   userId?: string;
   userNome?: string;
   cargas: CargaImportada[];
   mapeamentoTracos: MapeamentoTracos; // chave: normalizarTexto(tracoNome)
   tracosCatalogo: TracoCatalogo[];
 }): Promise<ResumoImportacaoConcreto> {
-  const { organizacaoId, userId, userNome, cargas, mapeamentoTracos, tracosCatalogo } = params;
+  const { organizacaoId, projetoId, userId, userNome, cargas, mapeamentoTracos, tracosCatalogo } = params;
 
   const tracoPorId = new Map(tracosCatalogo.map((t) => [t.id, t]));
   const resolvedorAreas = new ResolvedorDeAreasConcreto();
@@ -383,16 +402,17 @@ export async function commitarImportacaoConcreto(params: {
     const destinosResolvidos: DestinoRow[] = [];
     for (const destino of carga.destinos) {
       if (!destino.projetoRaw.trim()) continue;
-      const { areaConcretoId, setorConcretoId } = await resolvedorAreas.resolverOuCriar(organizacaoId, destino.projetoRaw);
+      const { areaConcretoId, setorConcretoId } = await resolvedorAreas.resolverOuCriar(organizacaoId, projetoId, destino.projetoRaw);
 
       let etapaConcretoId: string | null = null;
       if (destino.etapaNorm) {
-        etapaConcretoId = await resolvedorEtapas.resolverOuCriar(organizacaoId, destino.etapaNorm);
+        etapaConcretoId = await resolvedorEtapas.resolverOuCriar(organizacaoId, projetoId, destino.etapaNorm);
       }
 
       destinosResolvidos.push({
         id: crypto.randomUUID(),
         organizacao_id: organizacaoId,
+        projeto_id: projetoId,
         carga_id: "", // preenchido abaixo, depois que o id da carga é gerado
         setor_concreto_id: setorConcretoId,
         area_concreto_id: areaConcretoId,
@@ -407,7 +427,7 @@ export async function commitarImportacaoConcreto(params: {
       continue;
     }
 
-    const fornecedorId = await resolvedorFornecedores.resolverOuCriar(organizacaoId, carga.fornecedorNome, carga.tipoOrigem);
+    const fornecedorId = await resolvedorFornecedores.resolverOuCriar(organizacaoId, projetoId, carga.fornecedorNome, carga.tipoOrigem);
 
     // PREÇO TOTAL do arquivo só existe pra carga externa (própria não tem
     // preço) — preço unitário é derivado dele pra alimentar computeCarga, que
@@ -439,6 +459,7 @@ export async function commitarImportacaoConcreto(params: {
     cargaRows.push({
       id: cargaId,
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       data: carga.data,
       fornecedor_id: fornecedorId,
       tipo_origem: carga.tipoOrigem,
@@ -463,12 +484,12 @@ export async function commitarImportacaoConcreto(params: {
   // Só apaga o que já existe se realmente houver algo novo pra colocar no lugar —
   // um arquivo que resultou em 0 cargas válidas (ex.: todo traço não resolvido)
   // não deve zerar a organização à toa.
-  const cargasRemovidas = cargaRows.length > 0 ? await apagarLancamentosExistentes(organizacaoId) : 0;
+  const cargasRemovidas = cargaRows.length > 0 ? await apagarLancamentosExistentes(organizacaoId, projetoId) : 0;
 
   // Gera os códigos de rastreabilidade no cliente (em vez de depender do
   // trigger, que pode gerar duplicatas quando o counter está dessincronizado).
   if (cargaRows.length > 0) {
-    await gerarCodigosRastreabilidade(organizacaoId, cargaRows);
+    await gerarCodigosRastreabilidade(organizacaoId, projetoId, cargaRows);
   }
 
   for (let i = 0; i < cargaRows.length; i += TAMANHO_LOTE) {

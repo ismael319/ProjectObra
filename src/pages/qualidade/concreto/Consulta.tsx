@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useFornecedoresConcreto, useTracosConcreto, useEtapasConcreto, useAreasConcreto } from "./lib/catalog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,18 +56,20 @@ function defaultFilters(): Filters {
 export default function ConcretoConsulta() {
   const qc = useQueryClient();
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
 
   const [filters, setFilters] = useState<Filters>(defaultFilters());
   const [page, setPage] = useState(0);
   const [confirmDel, setConfirmDel] = useState<string | null>(null);
 
-  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, false);
-  const { data: tracos = [] } = useTracosConcreto(organizacaoId, false);
-  const { data: projetos = [] } = useAreasConcreto(null, organizacaoId);
-  const { data: etapas = [] } = useEtapasConcreto(organizacaoId, false);
+  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, projetoId, false);
+  const { data: tracos = [] } = useTracosConcreto(organizacaoId, projetoId, false);
+  const { data: projetos = [] } = useAreasConcreto(null, organizacaoId, projetoId);
+  const { data: etapas = [] } = useEtapasConcreto(organizacaoId, projetoId, false);
 
-  const queryKey = ["cargas-concreto-consulta", organizacaoId, filters, page];
+  const queryKey = ["cargas-concreto-consulta", organizacaoId, projetoId, filters, page];
 
   const { data, isLoading } = useQuery({
     queryKey,
@@ -90,6 +93,7 @@ export default function ConcretoConsulta() {
           { count: "exact" }
         )
         .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .order("data", { ascending: false });
       if (filters.dataInicio) q = q.gte("data", filters.dataInicio);
       if (filters.dataFim) q = q.lte("data", filters.dataFim);
@@ -104,7 +108,7 @@ export default function ConcretoConsulta() {
       if (error) throw error;
       return { rows: (data ?? []) as unknown as CargaRow[], count: count ?? 0 };
     },
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const totalPages = Math.max(1, Math.ceil((data?.count ?? 0) / PAGE_SIZE));
@@ -130,10 +134,10 @@ export default function ConcretoConsulta() {
   const [exportando, setExportando] = useState(false);
 
   async function handleExportarTudo() {
-    if (!organizacaoId) return;
+    if (!organizacaoId || !projetoId) return;
     setExportando(true);
     try {
-      const rows = await listarTodasCargasConcreto(organizacaoId);
+      const rows = await listarTodasCargasConcreto(organizacaoId, projetoId);
       if (rows.length === 0) {
         toast.warning("Nenhum lançamento no banco pra exportar.");
         return;
@@ -157,7 +161,7 @@ export default function ConcretoConsulta() {
             <Button
               variant="outline"
               onClick={handleExportarTudo}
-              disabled={exportando || !organizacaoId}
+              disabled={exportando || !organizacaoId || !projetoId}
               title="Exporta TODOS os lançamentos do banco, ignorando os filtros da tela"
             >
               {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar tudo

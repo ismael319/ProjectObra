@@ -34,18 +34,20 @@ export function novoDestino(): DestinoForm {
 // à parte em vez de um loop dentro do formulário principal.
 export function DestinoRow({
   destino,
+  projetoId,
   onChange,
   onRemove,
 }: {
   destino: DestinoForm;
+  projetoId?: string;
   onChange: (d: DestinoForm) => void;
   onRemove?: () => void;
 }) {
   const { userProfile } = useAuth();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
-  const { data: setores = [] } = useSetoresConcreto(organizacaoId);
-  const { data: areas = [] } = useAreasConcreto(destino.setor_concreto_id, organizacaoId);
-  const { data: etapas = [] } = useEtapasConcreto(organizacaoId);
+  const { data: setores = [] } = useSetoresConcreto(organizacaoId, projetoId);
+  const { data: areas = [] } = useAreasConcreto(destino.setor_concreto_id, organizacaoId, projetoId);
+  const { data: etapas = [] } = useEtapasConcreto(organizacaoId, projetoId);
 
   return (
     <div className="grid gap-3 sm:grid-cols-6 items-end rounded-md border p-3">

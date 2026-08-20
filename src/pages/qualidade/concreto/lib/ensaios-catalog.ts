@@ -8,6 +8,7 @@ export type StatusConformidade = "pendente" | "conforme" | "nao_conforme" | "nao
 export type RastreabilidadeCarga = {
   carga_id: string;
   organizacao_id: string;
+  projeto_id: string;
   codigo_rastreabilidade: string;
   data: string;
   numero_carga: string | null;
@@ -33,6 +34,7 @@ export type RastreabilidadeCarga = {
 export type EnsaioCorpoProva = {
   corpo_prova_id: string;
   organizacao_id: string;
+  projeto_id: string;
   carga_id: string;
   codigo_rastreabilidade: string;
   data_carga: string;
@@ -79,9 +81,9 @@ export function cargaEstaEmDia(r: Pick<RastreabilidadeCarga, "dispensa_ensaio" |
   return r.dispensa_ensaio || r.total_cps > 0;
 }
 
-export function useRastreabilidadeCargas(organizacaoId?: string) {
+export function useRastreabilidadeCargas(organizacaoId?: string, projetoId?: string) {
   return useQuery({
-    queryKey: ["vw_rastreabilidade_concreto", organizacaoId],
+    queryKey: ["vw_rastreabilidade_concreto", organizacaoId, projetoId],
     queryFn: async () => {
       const PAGE = 1000;
       let from = 0;
@@ -91,6 +93,7 @@ export function useRastreabilidadeCargas(organizacaoId?: string) {
           .from("vw_rastreabilidade_concreto")
           .select("*")
           .eq("organizacao_id", organizacaoId!)
+          .eq("projeto_id", projetoId!)
           .order("data", { ascending: false })
           .range(from, from + PAGE - 1);
         if (error) throw error;
@@ -100,18 +103,19 @@ export function useRastreabilidadeCargas(organizacaoId?: string) {
       }
       return all;
     },
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
   });
 }
 
 /** Ids de carga com algum CP cuja peça concretada bate com o texto — usado
  * pra busca por peça na lista (a view de cargas não agrega essa coluna,
  * texto livre por CP, então a busca precisa olhar corpos_prova direto). */
-export async function buscarCargaIdsPorPeca(organizacaoId: string, texto: string): Promise<Set<string>> {
+export async function buscarCargaIdsPorPeca(organizacaoId: string, projetoId: string, texto: string): Promise<Set<string>> {
   const { data, error } = await supabase
     .from("corpos_prova")
     .select("carga_id")
     .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId)
     .ilike("peca_concretada", `%${texto}%`);
   if (error) throw error;
   return new Set((data ?? []).map((r) => r.carga_id as string));

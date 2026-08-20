@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, Download, FileSpreadsheet, Loader2, Upload, AlertTriangle, CheckCircle2, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
@@ -63,14 +64,16 @@ export default function DadosConcreto() {
 
 function ExportarConcreto() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const [exportando, setExportando] = useState(false);
 
   async function handleExportar() {
-    if (!organizacaoId) return;
+    if (!organizacaoId || !projetoId) return;
     setExportando(true);
     try {
-      const rows = await listarTodasCargasConcreto(organizacaoId);
+      const rows = await listarTodasCargasConcreto(organizacaoId, projetoId);
       if (rows.length === 0) {
         toast.warning("Nenhum lançamento no banco pra exportar.");
         return;
@@ -91,7 +94,7 @@ function ExportarConcreto() {
         <p className="text-sm text-muted-foreground">
           Baixa em Excel TODOS os lançamentos de concreto da organização, sem filtro de data nem paginação de tela.
         </p>
-        <Button onClick={handleExportar} disabled={exportando || !organizacaoId}>
+        <Button onClick={handleExportar} disabled={exportando || !organizacaoId || !projetoId}>
           {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar tudo
         </Button>
       </CardContent>
@@ -101,7 +104,9 @@ function ExportarConcreto() {
 
 function ImportarHistoricoConcreto() {
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const qc = useQueryClient();
 
   const [estagio, setEstagio] = useState<Estagio>("idle");
@@ -123,7 +128,7 @@ function ImportarHistoricoConcreto() {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !organizacaoId) return;
+    if (!file || !organizacaoId || !projetoId) return;
     setFileName(file.name);
     setErro("");
     setEstagio("processando");
@@ -133,7 +138,7 @@ function ImportarHistoricoConcreto() {
       const parse = parseCargasConcreto(linhasArquivo, linhasBrutas);
 
       const tracosDistintos = distintosComContagem(parse.cargas.map((c) => c.tracoNome));
-      const tracosCarregados = await carregarTracos(organizacaoId);
+      const tracosCarregados = await carregarTracos(organizacaoId, projetoId);
       const { sugestao: sugestaoTracos, semCorrespondencia: tracosSemCorrespondencia } = sugerirMapeamentoTracos(
         tracosDistintos.map((t) => t.valor).filter((v): v is string => v != null),
         tracosCarregados
@@ -169,7 +174,7 @@ function ImportarHistoricoConcreto() {
   const faltaResolver = revisaoTracos.filter((r) => !r.resolucao).length;
 
   async function handleConfirmar() {
-    if (!organizacaoId || faltaResolver > 0) return;
+    if (!organizacaoId || !projetoId || faltaResolver > 0) return;
     setEstagio("importando");
     setErro("");
     try {
@@ -180,6 +185,7 @@ function ImportarHistoricoConcreto() {
 
       const r = await commitarImportacaoConcreto({
         organizacaoId,
+        projetoId,
         userId: user?.id,
         userNome: user?.email ?? "Importação",
         cargas,
@@ -221,6 +227,11 @@ function ImportarHistoricoConcreto() {
 
       <Card>
         <CardContent className="pt-6 space-y-4">
+          {!projetoId && (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg p-3 text-amber-700 dark:text-amber-300 text-sm">
+              Selecione uma obra em "Meus Projetos" antes de importar — os lançamentos importados ficam vinculados à obra atual, e só os desta obra são apagados/substituídos.
+            </div>
+          )}
           {erro && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-3 text-red-700 dark:text-red-300 text-sm">
               {erro}
@@ -233,12 +244,12 @@ function ImportarHistoricoConcreto() {
             accept=".xlsx,.xls,.csv"
             onChange={handleFile}
             className="hidden"
-            disabled={estagio === "processando" || estagio === "importando"}
+            disabled={estagio === "processando" || estagio === "importando" || !projetoId}
           />
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
-            disabled={estagio === "processando" || estagio === "importando" || estagio === "revisao" || estagio === "concluido"}
+            disabled={estagio === "processando" || estagio === "importando" || estagio === "revisao" || estagio === "concluido" || !projetoId}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:border-blue-400 hover:text-blue-500 transition disabled:cursor-not-allowed"
           >
             {estagio === "processando" ? (
@@ -254,7 +265,7 @@ function ImportarHistoricoConcreto() {
             <div className="rounded-lg border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-3 text-sm text-red-700 dark:text-red-300 flex items-start gap-2">
               <AlertTriangle size={16} className="mt-0.5 shrink-0" />
               <span>
-                Ao confirmar, <strong>TODOS os lançamentos de concreto já existentes desta organização serão apagados</strong> (inclusive os feitos manualmente) e substituídos pelo conteúdo deste arquivo. Os cadastros de Fornecedores, Traços, Setores/Áreas do Concreto e Etapas não são apagados.
+                Ao confirmar, <strong>TODOS os lançamentos de concreto já existentes desta obra serão apagados</strong> (inclusive os feitos manualmente) e substituídos pelo conteúdo deste arquivo — obras diferentes não são afetadas. Os cadastros de Fornecedores, Traços, Setores/Áreas do Concreto e Etapas não são apagados.
               </span>
             </div>
           )}

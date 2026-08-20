@@ -56,16 +56,16 @@ export type TracoConcreto = {
   ativo: boolean;
 };
 
-export function useFornecedoresConcreto(organizacaoId?: string, onlyActive = true) {
+export function useFornecedoresConcreto(organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["fornecedores_concreto", organizacaoId, onlyActive],
+    queryKey: ["fornecedores_concreto", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:fornecedores_concreto:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("fornecedores_concreto").select("id,nome,tipo,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:fornecedores_concreto:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("fornecedores_concreto").select("id,nome,tipo,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as FornecedorConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
@@ -74,22 +74,22 @@ export function useFornecedoresConcreto(organizacaoId?: string, onlyActive = tru
 // por organização, independente de Área/Setor (ver 20260806010000_etapas-
 // concreto-migration.sql pro porquê disso substituir a antiga cascata
 // Setor→Área→Etapa que reaproveitava subareas do Apontamento).
-export function useEtapasConcreto(organizacaoId?: string, onlyActive = true) {
+export function useEtapasConcreto(organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["etapas_concreto", organizacaoId, onlyActive],
+    queryKey: ["etapas_concreto", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:etapas_concreto:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("etapas_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:etapas_concreto:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("etapas_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as EtapaConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
-export async function seedEtapasConcretoPadrao(organizacaoId: string): Promise<void> {
-  const { error } = await supabase.rpc("seed_etapas_concreto_padrao", { p_organizacao_id: organizacaoId });
+export async function seedEtapasConcretoPadrao(organizacaoId: string, projetoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_etapas_concreto_padrao", { p_organizacao_id: organizacaoId, p_projeto_id: projetoId });
   if (error) throw new Error(error.message);
 }
 
@@ -99,16 +99,16 @@ export async function seedEtapasConcretoPadrao(organizacaoId: string): Promise<v
 // Apontamento (seed_setores_areas_concreto_padrao) é opcional — o botão
 // "Copiar do Apontamento" no Cadastro só traz as opções existentes pra dentro
 // do Concreto; dali em diante cada módulo edita os próprios nomes.
-export function useSetoresConcreto(organizacaoId?: string, onlyActive = true) {
+export function useSetoresConcreto(organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["setores_concreto", organizacaoId, onlyActive],
+    queryKey: ["setores_concreto", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:setores_concreto:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("setores_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:setores_concreto:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("setores_concreto").select("id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as SetorConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
@@ -116,23 +116,23 @@ export function useSetoresConcreto(organizacaoId?: string, onlyActive = true) {
 // setorConcretoId filtra em memória sobre a lista JÁ cacheada (mesmo padrão
 // de useAreas no apontamento/lib/catalog.ts) — trocar de setor não dispara
 // nova busca e qualquer setor funciona offline depois de abrir a tela online.
-export function useAreasConcreto(setorConcretoId?: string | null, organizacaoId?: string, onlyActive = true) {
+export function useAreasConcreto(setorConcretoId?: string | null, organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["areas_concreto", organizacaoId, onlyActive],
+    queryKey: ["areas_concreto", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:areas_concreto:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("areas_concreto").select("id,setor_concreto_id,nome,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:areas_concreto:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("areas_concreto").select("id,setor_concreto_id,nome,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as AreaConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
     select: (data) => (setorConcretoId ? data.filter((a) => a.setor_concreto_id === setorConcretoId) : data),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
-export async function seedSetoresAreasConcretoDoApontamento(organizacaoId: string): Promise<void> {
-  const { error } = await supabase.rpc("seed_setores_areas_concreto_padrao", { p_organizacao_id: organizacaoId });
+export async function seedSetoresAreasConcretoDoApontamento(organizacaoId: string, projetoId: string): Promise<void> {
+  const { error } = await supabase.rpc("seed_setores_areas_concreto_padrao", { p_organizacao_id: organizacaoId, p_projeto_id: projetoId });
   if (error) throw new Error(error.message);
 }
 
@@ -146,30 +146,30 @@ export type Laboratorio = {
   ativo: boolean;
 };
 
-export function useLaboratorios(organizacaoId?: string, onlyActive = true) {
+export function useLaboratorios(organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["laboratorios", organizacaoId, onlyActive],
+    queryKey: ["laboratorios", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:laboratorios:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("laboratorios").select("id,nome,cnpj,contato,telefone,email,ativo").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:laboratorios:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("laboratorios").select("id,nome,cnpj,contato,telefone,email,ativo").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as Laboratorio[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }
 
-export function useTracosConcreto(organizacaoId?: string, onlyActive = true) {
+export function useTracosConcreto(organizacaoId?: string, projetoId?: string, onlyActive = true) {
   return useQuery({
-    queryKey: ["tracos_concreto", organizacaoId, onlyActive],
+    queryKey: ["tracos_concreto", organizacaoId, projetoId, onlyActive],
     queryFn: () =>
-      fetchWithOfflineCache(`catalog:tracos_concreto:${organizacaoId}:${onlyActive}`, async () => {
-        let q = supabase.from("tracos_concreto").select("*").eq("organizacao_id", organizacaoId!).retry(false);
+      fetchWithOfflineCache(`catalog:tracos_concreto:${organizacaoId}:${projetoId}:${onlyActive}`, async () => {
+        let q = supabase.from("tracos_concreto").select("*").eq("organizacao_id", organizacaoId!).eq("projeto_id", projetoId!).retry(false);
         if (onlyActive) q = q.eq("ativo", true);
         return await q;
       }).then((data) => (data as TracoConcreto[]).sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))),
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
     ...OFFLINE_CATALOG_OPTS,
   });
 }

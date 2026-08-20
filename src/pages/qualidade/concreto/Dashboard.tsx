@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useFornecedoresConcreto, useAreasConcreto } from "./lib/catalog";
 import { downloadNodeAsA4Png, downloadNodeAsPdf } from "@/lib/png-export";
 import { CHART_COLORS } from "@/lib/chart-colors";
@@ -103,12 +104,13 @@ function mesDe(c: Carga): string | null {
 // uma página, dispara o resto EM PARALELO em vez de esperar página por
 // página — numa organização com muito histórico isso é a diferença entre
 // N round-trips sequenciais e só 2 "ondas" de requisição.
-async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId: string): Promise<T[]> {
+async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId: string, projetoId: string): Promise<T[]> {
   const PAGE_SIZE = 1000;
   const primeira = await supabase
     .from(tabela)
     .select(colunas, { count: "exact" })
     .eq("organizacao_id", organizacaoId)
+    .eq("projeto_id", projetoId)
     .range(0, PAGE_SIZE - 1);
   if (primeira.error) throw primeira.error;
 
@@ -118,7 +120,7 @@ async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId:
   const paginasRestantes = [];
   for (let from = PAGE_SIZE; from < total; from += PAGE_SIZE) {
     paginasRestantes.push(
-      supabase.from(tabela).select(colunas).eq("organizacao_id", organizacaoId).range(from, from + PAGE_SIZE - 1),
+      supabase.from(tabela).select(colunas).eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId).range(from, from + PAGE_SIZE - 1),
     );
   }
   for (const resultado of await Promise.all(paginasRestantes)) {
@@ -132,7 +134,9 @@ async function listarPaginado<T>(tabela: string, colunas: string, organizacaoId:
 export default function ConcretoDashboard() {
   const isMobile = useMediaQuery("(max-width: 639px)");
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const [anoFiltro, setAnoFiltro] = useState<string | null>(null);
   const [projetoFiltro, setProjetoFiltro] = useState<string[]>([]); // area_concreto_ids
   const [usinaFiltro, setUsinaFiltro] = useState<string | null>(null); // fornecedor_id
@@ -140,25 +144,25 @@ export default function ConcretoDashboard() {
   const capturaRef = useRef<HTMLDivElement>(null);
   const [exportando, setExportando] = useState<"imagem" | "pdf" | null>(null);
 
-  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
-  const { data: areas = [] } = useAreasConcreto(null, organizacaoId);
+  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, projetoId);
+  const { data: areas = [] } = useAreasConcreto(null, organizacaoId, projetoId);
 
-  // staleTime: essas duas trazem o histórico INTEIRO da organização (não dá
-  // pra paginar no servidor porque o dashboard soma/agrupa tudo no cliente)
-  // — sem isso, o padrão global (staleTime 0) refaz essa busca pesada toda
-  // vez que a aba do Dashboard é remontada, mesmo revisitando poucos
-  // segundos depois. 5 min é o mesmo usado nos catálogos (ver catalog.ts).
+  // staleTime: essas duas trazem o histórico INTEIRO da obra (não dá pra
+  // paginar no servidor porque o dashboard soma/agrupa tudo no cliente) —
+  // sem isso, o padrão global (staleTime 0) refaz essa busca pesada toda vez
+  // que a aba do Dashboard é remontada, mesmo revisitando poucos segundos
+  // depois. 5 min é o mesmo usado nos catálogos (ver catalog.ts).
   const { data: cargas = [], isLoading } = useQuery({
-    queryKey: ["cargas-concreto-dashboard", organizacaoId],
-    queryFn: () => listarPaginado<Carga>("cargas_concreto", "id,data,ano_mes,fornecedor_id,quantidade_m3", organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["cargas-concreto-dashboard", organizacaoId, projetoId],
+    queryFn: () => listarPaginado<Carga>("cargas_concreto", "id,data,ano_mes,fornecedor_id,quantidade_m3", organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
     staleTime: 5 * 60_000,
   });
 
   const { data: destinos = [] } = useQuery({
-    queryKey: ["destinos-carga-dashboard", organizacaoId],
-    queryFn: () => listarPaginado<Destino>("destinos_carga", "carga_id,area_concreto_id,quantidade_m3_aplicada", organizacaoId!),
-    enabled: !!organizacaoId,
+    queryKey: ["destinos-carga-dashboard", organizacaoId, projetoId],
+    queryFn: () => listarPaginado<Destino>("destinos_carga", "carga_id,area_concreto_id,quantidade_m3_aplicada", organizacaoId!, projetoId!),
+    enabled: !!organizacaoId && !!projetoId,
     staleTime: 5 * 60_000,
   });
 

@@ -66,6 +66,7 @@ export function LancarResultadoModal({
       const payload = {
         corpo_prova_id: corpoProva.corpo_prova_id,
         organizacao_id: organizacaoId,
+        projeto_id: corpoProva.projeto_id,
         data_ruptura_real: form.data_ruptura_real,
         resultado_mpa: Number(form.resultado_mpa),
         tipo_ruptura: form.tipo_ruptura,

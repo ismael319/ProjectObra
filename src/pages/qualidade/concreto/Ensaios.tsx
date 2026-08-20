@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -48,9 +49,11 @@ function StatusBadge({ status }: { status: ReturnType<typeof statusGeralCarga> }
 
 export default function ConcretoEnsaios() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
 
-  const { data: cargas = [], isLoading } = useRastreabilidadeCargas(organizacaoId);
+  const { data: cargas = [], isLoading } = useRastreabilidadeCargas(organizacaoId, projetoId);
   const [busca, setBusca] = useState("");
   const [statusFiltro, setStatusFiltro] = useState<string | null>(null);
   const [cargaIdsPeca, setCargaIdsPeca] = useState<Set<string> | null>(null);
@@ -75,18 +78,18 @@ export default function ConcretoEnsaios() {
   // prontos na linha da carga (código, nota fiscal, número, traço, fornecedor).
   useEffect(() => {
     const texto = busca.trim();
-    if (!texto || !organizacaoId) {
+    if (!texto || !organizacaoId || !projetoId) {
       setCargaIdsPeca(null);
       return;
     }
     let cancelado = false;
-    buscarCargaIdsPorPeca(organizacaoId, texto).then((ids) => {
+    buscarCargaIdsPorPeca(organizacaoId, projetoId, texto).then((ids) => {
       if (!cancelado) setCargaIdsPeca(ids);
     });
     return () => {
       cancelado = true;
     };
-  }, [busca, organizacaoId]);
+  }, [busca, organizacaoId, projetoId]);
 
   const filtradas = useMemo(() => {
     const texto = busca.trim().toLowerCase();

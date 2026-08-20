@@ -15,6 +15,7 @@ export default function CadLaboratorios() {
       ]}
       extraColumns={[{ key: "cnpj", label: "CNPJ" }]}
       organizacaoScoped
+      projetoScoped
       timestamps={false}
       blockRefs={[{ table: "corpos_prova", fk: "laboratorio_id", label: "corpos de prova" }]}
       moduloKey="qualidade"

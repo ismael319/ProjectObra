@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { ArrowLeft, AlertTriangle, CheckCircle2, Download, FileSpreadsheet, FileText, Loader2, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -48,14 +49,16 @@ export default function ImportarEnsaiosConcreto() {
 
 function ExportarEnsaios() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const [exportando, setExportando] = useState(false);
 
   async function handleExportar() {
-    if (!organizacaoId) return;
+    if (!organizacaoId || !projetoId) return;
     setExportando(true);
     try {
-      const rows = await listarTodosEnsaiosConcreto(organizacaoId);
+      const rows = await listarTodosEnsaiosConcreto(organizacaoId, projetoId);
       if (rows.length === 0) {
         toast.warning("Nenhum ensaio no banco pra exportar.");
         return;
@@ -76,7 +79,7 @@ function ExportarEnsaios() {
         <p className="text-sm text-muted-foreground">
           Baixa em Excel TODOS os resultados de ensaio da organização, no mesmo formato aceito pelo importador (uma linha por corpo de prova).
         </p>
-        <Button onClick={handleExportar} disabled={exportando || !organizacaoId}>
+        <Button onClick={handleExportar} disabled={exportando || !organizacaoId || !projetoId}>
           {exportando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />} Exportar ensaios
         </Button>
       </CardContent>
@@ -86,7 +89,9 @@ function ExportarEnsaios() {
 
 function ImportarEnsaiosTab() {
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const qc = useQueryClient();
 
   const [estagio, setEstagio] = useState<Estagio>("idle");
@@ -100,7 +105,7 @@ function ImportarEnsaiosTab() {
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !organizacaoId) return;
+    if (!file || !organizacaoId || !projetoId) return;
     setFileName(file.name);
     setErro("");
     setEstagio("processando");
@@ -121,11 +126,11 @@ function ImportarEnsaiosTab() {
   }
 
   async function handleConfirmar() {
-    if (!organizacaoId || itens.length === 0) return;
+    if (!organizacaoId || !projetoId || itens.length === 0) return;
     setEstagio("importando");
     setErro("");
     try {
-      const r = await importarEnsaiosConcreto({ organizacaoId, userId: user?.id, itens });
+      const r = await importarEnsaiosConcreto({ organizacaoId, projetoId, userId: user?.id, itens });
       qc.invalidateQueries({ queryKey: ["vw_ensaios_concreto"] });
       qc.invalidateQueries({ queryKey: ["vw_rastreabilidade_concreto"] });
       setResumo(r);

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { useAuth, usePapelModulo } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { todayISO, computeCarga } from "./lib/concreto-utils";
 import { useFornecedoresConcreto, useTracosConcreto } from "./lib/catalog";
 import { enqueue, listPending, remove as removePending, drain } from "./lib/offline-queue";
@@ -53,7 +54,9 @@ const emptyForm = (keep?: Partial<FormState>): FormState => ({
 export default function ConcretoLancamentoPage() {
   const qc = useQueryClient();
   const { user, userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const { podeInserir: podeInserirPadrao, podeEditar, papel } = usePapelModulo("qualidade");
   // Igual a insercao_pontual, visualizacao também pode lançar carga aqui —
   // só nesta tela (ver 20260807090000_visualizacao-insere-apontamento-
@@ -63,8 +66,8 @@ export default function ConcretoLancamentoPage() {
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [carregandoEdicao, setCarregandoEdicao] = useState(false);
 
-  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId);
-  const { data: tracos = [] } = useTracosConcreto(organizacaoId);
+  const { data: fornecedores = [] } = useFornecedoresConcreto(organizacaoId, projetoId);
+  const { data: tracos = [] } = useTracosConcreto(organizacaoId, projetoId);
 
   const fornecedorSelecionado = useMemo(
     () => fornecedores.find((f) => f.id === form.fornecedor_id) ?? null,
@@ -174,17 +177,18 @@ export default function ConcretoLancamentoPage() {
   }
 
   const { data: doDia, refetch } = useQuery({
-    queryKey: ["cargas-concreto-dia", form.data, organizacaoId],
+    queryKey: ["cargas-concreto-dia", form.data, organizacaoId, projetoId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("cargas_concreto")
         .select("*")
         .eq("organizacao_id", organizacaoId!)
+        .eq("projeto_id", projetoId!)
         .eq("data", form.data);
       if (error) throw error;
       return (data ?? []).sort((a: any, b: any) => (b.criado_em ?? "").localeCompare(a.criado_em ?? ""));
     },
-    enabled: !!organizacaoId,
+    enabled: !!organizacaoId && !!projetoId,
   });
 
   const fornecedorNomePorId = useMemo(() => new Map(fornecedores.map((f) => [f.id, f.nome])), [fornecedores]);
@@ -248,6 +252,7 @@ export default function ConcretoLancamentoPage() {
       const payload = {
         id,
         organizacao_id: organizacaoId,
+        projeto_id: projetoId,
         data: f.data,
         fornecedor_id: fornecedor.id,
         tipo_origem: origem,
@@ -277,6 +282,7 @@ export default function ConcretoLancamentoPage() {
         .map((d) => ({
           id: crypto.randomUUID(),
           organizacao_id: organizacaoId,
+          projeto_id: projetoId,
           carga_id: id,
           setor_concreto_id: d.setor_concreto_id,
           area_concreto_id: d.area_concreto_id,
@@ -406,6 +412,7 @@ export default function ConcretoLancamentoPage() {
         .map((d) => ({
           id: crypto.randomUUID(),
           organizacao_id: organizacaoId,
+          projeto_id: projetoId,
           carga_id: editandoId,
           setor_concreto_id: d.setor_concreto_id,
           area_concreto_id: d.area_concreto_id,
@@ -470,6 +477,10 @@ export default function ConcretoLancamentoPage() {
       }
     } else if (!podeInserir) {
       toast.error("Você só tem visualização neste módulo — não é possível lançar cargas.");
+      return;
+    }
+    if (!projetoId) {
+      toast.error("Selecione uma obra em \"Meus Projetos\" antes de lançar.");
       return;
     }
     if (!form.fornecedor_id || !form.traco_id || !form.data) {
@@ -635,6 +646,7 @@ export default function ConcretoLancamentoPage() {
                   <DestinoRow
                     key={d.key}
                     destino={d}
+                    projetoId={projetoId}
                     onChange={(novo) => updateDestino(d.key, novo)}
                     onRemove={form.destinos.length > 1 ? () => removerDestino(d.key) : undefined}
                   />

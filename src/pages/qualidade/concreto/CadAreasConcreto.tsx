@@ -1,13 +1,16 @@
 import { CadastroPage } from "@/components/CadastroPage";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { useSetoresConcreto } from "./lib/catalog";
 
-// Áreas do Lançamento de Concreto — catálogo próprio por organização, dentro
-// de cada Setor do Concreto (separado das áreas globais do Apontamento).
+// Áreas do Lançamento de Concreto — catálogo próprio por obra, dentro de
+// cada Setor do Concreto (separado das áreas globais do Apontamento).
 export default function CadAreasConcreto() {
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
-  const { data: setores = [] } = useSetoresConcreto(organizacaoId, false);
+  const projetoId = currentProject?.id ?? undefined;
+  const { data: setores = [] } = useSetoresConcreto(organizacaoId, projetoId, false);
   const setorMap = new Map(setores.map((s) => [s.id, s.nome]));
   return (
     <CadastroPage
@@ -26,6 +29,7 @@ export default function CadAreasConcreto() {
       ]}
       extraColumns={[{ key: "setor_concreto_id", label: "Setor", render: (r) => setorMap.get(r.setor_concreto_id) ?? "—" }]}
       organizacaoScoped
+      projetoScoped
       timestamps={false}
       blockRefs={[{ table: "destinos_carga", fk: "area_concreto_id", label: "lançamentos de concreto" }]}
       moduloKey="qualidade"

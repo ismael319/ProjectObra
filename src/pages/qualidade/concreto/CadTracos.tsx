@@ -28,6 +28,7 @@ export default function CadTracos() {
         },
       ]}
       organizacaoScoped
+      projetoScoped
       timestamps={false}
       blockRefs={[{ table: "cargas_concreto", fk: "traco_id", label: "cargas de concreto" }]}
       moduloKey="qualidade"

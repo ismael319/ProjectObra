@@ -5,24 +5,27 @@ import { Download, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CadastroPage } from "@/components/CadastroPage";
 import { useAuth } from "@/lib/auth-context";
+import { useProjects } from "@/lib/project-store";
 import { seedSetoresAreasConcretoDoApontamento } from "./lib/catalog";
 
-// Setores do Lançamento de Concreto — catálogo próprio por organização,
-// separado dos setores globais do Apontamento de efetivo (ver
-// 20260807060000_concreto-setores-areas-migration.sql). O botão "Copiar do
-// Apontamento" traz as opções existentes pra dentro do Concreto de uma vez
-// (setores e áreas juntos); depois, cada módulo edita os próprios nomes.
+// Setores do Lançamento de Concreto — catálogo próprio por obra, separado
+// dos setores globais do Apontamento de efetivo (ver 20260807060000_concreto-
+// setores-areas-migration.sql). O botão "Copiar do Apontamento" traz as
+// opções existentes pra dentro do Concreto de uma vez (setores e áreas
+// juntos); depois, cada módulo edita os próprios nomes.
 export default function CadSetoresConcreto() {
   const qc = useQueryClient();
   const { userProfile } = useAuth();
+  const { currentProject } = useProjects();
   const organizacaoId = userProfile?.organizacao_id ?? undefined;
+  const projetoId = currentProject?.id ?? undefined;
   const [copiando, setCopiando] = useState(false);
 
   async function handleCopiar() {
-    if (!organizacaoId) return;
+    if (!organizacaoId || !projetoId) return;
     setCopiando(true);
     try {
-      await seedSetoresAreasConcretoDoApontamento(organizacaoId);
+      await seedSetoresAreasConcretoDoApontamento(organizacaoId, projetoId);
       toast.success("Setores e Áreas copiados do Apontamento.");
       qc.invalidateQueries({ queryKey: ["cadastro", "setores_concreto"] });
       qc.invalidateQueries({ queryKey: ["cadastro", "areas_concreto"] });
@@ -42,7 +45,7 @@ export default function CadSetoresConcreto() {
           variant="outline"
           size="sm"
           onClick={handleCopiar}
-          disabled={copiando || !organizacaoId}
+          disabled={copiando || !organizacaoId || !projetoId}
           title="Copia os Setores e Áreas atuais do Apontamento para o catálogo do Concreto"
         >
           {copiando ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />} Copiar do Apontamento
@@ -54,6 +57,7 @@ export default function CadSetoresConcreto() {
         table="setores_concreto"
         fields={[{ key: "nome", label: "Nome", type: "text", required: true }]}
         organizacaoScoped
+        projetoScoped
         timestamps={false}
         blockRefs={[
           { table: "areas_concreto", fk: "setor_concreto_id", label: "áreas" },

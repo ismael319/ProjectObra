@@ -36,16 +36,17 @@ export type ResumoImportacaoEnsaios = {
 
 export async function importarEnsaiosConcreto(params: {
   organizacaoId: string;
+  projetoId: string;
   userId?: string;
   itens: EnsaioImportado[];
 }): Promise<ResumoImportacaoEnsaios> {
-  const { organizacaoId, userId, itens } = params;
+  const { organizacaoId, projetoId, userId, itens } = params;
   const problemas: Problema[] = [];
 
   const [{ data: cargasData, error: errCargas }, { data: labsData, error: errLabs }, { data: cpsData, error: errCps }] = await Promise.all([
-    supabase.from("cargas_concreto").select("id,numero_carga,nota_fiscal,cod_laboratorio,data").eq("organizacao_id", organizacaoId),
-    supabase.from("laboratorios").select("id,nome").eq("organizacao_id", organizacaoId),
-    supabase.from("corpos_prova").select("id,carga_id,idade_prevista_dias,numero_lab").eq("organizacao_id", organizacaoId),
+    supabase.from("cargas_concreto").select("id,numero_carga,nota_fiscal,cod_laboratorio,data").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
+    supabase.from("laboratorios").select("id,nome").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
+    supabase.from("corpos_prova").select("id,carga_id,idade_prevista_dias,numero_lab").eq("organizacao_id", organizacaoId).eq("projeto_id", projetoId),
   ]);
   if (errCargas) throw new Error(errCargas.message);
   if (errLabs) throw new Error(errLabs.message);
@@ -123,6 +124,7 @@ export async function importarEnsaiosConcreto(params: {
       const novoCp = {
         id: corpoProvaId,
         organizacao_id: organizacaoId,
+        projeto_id: projetoId,
         carga_id: carga.id,
         laboratorio_id: laboratorioId,
         numero_lab: item.numeroLab,
@@ -145,6 +147,7 @@ export async function importarEnsaiosConcreto(params: {
     ensaiosParaGravar.push({
       corpo_prova_id: corpoProvaId,
       organizacao_id: organizacaoId,
+      projeto_id: projetoId,
       data_ruptura_real: item.dataRupturaReal,
       resultado_mpa: item.resultadoMpa,
       tipo_ruptura: item.tipoRuptura,

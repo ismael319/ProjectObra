@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import { CheckCircle2, XCircle, Loader2, ShieldCheck, Undo2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth-context'
+import { useProjects } from '@/lib/project-store'
 import {
   useValidacaoEtapas,
   useValidacaoResponsaveis,
@@ -63,13 +64,15 @@ const CORES_STATUS: Record<ValidacaoStatus, string> = {
 
 export default function ConcretoValidacao() {
   const { user, userProfile } = useAuth()
+  const { currentProject } = useProjects()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
+  const projetoId = currentProject?.id ?? undefined
   const { data: assinaturas } = useAssinaturas(organizacaoId)
 
   // Mesma fonte do calendário de Ensaios (vw_rastreabilidade_concreto, todas
-  // as cargas da empresa, sem os filtros da tabela abaixo) — aqui não usa o
+  // as cargas da obra, sem os filtros da tabela abaixo) — aqui não usa o
   // status de rastreabilidade dela, só data + volume, pra somar por dia.
-  const { data: cargasParaCalendario = [] } = useRastreabilidadeCargas(organizacaoId)
+  const { data: cargasParaCalendario = [] } = useRastreabilidadeCargas(organizacaoId, projetoId)
   const volumePorDia = useMemo(() => {
     const map = new Map<string, number>()
     for (const c of cargasParaCalendario) {
@@ -114,8 +117,8 @@ export default function ConcretoValidacao() {
   }, [responsaveis, etapaAtiva, user?.id])
 
   const { data: cargas = [], isLoading } = useQuery({
-    queryKey: ['cargas-concreto-validacao', organizacaoId, soPendentes, dataInicio, dataFim, minhasAreas],
-    enabled: !!organizacaoId,
+    queryKey: ['cargas-concreto-validacao', organizacaoId, projetoId, soPendentes, dataInicio, dataFim, minhasAreas],
+    enabled: !!organizacaoId && !!projetoId,
     queryFn: async () => {
       const filtraArea = minhasAreas !== null && minhasAreas.length > 0
       let q = supabase
@@ -127,6 +130,7 @@ export default function ConcretoValidacao() {
            destinos_carga${filtraArea ? '!inner' : ''}(quantidade_m3_aplicada, area_concreto_id, areas_concreto(nome))`,
         )
         .eq('organizacao_id', organizacaoId!)
+        .eq('projeto_id', projetoId!)
         .order('data', { ascending: false })
         .limit(200)
 
