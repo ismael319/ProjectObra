@@ -99,7 +99,7 @@ export function PesoTooltip({ active, label, semanas }: PesoTooltipProps) {
   return (
     <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-4 min-w-[min(320px,calc(100vw-1rem))] max-w-[calc(100vw-1rem)]">
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-sm font-semibold text-gray-900 dark:text-white">{period.label ?? `S${String(period.semanaIndice).padStart(2, '0')}`}</span>
+        <span className="text-sm font-semibold text-gray-900 dark:text-white">{`S${String(period.semanaIndice).padStart(2, '0')}`}</span>
         {idx > 0 && period.avancoExecutadoAcum !== null && (
           <span className="rounded-full bg-red-600 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">Status</span>
         )}
