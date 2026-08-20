@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react'
 import { BarChart3, Filter, Layers, Table2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer } from 'recharts'
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { calcularCurvaSPorPeso, CURVA_S_CONFIG_PADRAO, CURVA_S_DISCIPLINA_GERAL, DIAS_SEMANA, type CurvaSConfig, type CurvaSSemana, type CurvaSResultado } from '@/lib/curva-s-peso'
 import { loadCurvaSConfig, loadCurvaSFeriados, salvarCurvaSSemanas, type CurvaSFeriado } from '@/lib/curva-s-config-store'
 import { COLOR_REAL, COLOR_FORECAST, COLOR_PLANNED, BL_COLORS } from '@/lib/curve-utils'
@@ -223,6 +223,13 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
       Executado: s.avancoExecutadoAcum,
       Forecast: s.forecastAcum,
     }))
+  }, [grupoAtual])
+
+  const statusWeekLabel = useMemo(() => {
+    if (!grupoAtual) return null
+    const idx = findStatusIndexSemanas(grupoAtual.semanas)
+    if (idx < 0) return null
+    return `S${String(grupoAtual.semanas[idx].semanaIndice).padStart(2, '0')}`
   }, [grupoAtual])
 
   const hasActivityFilter = useMemo(
@@ -474,6 +481,9 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                 content={<PesoTooltip semanas={grupoAtual.semanas} />}
               />
               <Legend />
+              {statusWeekLabel && (
+                <ReferenceLine x={statusWeekLabel} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: 'Status', position: 'top', fill: '#ef4444', fontSize: 10, fontWeight: 600 }} />
+              )}
               <Line type="monotone" dataKey="Planejado" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />
               <Line type="monotone" dataKey="Forecast" stroke={COLOR_FORECAST} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />
