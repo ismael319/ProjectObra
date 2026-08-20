@@ -7,8 +7,12 @@ import { loadCurvaSConfig, loadCurvaSFeriados, salvarCurvaSSemanas, type CurvaSF
 import { COLOR_REAL, COLOR_FORECAST, COLOR_PLANNED, BL_COLORS } from '@/lib/curve-utils'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
+import { PesoTooltip } from '@/components/scurve/PesoTooltip'
+import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
+import ActivityFilterTree from '@/components/ActivityFilterTree'
 import { useAuth } from '@/lib/auth-context'
 import type { CronogramaInfo, Project } from '@/lib/project-store'
+import type { WBSActivity } from '@/lib/xml-parser'
 
 interface Props {
   project: Project
@@ -16,7 +20,7 @@ interface Props {
 }
 
 function fmtPct(v: number | null | undefined): string {
-  return v === null || v === undefined ? '—' : `${v}%`
+  return v === null || v === undefined ? '\u2014' : `${v}%`
 }
 
 function fmtDataCorte(d: Date): string {
@@ -34,52 +38,69 @@ function findStatusIndexSemanas(semanas: CurvaSSemana[]): number {
   return -1
 }
 
-function computePesoAdvanceMetrics(
-  resultados: CurvaSResultado[],
-  disciplinaFilter: string,
-) {
+function resolveDataStatus(c: CronogramaInfo): Date | undefined {
+  if (c.dataStatusModo === 'manual' && c.dataStatusManual) {
+    const d = new Date(`${c.dataStatusManual}T00:00:00`)
+    return isNaN(d.getTime()) ? undefined : d
+  }
+  return c.dados.statusDate
+}
+
+function calcFracaoExec(a: { start: Date; finish: Date; percentComplete: number }, dataStatus?: Date): number {
+  if (!dataStatus) return a.percentComplete / 100
+  if (dataStatus >= a.finish) return 1
+  if (dataStatus <= a.start) return 0
+  const total = a.finish.getTime() - a.start.getTime()
+  if (total <= 0) return 1
+  return Math.max(0, Math.min(1, (dataStatus.getTime() - a.start.getTime()) / total))
+}
+
+function calcFracaoPlan(a: { baselineStart?: Date; baselineFinish?: Date }, dataStatus?: Date): number {
+  if (!a.baselineStart || !a.baselineFinish) return 0
+  if (!dataStatus) return 0
+  if (dataStatus >= a.baselineFinish) return 1
+  if (dataStatus <= a.baselineStart) return 0
+  const total = a.baselineFinish.getTime() - a.baselineStart.getTime()
+  if (total <= 0) return 1
+  return Math.max(0, Math.min(1, (dataStatus.getTime() - a.baselineStart.getTime()) / total))
+}
+
+function computePesoAdvanceMetrics(resultados: CurvaSResultado[], disciplinaFilter: string) {
   const geral = resultados.find((r) => r.disciplina === disciplinaFilter) ?? resultados[0]
   if (!geral || geral.semanas.length < 2) return null
-
   const sems = geral.semanas
   const statusIdx = findStatusIndexSemanas(sems)
   if (statusIdx < 0) return null
-
   const period = sems[statusIdx]
   const prevIdx = Math.max(0, statusIdx - 1)
   const prevPeriod = sems[prevIdx]
-
   const realPct = period.avancoExecutadoAcum ?? 0
   const realPrevPct = prevPeriod.avancoExecutadoAcum ?? 0
   const planejadoPct = period.avancoPlanejadoAcum
   const planejadoPrevPct = prevPeriod.avancoPlanejadoAcum
-
   const statusDate = period.dataCorte.toLocaleDateString('pt-BR')
-  const statusDateFormatted = period.dataCorte.toLocaleDateString('pt-BR')
   const endDate = new Date(period.dataCorte)
   endDate.setDate(endDate.getDate() + 6)
-  const statusEndDateFormatted = endDate.toLocaleDateString('pt-BR')
-
   return {
     statusDate,
-    statusDateFormatted,
-    statusEndDateFormatted,
-    real: {
-      percent: round2(realPct),
-      absolute: 0,
-      deltaPP: round2(realPct - realPrevPct),
-    },
+    statusDateFormatted: period.dataCorte.toLocaleDateString('pt-BR'),
+    statusEndDateFormatted: endDate.toLocaleDateString('pt-BR'),
+    real: { percent: round2(realPct), absolute: 0, deltaPP: round2(realPct - realPrevPct) },
     baselines: [{
-      id: 'BL0',
-      label: 'Peso Atribuído',
-      color: BL_COLORS[0],
-      metric: {
-        percent: round2(planejadoPct),
-        absolute: 0,
-        deltaPP: round2(planejadoPct - planejadoPrevPct),
-      },
+      id: 'BL0', label: 'Peso Atribuido', color: BL_COLORS[0],
+      metric: { percent: round2(planejadoPct), absolute: 0, deltaPP: round2(planejadoPct - planejadoPrevPct) },
     }],
   }
+}
+
+function filterActivitiesForPeso(activities: WBSActivity[], excludedUids: Set<number>, columnExcludedUids: Set<number>): WBSActivity[] {
+  return activities.filter((a) => {
+    if (a.isSummary) return false
+    if (!(a.number1 > 0)) return false
+    if (excludedUids.has(a.uid)) return false
+    if (columnExcludedUids.has(a.uid)) return false
+    return true
+  })
 }
 
 export function CurvaSPesoView({ project, cronogramas }: Props) {
@@ -93,6 +114,10 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
   const [showTable, setShowTable] = useState(false)
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(cronogramas.map((c) => c.id))
   const [openPanel, setOpenPanel] = useState<'filtros' | null>(null)
+  const [collapsedFilterCronogramas, setCollapsedFilterCronogramas] = useState<Set<string>>(new Set())
+
+  const [activityExclusions, setActivityExclusions] = useState<Record<string, number[]>>({})
+  const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>([])
 
   useEffect(() => {
     let cancelado = false
@@ -103,12 +128,8 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
         setConfig(cfg)
         setFeriados(fer)
       })
-      .catch((err) => {
-        console.error('[CurvaSPesoView] Falha ao carregar configuracao:', err)
-      })
-      .finally(() => {
-        if (!cancelado) setLoadingConfig(false)
-      })
+      .catch((err) => console.error('[CurvaSPesoView] Falha ao carregar configuracao:', err))
+      .finally(() => { if (!cancelado) setLoadingConfig(false) })
     return () => { cancelado = true }
   }, [project.id])
 
@@ -123,6 +144,19 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
     })
   }, [])
 
+  const toggleFilterCronogramaCollapse = useCallback((id: string) => {
+    setCollapsedFilterCronogramas((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleActivityExclusionChange = useCallback((cronogramaId: string, next: Set<number>) => {
+    setActivityExclusions((prev) => ({ ...prev, [cronogramaId]: Array.from(next) }))
+  }, [])
+
   const cronogramasAtivos = useMemo(
     () => cronogramas.filter((c) => selectedCronogramas.includes(c.id)),
     [cronogramas, selectedCronogramas],
@@ -130,16 +164,25 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
 
   const feriadosDatas = useMemo(() => feriados.map((f) => new Date(`${f.data}T00:00:00`)), [feriados])
 
+  const cronogramasFiltrados = useMemo(() => {
+    return cronogramasAtivos.map((c) => {
+      const excluded = new Set(activityExclusions[c.id] || [])
+      const columnExcluded = computeColumnFilterExcludedUids(c.dados?.activities || [], columnFilters, c.dados?.customFieldDefs || [])
+      const filteredActivities = filterActivitiesForPeso(c.dados?.activities || [], excluded, columnExcluded)
+      return { ...c, dados: { ...c.dados, activities: [...filteredActivities, ...(c.dados?.activities || []).filter((a) => a.isSummary)] } }
+    })
+  }, [cronogramasAtivos, activityExclusions, columnFilters])
+
   const resultados = useMemo(() => {
     if (loadingConfig) return []
-    return calcularCurvaSPorPeso({ cronogramas: cronogramasAtivos, config, feriados: feriadosDatas })
-  }, [cronogramasAtivos, config, feriadosDatas, loadingConfig])
+    return calcularCurvaSPorPeso({ cronogramas: cronogramasFiltrados, config, feriados: feriadosDatas })
+  }, [cronogramasFiltrados, config, feriadosDatas, loadingConfig])
 
   useEffect(() => {
     if (resultados.length === 0 || !organizacaoId) return
-    salvarCurvaSSemanas(project.id, organizacaoId, resultados).catch((err) => {
+    salvarCurvaSSemanas(project.id, organizacaoId, resultados).catch((err) =>
       console.error('[CurvaSPesoView] Falha ao salvar cache semanal:', err)
-    })
+    )
   }, [resultados, project.id, organizacaoId])
 
   const grupoAtual = resultados.find((r) => r.disciplina === disciplina) ?? resultados[0]
@@ -157,34 +200,20 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
       let realPct: number | null = null
       let plannedPct: number | null = null
       if (pesoTotal > 0) {
-        const dataStatus = resolveDataStatus(c)
-        let realSoma = 0
-        let planejadoSoma = 0
+        const ds = resolveDataStatus(c)
+        let realSoma = 0, planejadoSoma = 0
         for (const a of ativos) {
-          const fracaoExec = calcFracaoExec(a, dataStatus)
-          const fracaoPlan = calcFracaoPlan(a, dataStatus)
-          realSoma += a.number1 * fracaoExec
-          planejadoSoma += a.number1 * fracaoPlan
+          realSoma += a.number1 * calcFracaoExec(a, ds)
+          planejadoSoma += a.number1 * calcFracaoPlan(a, ds)
         }
         realPct = round2((realSoma / pesoTotal) * 100)
         plannedPct = round2((planejadoSoma / pesoTotal) * 100)
       }
-      return {
-        id: c.id,
-        nome: c.nome,
-        cor: c.cor,
-        start: c.dados?.startDate ?? null,
-        finish: c.dados?.finishDate ?? null,
-        blFinish,
-        realPct,
-        plannedPct,
-      }
+      return { id: c.id, nome: c.nome, cor: c.cor, start: c.dados?.startDate ?? null, finish: c.dados?.finishDate ?? null, blFinish, realPct, plannedPct }
     })
   }, [cronogramasAtivos])
 
-  const advanceMetrics = useMemo(() => {
-    return computePesoAdvanceMetrics(resultados, disciplina)
-  }, [resultados, disciplina])
+  const advanceMetrics = useMemo(() => computePesoAdvanceMetrics(resultados, disciplina), [resultados, disciplina])
 
   const chartData = useMemo(() => {
     if (!grupoAtual) return []
@@ -195,6 +224,11 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
       Forecast: s.forecastAcum,
     }))
   }, [grupoAtual])
+
+  const hasActivityFilter = useMemo(
+    () => columnFilters.length > 0 || cronogramasAtivos.some((c) => (activityExclusions[c.id]?.length || 0) > 0),
+    [cronogramasAtivos, activityExclusions, columnFilters],
+  )
 
   if (loadingConfig) {
     return (
@@ -290,15 +324,15 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                     }`}
                   >
                     <Filter size={16} /> Filtros
-                    {cronogramas.length > 1 && (
+                    {(cronogramas.length > 1 || hasActivityFilter) && (
                       <span className="bg-blue-600 text-white text-[10px] font-bold w-5 h-5 rounded-full flex items-center justify-center">
-                        {selectedCronogramas.length}
+                        {selectedCronogramas.length + (hasActivityFilter ? 1 : 0)}
                       </span>
                     )}
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom" className="max-w-xs">
-                  Escolhe quais cronogramas ativos entram no calculo da curva.
+                  Escolhe quais cronogramas ativos entram no calculo e permite filtrar por coluna ou atividade.
                 </TooltipContent>
               </Tooltip>
               {openPanel === 'filtros' && (
@@ -338,6 +372,59 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                         </div>
                       </div>
                     )}
+
+                    {cronogramasAtivos.length > 0 && (
+                      <div className="pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <ColumnValueFilter
+                          sources={cronogramasAtivos.map((c) => ({
+                            activities: c.dados?.activities || [],
+                            customFieldDefs: c.dados?.customFieldDefs || [],
+                          }))}
+                          filters={columnFilters}
+                          onChange={setColumnFilters}
+                        />
+                      </div>
+                    )}
+
+                    {cronogramasAtivos.length > 1 && (
+                      <div className="flex items-center gap-2 mb-2 pt-3 border-t border-gray-100 dark:border-gray-700">
+                        <Filter size={14} className="text-gray-400 dark:text-gray-500" />
+                        <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">Filtros por Atividade</span>
+                      </div>
+                    )}
+
+                    {cronogramasAtivos.map((c) => {
+                      const isMulti = cronogramasAtivos.length > 1
+                      const isCollapsed = isMulti && collapsedFilterCronogramas.has(c.id)
+                      return (
+                        <div key={c.id} className={isMulti ? '' : 'pt-3 border-t border-gray-100 dark:border-gray-700'}>
+                          {isMulti && (
+                            <button
+                              type="button"
+                              onClick={() => toggleFilterCronogramaCollapse(c.id)}
+                              className="w-full flex items-center justify-between gap-1.5 mb-2 group"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <div className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: c.cor }} />
+                                <span className="text-[10px] font-medium text-gray-600 dark:text-gray-300">{c.nome}</span>
+                              </span>
+                              {isCollapsed ? (
+                                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                              ) : (
+                                <svg className="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                              )}
+                            </button>
+                          )}
+                          {!isCollapsed && (
+                            <ActivityFilterTree
+                              activities={c.dados?.activities || []}
+                              excluded={new Set(activityExclusions[c.id] || [])}
+                              onChange={(next) => handleActivityExclusionChange(c.id, next)}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 </>
               )}
@@ -362,6 +449,11 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
             Peso (R$)
           </span>
+          {hasActivityFilter && (
+            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400">
+              Filtro de atividade ativo
+            </span>
+          )}
         </div>
 
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
@@ -378,7 +470,9 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
               <XAxis dataKey="semana" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
-              <RechartsTooltip formatter={(v) => (v === null || v === undefined ? '—' : `${v}%`)} />
+              <RechartsTooltip
+                content={<PesoTooltip semanas={grupoAtual.semanas} />}
+              />
               <Legend />
               <Line type="monotone" dataKey="Planejado" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />
               <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />
@@ -469,31 +563,4 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
     </div>
     </TooltipProvider>
   )
-}
-
-function resolveDataStatus(c: CronogramaInfo): Date | undefined {
-  if (c.dataStatusModo === 'manual' && c.dataStatusManual) {
-    const d = new Date(`${c.dataStatusManual}T00:00:00`)
-    return isNaN(d.getTime()) ? undefined : d
-  }
-  return c.dados.statusDate
-}
-
-function calcFracaoExec(a: { start: Date; finish: Date; percentComplete: number }, dataStatus?: Date): number {
-  if (!dataStatus) return a.percentComplete / 100
-  if (dataStatus >= a.finish) return 1
-  if (dataStatus <= a.start) return 0
-  const total = a.finish.getTime() - a.start.getTime()
-  if (total <= 0) return 1
-  return Math.max(0, Math.min(1, (dataStatus.getTime() - a.start.getTime()) / total))
-}
-
-function calcFracaoPlan(a: { baselineStart?: Date; baselineFinish?: Date }, dataStatus?: Date): number {
-  if (!a.baselineStart || !a.baselineFinish) return 0
-  if (!dataStatus) return 0
-  if (dataStatus >= a.baselineFinish) return 1
-  if (dataStatus <= a.baselineStart) return 0
-  const total = a.baselineFinish.getTime() - a.baselineStart.getTime()
-  if (total <= 0) return 1
-  return Math.max(0, Math.min(1, (dataStatus.getTime() - a.baselineStart.getTime()) / total))
 }
