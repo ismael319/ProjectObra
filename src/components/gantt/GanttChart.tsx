@@ -21,6 +21,16 @@ import { ContextMenu } from './ContextMenu';
 import { ColorPicker } from './ColorPicker';
 import { EquipeAssocModal } from './EquipeAssocModal';
 import { GANTT_COLORS } from '@/lib/chart-colors';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 type Props = {
   granularidade: Granularidade;
@@ -54,7 +64,7 @@ const COLORS = GANTT_COLORS;
 const WEEKDAY_LABELS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
 export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onScrollSync, onDateRangeChange, labelWidth, onLabelWidthChange }: Props) {
-  const { atividades, equipes, activeScenarioId, addAtividade, addAtividadeAcima, moverAtividade, updateAtividade, deleteAtividade, paradas, toggleParada } = useGanttStore();
+  const { atividades, equipes, activeScenarioId, addAtividade, addAtividadeAcima, moverAtividade, updateAtividade, deleteAtividade, paradas, toggleParada, snapshotForUndo, undo } = useGanttStore();
   const [adding, setAdding] = useState(false);
   // Quando setado, o submit do formulário "Nova atividade" insere na posição
   // dessa atividade (empurrando ela pra baixo) em vez de no fim da lista de
@@ -72,6 +82,11 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
   const [equipeAssocAtvId, setEquipeAssocAtvId] = useState<string | null>(null);
   const [estruturaMenuOpen, setEstruturaMenuOpen] = useState(false);
   const [paradaMenuOpen, setParadaMenuOpen] = useState(false);
+  // Clique no número do dia (cabeçalho) abre esta confirmação em vez de já
+  // mexer nas datas — ativar/desativar um dia empurra o término de toda
+  // atividade que passa por ele (ver handleToggleParada), então um clique sem
+  // querer no dia errado já mudava um monte de coisa sem aviso nenhum.
+  const [confirmParadaIso, setConfirmParadaIso] = useState<string | null>(null);
   const [paradaWeekdays, setParadaWeekdays] = useState<Set<number>>(new Set());
   const [isMobile, setIsMobile] = useState(() => window.matchMedia('(max-width: 639px)').matches);
   const labelResizeState = useRef<{ startX: number; startWidth: number } | null>(null);
@@ -163,6 +178,10 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         const threshold = d.pointerType === 'touch' ? 10 : 2;
         if (Math.abs(deltaPx) < threshold) return;
         d.started = true;
+        // Uma foto só, no instante em que o arraste passa a valer de verdade
+        // — não uma por pixel/tick de pointermove (viraria dezenas de
+        // "comandos" pro Ctrl+Z desfazer um milímetro por vez).
+        snapshotForUndo();
       }
       // 1 coluna só vale 1 dia em 'dia' — em 'semana'/'mes' cada coluna cobre
       // vários dias, então o arraste precisa avançar mais dias por pixel pra
@@ -210,7 +229,16 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     };
 
     const handleUp = () => {
+      const d = dragState.current;
       dragState.current = null;
+      // 'move' já propaga o delta pra cadeia inteira em tempo real (acima),
+      // mas isso só preserva a folga que já existia — só ao soltar é que
+      // reforça de fato (fim + 1 + latência), fechando qualquer folga
+      // acumulada. 'resize-r' muda o término mas nunca tinha esse reforço.
+      // 'resize-l' só muda o início, não afeta quem depende desta atividade.
+      if (d?.started && (d.type === 'move' || d.type === 'resize-r')) {
+        cascadeSuccessorConstraints(d.id);
+      }
     };
 
     window.addEventListener('pointermove', handleMove);
@@ -221,7 +249,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       window.removeEventListener('pointerup', handleUp);
       window.removeEventListener('pointercancel', handleUp);
     };
-  }, [updateAtividade, dataInicio, dataFim, onDateRangeChange, granularidade]);
+    // cascadeSuccessorConstraints não entra nas deps: ela sempre lê o estado
+    // mais recente via useGanttStore.getState() internamente, então não fica
+    // desatualizada mesmo referenciada pela closure de um efeito anterior —
+    // incluí-la aqui só forçaria o efeito a recriar os listeners a cada
+    // render (ela é uma nova função a cada vez) sem nenhum ganho real.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateAtividade, dataInicio, dataFim, onDateRangeChange, granularidade, snapshotForUndo]);
 
   // Arraste da coluna de nomes (frentes/atividades) — largura fixa cortava
   // nomes longos ("ARMAZÉM GRANELEIRO...", etc.) sem dar jeito de ver inteiro.
@@ -278,6 +312,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     // o padrão inicial do form) em vez de sempre resetar pra COLORS[0].
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || form.cor || COLORS[0];
     const percentual = Math.max(0, Math.min(100, form.percentualConcluido));
+    snapshotForUndo();
     if (insertAboveId) {
       await addAtividadeAcima(insertAboveId, form.nome.trim(), toISODate(start), toISODate(end), form.equipes, equipeCor, percentual);
     } else {
@@ -293,6 +328,17 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     setEditing(null);
     setInsertAboveId(null);
     setAdding(true);
+  };
+
+  // Tira a atividade de baixo do resumo (parent_id) atual, virando um item de
+  // nível raiz — as sub-atividades que ela mesma tiver continuam vinculadas a
+  // ela, só quem estava "por cima" dela é que muda.
+  const handleRemoverDoResumo = (atvId: string) => {
+    const atv = scenarioAtividades.find((a) => a.id === atvId);
+    if (!atv || !atv.parent_id) return;
+    const novaOrdem = scenarioAtividades.filter((a) => (a.parent_id ?? null) === null).length;
+    snapshotForUndo();
+    updateAtividade(atvId, { parent_id: null, ordem: novaOrdem });
   };
 
   // Abre o seletor de cor no lugar do menu de contexto (mesma posição x/y) —
@@ -387,6 +433,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     // A cor da equipe manda; sem equipe, mantém a cor já escolhida (manual ou
     // o padrão inicial do form) em vez de sempre resetar pra COLORS[0].
     const equipeCor = scenarioEquipes.find((e) => e.id === form.equipes[0])?.cor || form.cor || COLORS[0];
+    snapshotForUndo();
     await updateAtividade(editing, {
       nome: form.nome.trim(),
       data_inicio: toISODate(start),
@@ -395,11 +442,13 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
       cor: equipeCor,
       percentual_concluido: Math.max(0, Math.min(100, form.percentualConcluido)),
     });
+    await cascadeSuccessorConstraints(editing);
     setForm({ nome: '', equipes: [], cor: COLORS[0], duracao: 7, dataInicio: '', dataFim: '', parentId: null, percentualConcluido: 0 });
     setEditing(null);
   };
 
   const handleToggleParada = async (isoDate: string) => {
+    snapshotForUndo();
     const willActivate = !paradaSet.has(isoDate);
     await toggleParada(isoDate);
     const target = parseDate(isoDate);
@@ -427,6 +476,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     }
     if (datas.length === 0) return;
 
+    snapshotForUndo();
     // Conta quantos dias novos caem no range ORIGINAL de cada atividade antes
     // de mexer em qualquer data — senão o término ir crescendo/encolhendo no
     // meio do loop bagunçaria a contagem dos dias seguintes.
@@ -479,21 +529,62 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     }
   };
 
+  // Reforça (fim da predecessora + 1 dia + latência) em toda a cadeia de
+  // sucessoras a partir de `changedId`, sempre que o término dela muda —
+  // empurra pra frente (nunca pra trás) quem depende dela e, em cascata, os
+  // dependentes dos dependentes. applyPredecessorConstraint acima só cobre o
+  // instante em que o vínculo é criado, e o arraste da barra inteira
+  // (propagate no efeito de drag) só preserva a folga que já existia — sem
+  // isso, redimensionar uma barra ou editar as datas pelo formulário deixava a
+  // sucessora "pra trás", com uma folga que não bate com a latência
+  // configurada no vínculo (mesmo latência 0).
+  const cascadeSuccessorConstraints = async (changedId: string) => {
+    const queue = [changedId];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const currentId = queue.shift()!;
+      if (visited.has(currentId)) continue;
+      visited.add(currentId);
+      const atividadesAtuais = useGanttStore.getState().atividades;
+      const current = atividadesAtuais.find((a) => a.id === currentId);
+      if (!current) continue;
+      const currentEnd = parseDate(current.data_fim);
+      const dependentes = atividadesAtuais.filter((a) => (a.predecessoras ?? []).some((p) => p.id === currentId));
+      for (const dep of dependentes) {
+        const pred = (dep.predecessoras ?? []).find((p) => p.id === currentId);
+        if (!pred) continue;
+        const requiredStart = addDays(currentEnd, 1 + pred.lag);
+        const depStart = parseDate(dep.data_inicio);
+        if (requiredStart > depStart) {
+          const duration = daysBetween(depStart, parseDate(dep.data_fim));
+          await updateAtividade(dep.id, {
+            data_inicio: toISODate(requiredStart),
+            data_fim: toISODate(addDays(requiredStart, duration)),
+          });
+          queue.push(dep.id);
+        }
+      }
+    }
+  };
+
   const handleConfirmLag = async () => {
     if (!selectingFor || !selectingFor.targetId) return;
     const lag = selectingFor.lag;
+    snapshotForUndo();
     if (selectingFor.mode === 'predecessora') {
       const target = scenarioAtividades.find((a) => a.id === selectingFor.targetId);
       if (!target) return;
       const newPreds = [...(target.predecessoras ?? []), { id: selectingFor.sourceId, lag }];
       await updateAtividade(selectingFor.targetId, { predecessoras: newPreds });
       await applyPredecessorConstraint(selectingFor.sourceId, selectingFor.targetId, lag);
+      await cascadeSuccessorConstraints(selectingFor.targetId);
     } else {
       const current = scenarioAtividades.find((a) => a.id === selectingFor.sourceId);
       if (!current) return;
       const newPreds = [...(current.predecessoras ?? []), { id: selectingFor.targetId, lag }];
       await updateAtividade(selectingFor.sourceId, { predecessoras: newPreds });
       await applyPredecessorConstraint(selectingFor.targetId, selectingFor.sourceId, lag);
+      await cascadeSuccessorConstraints(selectingFor.sourceId);
     }
     setSelectingFor(null);
   };
@@ -503,6 +594,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     const current = scenarioAtividades.find((a) => a.id === ctxMenu.atvId);
     if (!current) return;
     const newPreds = (current.predecessoras ?? []).filter((p) => p.id !== predId);
+    snapshotForUndo();
     await updateAtividade(ctxMenu.atvId, { predecessoras: newPreds });
   };
 
@@ -514,6 +606,23 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [selectingFor]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+      if (!isUndo) return;
+      // Dentro de um campo de texto (nome, datas, etc.) deixa o Ctrl+Z ser o
+      // undo nativo do input, não o do gráfico — senão apagar uma letra
+      // digitada desfaria sem querer a última movimentação de barra.
+      const target = e.target as HTMLElement | null;
+      const isCampoDeTexto = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+      if (isCampoDeTexto) return;
+      e.preventDefault();
+      undo();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [undo]);
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-slate-900">
@@ -788,7 +897,9 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
                 key={atv.id}
                 onContextMenu={(e) => onBarContextMenu(e, atv.id)}
                 onDoubleClick={() => handleStartEdit(atv.id)}
-                className="group border-b border-gray-100 px-1 hover:bg-gray-50 dark:border-slate-800 dark:hover:bg-slate-800/30"
+                className={`group border-b border-gray-100 px-1 hover:bg-gray-50 dark:border-slate-800 dark:hover:bg-slate-800/30 ${
+                  hasChildren ? 'bg-gray-50/70 dark:bg-slate-800/50' : ''
+                }`}
                 style={{ height: rowHeight, display: 'grid', gridTemplateColumns: labelGridCols, alignItems: 'center', columnGap: 4 }}
               >
                 <div className="flex items-center min-w-0" style={{ paddingLeft: 4 + depth * 14 }}>
@@ -858,7 +969,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
         <div ref={scrollRef} onScroll={handleScroll} className="min-w-0 flex-1 overscroll-contain overflow-auto">
           <div style={{ width: totalWidth, position: 'relative' }}>
             <div className="sticky top-0 z-20 bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-600" style={{ height: HEADER_HEIGHT }}>
-              <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} />
+              <HeaderRow columns={columns} granularidade={granularidade} paradaSet={paradaSet} onToggleParada={setConfirmParadaIso} colWidth={colWidth} todayIdx={todayIdx} />
             </div>
 
             {visibleAtividades.length === 0 ? (
@@ -867,7 +978,7 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
               </div>
             ) : (
               <>
-               {visibleAtividades.map(({ atv }) => {
+               {visibleAtividades.map(({ atv, hasChildren }) => {
                 const start = parseDate(atv.data_inicio);
                 const end = parseDate(atv.data_fim);
                 const duration = daysBetween(start, end) + 1;
@@ -877,109 +988,102 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
 
                 return (
                   <div key={atv.id} className="relative flex" style={{ height: rowHeight }}>
-                    <GridRow columns={columns} paradaSet={paradaSet} onToggleParada={handleToggleParada} colWidth={colWidth} todayIdx={todayIdx} rowHeight={rowHeight} />
-                    <div
-                      className={`absolute rounded-md shadow-lg flex items-center px-2 select-none z-10 ${
-                        selectingFor
-                          ? 'cursor-pointer ring-2 ring-blue-400/70 hover:ring-blue-300'
-                          : 'cursor-grab active:cursor-grabbing'
-                      }`}
-                      style={{
-                        left: left + 1,
-                        width: Math.max(width - 2, 20),
-                        top: isMobile ? 7 : 6,
-                        height: rowHeight - (isMobile ? 14 : 12),
-                        backgroundColor: equipeCor,
-                        opacity: selectingFor && selectingFor.sourceId === atv.id ? 0.5 : 1,
-                        touchAction: 'pan-y',
-                      }}
-                      onPointerDown={(e) => {
-                        if (selectingFor) {
-                          e.preventDefault();
-                          handleSelectTarget(atv.id);
-                        } else {
-                          onBarPointerDown(e, atv.id, 'move');
-                        }
-                      }}
-                      onContextMenu={(e) => onBarContextMenu(e, atv.id)}
-                      onDoubleClick={() => handleStartEdit(atv.id)}
-                    >
+                    <GridRow columns={columns} paradaSet={paradaSet} colWidth={colWidth} todayIdx={todayIdx} rowHeight={rowHeight} />
+                    {hasChildren ? (
+                      // Linha de resumo (tem subatividades) — barra fina com "orelhas"
+                      // triangulares nas pontas, convenção clássica de Gantt (MS Project
+                      // etc.) pra diferenciar de cara do bloco colorido das tarefas-folha.
                       <div
-                        className="absolute bottom-0 left-0 top-0 w-3 cursor-ew-resize rounded-l-md bg-white/20 hover:bg-white/40 sm:w-1.5"
-                        onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-l')}
-                      />
-                      <span className="truncate px-2 text-xs font-medium text-white">
-                        {atv.nome} ({duration}d) {atv.percentual_concluido > 0 ? `· ${atv.percentual_concluido}%` : ''}
-                      </span>
-                      <div className="absolute left-1.5 right-1.5 bottom-1 h-1 bg-black/20 dark:bg-white/20 rounded-full pointer-events-none overflow-hidden">
+                        className={`absolute select-none z-10 ${
+                          selectingFor
+                            ? 'cursor-pointer'
+                            : 'cursor-grab active:cursor-grabbing'
+                        }`}
+                        style={{
+                          left: left + 1,
+                          width: Math.max(width - 2, 20),
+                          top: rowHeight / 2 - 5,
+                          height: 10,
+                          opacity: selectingFor && selectingFor.sourceId === atv.id ? 0.5 : 1,
+                          touchAction: 'pan-y',
+                        }}
+                        onPointerDown={(e) => {
+                          if (selectingFor) {
+                            e.preventDefault();
+                            handleSelectTarget(atv.id);
+                          } else {
+                            onBarPointerDown(e, atv.id, 'move');
+                          }
+                        }}
+                        onContextMenu={(e) => onBarContextMenu(e, atv.id)}
+                        onDoubleClick={() => handleStartEdit(atv.id)}
+                        title={`${atv.nome} (${duration}d)${atv.percentual_concluido > 0 ? ` · ${atv.percentual_concluido}%` : ''}`}
+                      >
                         <div
-                          className="h-full bg-white/90 rounded-full"
-                          style={{ width: `${Math.min(100, Math.max(0, atv.percentual_concluido))}%` }}
+                          className={`absolute inset-x-0 top-0 h-2.5 rounded-[2px] bg-slate-700 dark:bg-slate-300 ${
+                            selectingFor ? 'ring-2 ring-blue-400/70' : ''
+                          }`}
+                        />
+                        <div className="absolute -bottom-1.5 left-0 h-0 w-0 border-x-[5px] border-x-transparent border-t-[6px] border-t-slate-700 dark:border-t-slate-300" />
+                        <div className="absolute -bottom-1.5 right-0 h-0 w-0 border-x-[5px] border-x-transparent border-t-[6px] border-t-slate-700 dark:border-t-slate-300" />
+                        <div
+                          className="absolute bottom-0 left-0 top-0 w-3 cursor-ew-resize"
+                          onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-l')}
+                        />
+                        <div
+                          className="absolute bottom-0 right-0 top-0 w-3 cursor-ew-resize"
+                          onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-r')}
                         />
                       </div>
+                    ) : (
                       <div
-                        className="absolute bottom-0 right-0 top-0 w-3 cursor-ew-resize rounded-r-md bg-white/20 hover:bg-white/40 sm:w-1.5"
-                        onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-r')}
-                      />
-                    </div>
+                        className={`absolute rounded-md shadow-lg flex items-center px-2 select-none z-10 ${
+                          selectingFor
+                            ? 'cursor-pointer ring-2 ring-blue-400/70 hover:ring-blue-300'
+                            : 'cursor-grab active:cursor-grabbing'
+                        }`}
+                        style={{
+                          left: left + 1,
+                          width: Math.max(width - 2, 20),
+                          top: isMobile ? 7 : 6,
+                          height: rowHeight - (isMobile ? 14 : 12),
+                          backgroundColor: equipeCor,
+                          opacity: selectingFor && selectingFor.sourceId === atv.id ? 0.5 : 1,
+                          touchAction: 'pan-y',
+                        }}
+                        onPointerDown={(e) => {
+                          if (selectingFor) {
+                            e.preventDefault();
+                            handleSelectTarget(atv.id);
+                          } else {
+                            onBarPointerDown(e, atv.id, 'move');
+                          }
+                        }}
+                        onContextMenu={(e) => onBarContextMenu(e, atv.id)}
+                        onDoubleClick={() => handleStartEdit(atv.id)}
+                      >
+                        <div
+                          className="absolute bottom-0 left-0 top-0 w-3 cursor-ew-resize rounded-l-md bg-white/20 hover:bg-white/40 sm:w-1.5"
+                          onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-l')}
+                        />
+                        <span className="truncate px-2 text-xs font-medium text-white">
+                          {atv.nome} ({duration}d) {atv.percentual_concluido > 0 ? `· ${atv.percentual_concluido}%` : ''}
+                        </span>
+                        <div className="absolute left-1.5 right-1.5 bottom-1 h-1 bg-black/20 dark:bg-white/20 rounded-full pointer-events-none overflow-hidden">
+                          <div
+                            className="h-full bg-white/90 rounded-full"
+                            style={{ width: `${Math.min(100, Math.max(0, atv.percentual_concluido))}%` }}
+                          />
+                        </div>
+                        <div
+                          className="absolute bottom-0 right-0 top-0 w-3 cursor-ew-resize rounded-r-md bg-white/20 hover:bg-white/40 sm:w-1.5"
+                          onPointerDown={(e) => onBarPointerDown(e, atv.id, 'resize-r')}
+                        />
+                      </div>
+                    )}
                   </div>
                 );
               })}
-              <svg
-                className="absolute top-0 left-0 pointer-events-none z-20"
-                style={{ width: totalWidth, height: visibleAtividades.length * rowHeight }}
-              >
-                <defs>
-                  <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-                    <polygon points="0 0, 8 3, 0 6" fill="#94a3b8" />
-                  </marker>
-                </defs>
-                {visibleAtividades.map(({ atv }, atvIdx) =>
-                  (atv.predecessoras ?? []).map((dep) => {
-                    const predIdx = visibleAtividades.findIndex((v) => v.atv.id === dep.id);
-                    const pred = visibleAtividades[predIdx]?.atv;
-                    if (predIdx === -1 || !pred) return null;
-
-                    const predStart = parseDate(pred.data_inicio);
-                    const predEnd = parseDate(pred.data_fim);
-                    const predLeft = dateToX(predStart, columns, granularidade, colWidth);
-                    const predWidth = dateToX(addDays(predEnd, 1), columns, granularidade, colWidth) - predLeft;
-
-                    const curStart = parseDate(atv.data_inicio);
-                    const curLeft = dateToX(curStart, columns, granularidade, colWidth);
-
-                    const x1 = predLeft + predWidth;
-                    const y1 = predIdx * rowHeight + rowHeight / 2;
-                    const x2 = curLeft;
-                    const y2 = atvIdx * rowHeight + rowHeight / 2;
-
-                    const midX = x1 + (x2 - x1) / 2;
-
-                    return (
-                      <g key={`${dep.id}-${atv.id}`}>
-                        <path
-                          d={`M ${x1} ${y1} L ${midX} ${y1} L ${midX} ${y2} L ${x2} ${y2}`}
-                          fill="none"
-                          stroke="#94a3b8"
-                          strokeWidth="1.5"
-                          strokeDasharray="4 2"
-                          markerEnd="url(#arrowhead)"
-                        />
-                        {dep.lag > 0 && (
-                          <text
-                            x={midX}
-                            y={Math.min(y1, y2) - 4}
-                            textAnchor="middle"
-                            className="fill-gray-500 text-xs dark:fill-slate-400"
-                          >
-                            +{dep.lag}d
-                          </text>
-                        )}
-                      </g>
-                    );
-                  })
-                )}
-              </svg>
               </>
             )}
           </div>
@@ -1005,15 +1109,17 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
             outrasAtividades={scenarioAtividades.map((a) => ({ id: a.id, nome: a.nome }))}
             podeSubir={idxCtx > 0}
             podeDescer={idxCtx >= 0 && idxCtx < irmaosCtx.length - 1}
+            temPai={!!atvCtx?.parent_id}
             onClose={() => setCtxMenu(null)}
             onEdit={() => handleStartEdit(ctxMenu.atvId)}
             onManageEquipes={() => setEquipeAssocAtvId(ctxMenu.atvId)}
             onChangeColor={() => handleStartChangeColor(ctxMenu.atvId, ctxMenu.x, ctxMenu.y)}
             onAddAcima={() => handleStartAddAcima(ctxMenu.atvId)}
             onAddSubitem={() => handleStartAddSubitem(ctxMenu.atvId)}
-            onDelete={() => deleteAtividade(ctxMenu.atvId)}
-            onMoverCima={() => moverAtividade(ctxMenu.atvId, 'cima')}
-            onMoverBaixo={() => moverAtividade(ctxMenu.atvId, 'baixo')}
+            onRemoverDoResumo={() => handleRemoverDoResumo(ctxMenu.atvId)}
+            onDelete={() => { snapshotForUndo(); deleteAtividade(ctxMenu.atvId); }}
+            onMoverCima={() => { snapshotForUndo(); moverAtividade(ctxMenu.atvId, 'cima'); }}
+            onMoverBaixo={() => { snapshotForUndo(); moverAtividade(ctxMenu.atvId, 'baixo'); }}
             onStartSetPredecessora={() => setSelectingFor({ mode: 'predecessora', sourceId: ctxMenu.atvId, lag: 0 })}
             onStartSetSucessora={() => setSelectingFor({ mode: 'sucessora', sourceId: ctxMenu.atvId, lag: 0 })}
             onRemoveDependencia={handleRemoveDependencia}
@@ -1027,14 +1133,43 @@ export function GanttChart({ granularidade, dataInicio, dataFim, scrollRef, onSc
           y={colorMenu.y}
           corAtual={scenarioAtividades.find((a) => a.id === colorMenu.atvId)?.cor ?? COLORS[0]}
           onClose={() => setColorMenu(null)}
-          onSelect={(cor) => updateAtividade(colorMenu.atvId, { cor })}
+          onSelect={(cor) => { snapshotForUndo(); updateAtividade(colorMenu.atvId, { cor }); }}
         />
       )}
 
       <EquipeAssocModal
         atividade={scenarioAtividades.find((a) => a.id === equipeAssocAtvId) ?? null}
         onClose={() => setEquipeAssocAtvId(null)}
+        onBeforeChange={snapshotForUndo}
       />
+
+      <AlertDialog open={!!confirmParadaIso} onOpenChange={(o) => !o && setConfirmParadaIso(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmParadaIso && paradaSet.has(confirmParadaIso)
+                ? `Reativar o dia ${formatDayMonth(parseDate(confirmParadaIso))}?`
+                : `Marcar ${confirmParadaIso ? formatDayMonth(parseDate(confirmParadaIso)) : ''} como parada?`}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmParadaIso && paradaSet.has(confirmParadaIso)
+                ? 'O dia volta a valer como dia útil. O término de toda atividade que passa por ele volta 1 dia.'
+                : 'O dia passa a não contar como dia útil. O término de toda atividade que passa por ele avança 1 dia.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (confirmParadaIso) handleToggleParada(confirmParadaIso);
+                setConfirmParadaIso(null);
+              }}
+            >
+              Confirmar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1227,14 +1362,12 @@ function HeaderRow({
 function GridRow({
   columns,
   paradaSet,
-  onToggleParada,
   colWidth,
   todayIdx,
   rowHeight,
 }: {
   columns: Column[];
   paradaSet: Set<string>;
-  onToggleParada: (iso: string) => void;
   colWidth: number;
   todayIdx: number;
   rowHeight: number;
@@ -1249,18 +1382,20 @@ function GridRow({
         return (
           <div
             key={i}
-            onClick={() => onToggleParada(iso)}
-            className={`border-r border-gray-100 dark:border-slate-800 cursor-pointer transition-colors ${
+            // Ativar/desativar o dia (parada) só acontece clicando no número do
+            // dia no cabeçalho (ver HeaderRow) — aqui, no corpo do gráfico, é só
+            // fundo informativo, sem clique, pra não disparar sem querer ao
+            // interagir com as barras nas linhas de atividade.
+            className={`border-r border-gray-100 dark:border-slate-800 transition-colors ${
               isParada
-                ? 'bg-red-100 hover:bg-red-200 dark:bg-red-950/70 dark:hover:bg-red-900/70'
+                ? 'bg-red-100 dark:bg-red-950/70'
                 : isToday
-                ? 'bg-blue-50 hover:bg-blue-100 dark:bg-blue-900/30 dark:hover:bg-blue-800/40'
+                ? 'bg-blue-50 dark:bg-blue-900/30'
                 : isWeekend
-                ? 'bg-gray-50 hover:bg-gray-100 dark:bg-slate-800/40 dark:hover:bg-slate-700/40'
-                : 'hover:bg-gray-50 dark:hover:bg-slate-700/30'
+                ? 'bg-gray-50 dark:bg-slate-800/40'
+                : ''
             }`}
             style={{ width: colWidth, height: rowHeight }}
-            title={isParada ? 'Dia inativo (parada) — clique para reativar' : 'Clique para marcar como parada'}
           />
         );
       })}

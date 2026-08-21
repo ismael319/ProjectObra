@@ -14,6 +14,7 @@ import { useChatbotPreference } from '@/lib/chatbot-preference-context'
 import { useProjects } from '@/lib/project-store'
 import { useProject } from '@/lib/project-context'
 import { useAuth, usePapelModulo } from '@/lib/auth-context'
+import { useModulosDaObra } from '@/lib/projeto-modulos'
 import { supabase } from '@/lib/supabase'
 import { useMediaQuery } from '@/lib/use-media-query'
 import { getDashboardRouteTitle } from '@/lib/nav-config'
@@ -27,13 +28,14 @@ export default function DashboardLayout() {
   const { currentProject, isLoadingProjects, isHydratingCurrentProject } = useProjects()
   const { setProject, setMultipleProjects, project } = useProject()
   const { user, signOut, userProfile, minhasOrganizacoes, carregarMinhasOrganizacoes, trocarOrganizacao } = useAuth()
+  const modulosDaObra = useModulosDaObra()
   const navigate = useNavigate()
   const location = useLocation()
   const isInsercaoPontual = userProfile?.papel === 'insercao_pontual'
   // Papel efetivo no módulo "sistema" (override, se existir, senão o global) —
   // controla quem vê o link "Sistema" e o selo de pendências.
   const { podeEditar: podeGerenciarUsuarios } = usePapelModulo('sistema')
-  const podeAcessarSistema = !!userProfile?.modulos?.includes('sistema') && podeGerenciarUsuarios
+  const podeAcessarSistema = modulosDaObra.includes('sistema') && podeGerenciarUsuarios
   // Mesmo critério de RequirePortfolio (gate da rota) — só repete aqui pra
   // decidir se mostra o link no menu; a rota já se protege sozinha.
   const podeVerPortfolio = !!userProfile?.is_super_admin || (userProfile?.escopo_projetos === 'todos' && !isInsercaoPontual)
@@ -180,7 +182,7 @@ export default function DashboardLayout() {
     mobileOpen: mobileMenuOpen,
     onMobileClose: () => setMobileMenuOpen(false),
     papel: userProfile?.papel ?? undefined,
-    modulos: userProfile?.modulos,
+    modulos: modulosDaObra,
     podeGerenciarUsuarios: podeAcessarSistema,
     podeVerPortfolio,
     podeConfigurarApresentacao,

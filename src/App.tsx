@@ -89,7 +89,6 @@ const ApontamentoCadastro = lazy(() => import('@/pages/apontamento/Cadastro'))
 const ApontamentoEap = lazy(() => import('@/pages/apontamento/EAP'))
 const ApontamentoEapCronograma = lazy(() => import('@/pages/apontamento/EapCronograma'))
 const ApontamentoImportarXml = lazy(() => import('@/pages/apontamento/ImportarXML'))
-const ApontamentoImportarEap = lazy(() => import('@/pages/apontamento/ImportarEAP'))
 const MapaChuvas = lazy(() => import('@/pages/apontamento/MapaChuvas'))
 
 function LoadingFallback() {
@@ -243,7 +242,8 @@ function App() {
                       <Route path="people/eap" element={<RequireModulo modulo="engenharia"><ApontamentoEap /></RequireModulo>} />
                       <Route path="people/cronograma" element={<RequireModulo modulo="engenharia"><ApontamentoEapCronograma /></RequireModulo>} />
                       <Route path="people/importar-xml" element={<RequireModulo modulo="engenharia"><ApontamentoImportarXml /></RequireModulo>} />
-                      <Route path="people/importar-eap" element={<RequireModulo modulo="engenharia"><ApontamentoImportarEap /></RequireModulo>} />
+                      {/* Importar EAP virou uma aba dentro da própria EAP — a rota fica só de atalho pra quem tinha o link salvo. */}
+                      <Route path="people/importar-eap" element={<Navigate to="/dashboard/people/eap" replace />} />
                       <Route path="mapa-chuvas" element={<RequireModulo modulo="engenharia"><MapaChuvas /></RequireModulo>} />
                       <Route path="gestao-vista" element={<RequireModulo modulo="engenharia"><GestaoVista /></RequireModulo>} />
                       <Route path="gestao-vista/:plantaId" element={<RequireModulo modulo="engenharia"><GestaoVistaPlanta /></RequireModulo>} />

@@ -11,8 +11,10 @@
 // pra tabela materializada `curva_s_semanas` (ver migration
 // 20260819010000_curva-s-peso-fundacao-migration.sql).
 
+import { addMonths, addYears, endOfMonth, endOfYear, startOfMonth, startOfYear } from 'date-fns'
 import type { WBSActivity } from './xml-parser'
 import type { CronogramaInfo } from './project-store'
+import type { CurveGranularity } from './curve-utils'
 
 export interface CurvaSConfig {
   /** Dia da semana do corte, convenção Date.getDay() (0=domingo..6=sábado). Padrão do piloto: quinta (4). */
@@ -44,12 +46,26 @@ export interface CurvaSSemana {
   forecastAcum: number | null
   desvioSemana: number | null
   desvioAcum: number | null
+  /** Percentual acumulado das linhas de base adicionais (BL1..BL10) que tiverem
+   * dados no cronograma — chave 'BL1'..'BL10'. A linha de base 0 já está em
+   * avancoPlanejadoAcum, não se repete aqui. */
+  baselinesAcum: Record<string, number>
+}
+
+/** Uma linha de base adicional (BL1..BL10) disponível no cronograma, pra plotar
+ * ao lado do Planejado (que é sempre BL0). */
+export interface CurvaSBaselineInfo {
+  id: string
+  index: number
+  label: string
 }
 
 export interface CurvaSResultado {
   /** CURVA_S_DISCIPLINA_GERAL para a curva consolidada, ou o valor de Texto7 para a curva de uma disciplina. */
   disciplina: string
   semanas: CurvaSSemana[]
+  /** Linhas de base além da BL0 (Planejado) que tiverem dados no cronograma. */
+  baselinesExtras: CurvaSBaselineInfo[]
 }
 
 function round1(n: number): number {
@@ -98,6 +114,52 @@ export function gerarDatasDeCorte(inicioProjeto: Date, fimProjeto: Date, diaCort
     datas.push(new Date(cursor))
     if (cursor >= fim) break
     cursor.setDate(cursor.getDate() + 7)
+  }
+  return datas
+}
+
+/**
+ * Gera as datas de corte pra qualquer granularidade (dia/semana/mês/ano), com o
+ * mesmo contrato de `gerarDatasDeCorte` (última data sempre >= fimProjeto). Pra
+ * `'week'`, delega literalmente pra `gerarDatasDeCorte` — mesma referência de
+ * comportamento, sem alterar o caminho já validado. As demais granularidades
+ * usam o fim de cada dia/mês/ano como corte (não dependem de `diaCorteSemana`,
+ * que é um conceito só semanal).
+ */
+export function gerarDatasDeCortePorGranularidade(
+  inicioProjeto: Date,
+  fimProjeto: Date,
+  config: CurvaSConfig,
+  granularity: CurveGranularity,
+): Date[] {
+  if (granularity === 'week') return gerarDatasDeCorte(inicioProjeto, fimProjeto, config.diaCorteSemana)
+
+  const fim = apenasData(fimProjeto)
+  const datas: Date[] = []
+
+  if (granularity === 'day') {
+    const cursor = apenasData(inicioProjeto)
+    while (true) {
+      datas.push(new Date(cursor))
+      if (cursor >= fim) break
+      cursor.setDate(cursor.getDate() + 1)
+    }
+    return datas
+  }
+
+  // Avança sempre a partir do INÍCIO do mês/ano (startOf), nunca do fim (dia 31 + 1
+  // mês vira dia 3 do mês seguinte em JS — rollover que pularia fevereiro inteiro
+  // se somasse a partir de endOfMonth).
+  const inicioDoPeriodo = granularity === 'month' ? startOfMonth : startOfYear
+  const fimDoPeriodo = granularity === 'month' ? endOfMonth : endOfYear
+  const passo = granularity === 'month' ? (d: Date) => addMonths(d, 1) : (d: Date) => addYears(d, 1)
+
+  let cursorInicio = inicioDoPeriodo(inicioProjeto)
+  while (true) {
+    const corte = apenasData(fimDoPeriodo(cursorInicio))
+    datas.push(corte)
+    if (corte >= fim) break
+    cursorInicio = passo(cursorInicio)
   }
   return datas
 }
@@ -179,16 +241,25 @@ function ultimoIndiceComCorteAteData(dataCortes: Date[], dataStatus: Date | unde
   return -1
 }
 
-function calcularSemanasParaGrupo(atividades: WBSActivity[], dataCortes: Date[], indiceDiasUteis: Map<string, number>, dataStatus: Date | undefined): CurvaSSemana[] {
+function calcularSemanasParaGrupo(
+  atividades: WBSActivity[],
+  dataCortes: Date[],
+  indiceDiasUteis: Map<string, number>,
+  dataStatus: Date | undefined,
+  baselinesExtras: CurvaSBaselineInfo[],
+): CurvaSSemana[] {
   const pesoTotal = atividades.reduce((soma, a) => soma + a.number1, 0)
   if (pesoTotal <= 0) return []
 
   const indiceStatus = ultimoIndiceComCorteAteData(dataCortes, dataStatus)
 
-  const planejadoAcum = dataCortes.map((corte) => {
-    const soma = atividades.reduce((s, a) => s + a.number1 * fracaoDiasUteis(a.baselineStart, a.baselineFinish, corte, indiceDiasUteis), 0)
-    return (soma / pesoTotal) * 100
-  })
+  const acumularPorDatas = (getInicio: (a: WBSActivity) => Date | undefined, getFim: (a: WBSActivity) => Date | undefined): number[] =>
+    dataCortes.map((corte) => {
+      const soma = atividades.reduce((s, a) => s + a.number1 * fracaoDiasUteis(getInicio(a), getFim(a), corte, indiceDiasUteis), 0)
+      return (soma / pesoTotal) * 100
+    })
+
+  const planejadoAcum = acumularPorDatas((a) => a.baselineStart, (a) => a.baselineFinish)
 
   const executadoAcum = dataCortes.map((corte, i) => {
     if (i > indiceStatus) return null
@@ -198,11 +269,19 @@ function calcularSemanasParaGrupo(atividades: WBSActivity[], dataCortes: Date[],
 
   const forecastAcum = calcularForecastAcum(planejadoAcum, executadoAcum, indiceStatus)
 
+  const extrasAcum = baselinesExtras.map((bl) => ({
+    id: bl.id,
+    valores: acumularPorDatas((a) => a.baselines[bl.index]?.start, (a) => a.baselines[bl.index]?.finish),
+  }))
+
   return dataCortes.map((corte, i) => {
     const pAcum = planejadoAcum[i]
     const eAcum = executadoAcum[i]
     const pAcumAnterior = i > 0 ? planejadoAcum[i - 1] : 0
     const eAcumAnterior = i > 0 ? executadoAcum[i - 1] : 0
+
+    const baselinesAcum: Record<string, number> = {}
+    for (const extra of extrasAcum) baselinesAcum[extra.id] = round1(extra.valores[i])
 
     return {
       semanaIndice: i,
@@ -214,6 +293,7 @@ function calcularSemanasParaGrupo(atividades: WBSActivity[], dataCortes: Date[],
       forecastAcum: forecastAcum[i] === null ? null : round1(forecastAcum[i] as number),
       desvioAcum: eAcum === null ? null : round1(eAcum - pAcum),
       desvioSemana: eAcum === null || eAcumAnterior === null ? null : round1((eAcum - eAcumAnterior) - (pAcum - pAcumAnterior)),
+      baselinesAcum,
     }
   })
 }
@@ -223,6 +303,8 @@ export interface CurvaSInput {
   cronogramas: CronogramaInfo[]
   config: CurvaSConfig
   feriados: Date[]
+  /** Granularidade dos pontos de corte. Padrão 'week' — omitir mantém o comportamento de sempre. */
+  granularity?: CurveGranularity
 }
 
 /**
@@ -265,7 +347,7 @@ export function calcularCurvaSPorPeso(input: CurvaSInput): CurvaSResultado[] {
   }
   if (!inicioProjeto || !fimProjeto) return []
 
-  const dataCortes = gerarDatasDeCorte(inicioProjeto, fimProjeto, input.config.diaCorteSemana)
+  const dataCortes = gerarDatasDeCortePorGranularidade(inicioProjeto, fimProjeto, input.config, input.granularity ?? 'week')
   const indiceDiasUteis = construirIndiceDiasUteis(inicioProjeto, dataCortes[dataCortes.length - 1], input.config.diaFolgaSemanal, feriadosSet)
 
   const disciplinas = new Set<string>()
@@ -279,8 +361,18 @@ export function calcularCurvaSPorPeso(input: CurvaSInput): CurvaSResultado[] {
     grupos.push({ chave: d, atividades: atividadesValidas.filter((a) => normalizarDisciplina(a.text7) === d) })
   }
 
+  // Linhas de base além da BL0 (Planejado): uma baseline i (1-10) só entra se
+  // pelo menos uma atividade válida tiver início e término salvos nela — a maioria
+  // dos cronogramas usa só a BL0, então isso evita mostrar 10 linhas vazias.
+  const baselinesExtras: CurvaSBaselineInfo[] = []
+  for (let i = 1; i <= 10; i++) {
+    const disponivel = atividadesValidas.some((a) => a.baselines[i]?.start && a.baselines[i]?.finish)
+    if (disponivel) baselinesExtras.push({ id: `BL${i}`, index: i, label: `Linha de base ${i}` })
+  }
+
   return grupos.map(({ chave, atividades }) => ({
     disciplina: chave,
-    semanas: calcularSemanasParaGrupo(atividades, dataCortes, indiceDiasUteis, dataStatus),
+    semanas: calcularSemanasParaGrupo(atividades, dataCortes, indiceDiasUteis, dataStatus, baselinesExtras),
+    baselinesExtras,
   }))
 }

@@ -9,7 +9,7 @@ describe('nav-config', () => {
     expect(sections[2].items[0].children?.[0].path).toBe('/dashboard/qualidade/concreto/dashboard')
   })
 
-  it('lista os itens de Planejamento direto na seção, incluindo o Histograma', () => {
+  it('lista os itens de Planejamento direto na seção, incluindo o Histograma e a EAP', () => {
     const sections = buildNavSections(['engenharia'])
 
     expect(sections[0].title).toBe('SIGA Planejamento')
@@ -18,6 +18,7 @@ describe('nav-config', () => {
       '/dashboard/daily',
       '/dashboard/gantt',
       '/dashboard/histograma-mo',
+      '/dashboard/people/eap',
     ])
     expect(sections[0].items.every((item) => !item.children)).toBe(true)
   })

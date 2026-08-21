@@ -8,7 +8,6 @@ import {
   ClipboardList,
   CloudRain,
   Database,
-  FileSpreadsheet,
   FlaskConical,
   FolderCog,
   FolderTree,
@@ -47,12 +46,16 @@ export function buildNavSections(modulos: string[]): NavSection[] {
   const temQualidade = modulos.includes('qualidade')
 
   // SIGA Planejamento: cronograma, curva S e histograma da obra — itens
-  // direto na seção, sem um item "Planejamento" pai redundante.
+  // direto na seção, sem um item "Planejamento" pai redundante. EAP mora aqui
+  // (é a estrutura analítica que o resto do planejamento referencia) — a
+  // importação a partir do cronograma virou uma aba dentro da própria EAP, não
+  // mais um item de menu separado.
   const planejamentoItems: NavItem[] = temEngenharia ? [
     { icon: BarChart3, label: 'Curva S', path: '/dashboard/planning' },
     { icon: Calendar, label: 'Programação', path: '/dashboard/daily' },
     { icon: GanttChart, label: 'Gantt Livre', path: '/dashboard/gantt' },
     { icon: LineChart, label: 'Histograma', path: '/dashboard/histograma-mo' },
+    { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
   ] : []
 
   // SIGA Execução: acompanhamento do dia a dia da obra (efetivo, setores,
@@ -67,8 +70,6 @@ export function buildNavSections(modulos: string[]): NavSection[] {
         { icon: Search, label: 'Consulta', path: '/dashboard/people/consulta' },
         { icon: BarChart, label: 'Resumo', path: '/dashboard/people/resumo' },
         { icon: FolderCog, label: 'Cadastro', path: '/dashboard/people/cadastro' },
-        { icon: FolderTree, label: 'EAP', path: '/dashboard/people/eap' },
-        { icon: FileSpreadsheet, label: 'Importar EAP', path: '/dashboard/people/importar-eap' },
       ],
     },
     { icon: Map, label: 'Gestão à Vista', path: '/dashboard/gestao-vista' },
@@ -154,7 +155,6 @@ const dashboardRouteTitles = [
   ['/dashboard/seguranca/novo', 'Novo Registro RDR'],
   ['/dashboard/seguranca', 'Segurança'],
   ['/dashboard/people/importar-xml', 'Importar XML'],
-  ['/dashboard/people/importar-eap', 'Importar EAP'],
   ['/dashboard/people/lancamento', 'Lançamento de Efetivo'],
   ['/dashboard/people/validacao', 'Validação de Efetivo'],
   ['/dashboard/people/cronograma', 'Cronograma de Efetivo'],
@@ -163,7 +163,7 @@ const dashboardRouteTitles = [
   ['/dashboard/people/cadastro', 'Cadastro de Efetivo'],
   ['/dashboard/people/consulta', 'Consulta de Efetivo'],
   ['/dashboard/people/resumo', 'Resumo do Efetivo'],
-  ['/dashboard/people/eap', 'EAP do Efetivo'],
+  ['/dashboard/people/eap', 'EAP'],
   ['/dashboard/admin/seguranca', 'Monitoramento de Segurança'],
   ['/dashboard/admin/users', 'Gestão de Usuários'],
   ['/dashboard/histograma-mo', 'Histograma de Mão de Obra'],

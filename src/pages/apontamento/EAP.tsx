@@ -14,6 +14,8 @@ import { Switch } from "@/components/ui/switch";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import ImportarEapPage from "./ImportarEAP";
 import { toast } from "sonner";
 import {
   ChevronRight, ChevronDown, Plus, Pencil, Trash2, Building2, Map as MapIcon, MapPin, Wrench,
@@ -859,12 +861,19 @@ export default function EapPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-2xl font-bold">EAP - Estrutura Analítica</h1>
-          <p className="text-sm text-muted-foreground">Visualize e gerencie a hierarquia do projeto. Horas apontadas (validadas) aparecem ao lado de cada item.</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+      <div>
+        <h1 className="text-2xl font-bold">EAP - Estrutura Analítica</h1>
+        <p className="text-sm text-muted-foreground">Visualize, gerencie e importe a hierarquia do projeto. Horas apontadas (validadas) aparecem ao lado de cada item.</p>
+      </div>
+
+      <Tabs defaultValue="estrutura" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="estrutura">Estrutura</TabsTrigger>
+          <TabsTrigger value="importar">Importar do Cronograma</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="estrutura" className="space-y-4">
+        <div className="flex items-center gap-2 flex-wrap justify-end">
           <Popover>
             <PopoverTrigger asChild>
               <Button variant="outline"><FolderOpen className="h-4 w-4" /> Modelos salvos {modelos.length > 0 && `(${modelos.length})`}</Button>
@@ -911,9 +920,8 @@ export default function EapPage() {
           )}
           <Button onClick={() => openNew("setor")}><Plus className="h-4 w-4" /> Novo Setor</Button>
         </div>
-      </div>
 
-      {mergeMode && (
+        {mergeMode && (
         <Card className="border-blue-300 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/20">
           <CardContent className="p-3 space-y-3">
             <p className="text-sm">
@@ -1128,6 +1136,12 @@ export default function EapPage() {
           )}
         </CardContent>
       </Card>
+        </TabsContent>
+
+        <TabsContent value="importar">
+          <ImportarEapPage />
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>

@@ -5,6 +5,7 @@ import {
   construirIndiceDiasUteis,
   fracaoDiasUteis,
   gerarDatasDeCorte,
+  gerarDatasDeCortePorGranularidade,
   CURVA_S_CONFIG_PADRAO,
 } from './curva-s-peso'
 import type { WBSActivity, ParsedProject } from './xml-parser'
@@ -167,6 +168,63 @@ describe('fracaoDiasUteis', () => {
     const fracaoSem = fracaoDiasUteis(inicio, fim, corte, semFeriado)
     const fracaoCom = fracaoDiasUteis(inicio, fim, corte, comFeriado)
     expect(fracaoCom).not.toBe(fracaoSem)
+  })
+})
+
+describe('gerarDatasDeCortePorGranularidade', () => {
+  it("'week' delega literalmente pra gerarDatasDeCorte (mesmo resultado)", () => {
+    const inicio = new Date(2026, 3, 13)
+    const fim = new Date(2026, 3, 30)
+    const esperado = gerarDatasDeCorte(inicio, fim, 4)
+    const obtido = gerarDatasDeCortePorGranularidade(inicio, fim, { diaCorteSemana: 4, diaFolgaSemanal: 0 }, 'week')
+    expect(obtido).toEqual(esperado)
+  })
+
+  it("'day' gera um corte por dia corrido, cobrindo início e fim", () => {
+    const inicio = new Date(2026, 0, 1)
+    const fim = new Date(2026, 0, 5)
+    const datas = gerarDatasDeCortePorGranularidade(inicio, fim, CURVA_S_CONFIG_PADRAO, 'day')
+    expect(datas.length).toBe(5)
+    expect(datas[0].toISOString().slice(0, 10)).toBe('2026-01-01')
+    expect(datas[4].toISOString().slice(0, 10)).toBe('2026-01-05')
+  })
+
+  it("'month' gera um corte por fim de mês, último >= fimProjeto", () => {
+    const inicio = new Date(2026, 0, 15)
+    const fim = new Date(2026, 2, 10)
+    const datas = gerarDatasDeCortePorGranularidade(inicio, fim, CURVA_S_CONFIG_PADRAO, 'month')
+    expect(datas.length).toBe(3) // jan, fev, mar
+    for (const d of datas) expect(d.getTime()).toBeGreaterThanOrEqual(new Date(d.getFullYear(), d.getMonth() + 1, 0).getTime() - 1)
+    expect(datas[datas.length - 1].getTime()).toBeGreaterThanOrEqual(fim.getTime())
+  })
+
+  it("'year' gera um corte por fim de ano, último >= fimProjeto", () => {
+    const inicio = new Date(2025, 6, 1)
+    const fim = new Date(2027, 2, 1)
+    const datas = gerarDatasDeCortePorGranularidade(inicio, fim, CURVA_S_CONFIG_PADRAO, 'year')
+    expect(datas.length).toBe(3) // 2025, 2026, 2027
+    expect(datas[datas.length - 1].getTime()).toBeGreaterThanOrEqual(fim.getTime())
+  })
+})
+
+describe('calcularCurvaSPorPeso', () => {
+  it('sem granularity produz a mesma saída que granularity explícito "week" (contrato aditivo)', () => {
+    const a1 = activity({ uid: 1, number1: 60, start: new Date(2020, 0, 1), finish: new Date(2020, 2, 31), baselineStart: new Date(2020, 0, 1), baselineFinish: new Date(2020, 2, 31) })
+    const a2 = activity({ uid: 2, number1: 40, start: new Date(2020, 3, 1), finish: new Date(2020, 5, 30), baselineStart: new Date(2020, 3, 1), baselineFinish: new Date(2020, 5, 30) })
+    const cron = cronograma([a1, a2], {}, new Date(2020, 4, 1))
+
+    const semDefault = calcularCurvaSPorPeso({ cronogramas: [cron], config: CURVA_S_CONFIG_PADRAO, feriados: [] })
+    const comWeek = calcularCurvaSPorPeso({ cronogramas: [cron], config: CURVA_S_CONFIG_PADRAO, feriados: [], granularity: 'week' })
+    expect(semDefault).toEqual(comWeek)
+  })
+
+  it('granularity "month" fecha em 100% na última data de corte, igual ao modo semanal', () => {
+    const a1 = activity({ uid: 1, number1: 100, start: new Date(2020, 0, 1), finish: new Date(2020, 5, 30), baselineStart: new Date(2020, 0, 1), baselineFinish: new Date(2020, 5, 30) })
+    const cron = cronograma([a1], {}, new Date(2020, 4, 1))
+
+    const mensal = calcularCurvaSPorPeso({ cronogramas: [cron], config: CURVA_S_CONFIG_PADRAO, feriados: [], granularity: 'month' })
+    const geral = mensal.find((r) => r.disciplina === 'GERAL')!
+    expect(geral.semanas[geral.semanas.length - 1].avancoPlanejadoAcum).toBe(100)
   })
 })
 

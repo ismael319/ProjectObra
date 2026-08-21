@@ -8,9 +8,16 @@ type State = {
   atividades: Atividade[];
   paradas: Parada[];
   activeScenarioId: string | null;
+  // Obra e organização cujos cenários estão carregados — todo cenário novo
+  // (addScenario/duplicateScenario/importScenario) nasce vinculado a elas.
+  // Setados por loadAll, que é quem sabe qual obra está ativa na tela.
+  projetoId: string | null;
+  organizacaoId: string | null;
   loading: boolean;
   error: string | null;
-  loadAll: () => Promise<void>;
+  // Cada obra tem seu próprio conjunto de cenários — precisa saber qual obra
+  // (e organização, pra gravar nos inserts) carregar.
+  loadAll: (projetoId: string, organizacaoId: string) => Promise<void>;
   setActiveScenario: (id: string) => void;
   addScenario: (name: string) => Promise<void>;
   // Cria um cenário novo já copiando equipes, atividades (hierarquia,
@@ -61,6 +68,14 @@ type State = {
   moverAtividade: (id: string, direcao: 'cima' | 'baixo') => Promise<void>;
   deleteAtividade: (id: string) => Promise<void>;
   toggleParada: (data: string) => Promise<void>;
+  // Pilha de "fotos" de atividades/paradas pra Ctrl+Z no Gantt Livre — quem
+  // chama uma ação (GanttChart.tsx) tira a foto ANTES de mexer, uma vez por
+  // comando do usuário (ex.: uma vez por arraste inteiro, não por pixel
+  // movido) — ver snapshotForUndo. undo() desfaz tudo que mudou desde a
+  // última foto, de uma vez.
+  undoStack: { atividades: Atividade[]; paradas: Parada[] }[];
+  snapshotForUndo: () => void;
+  undo: () => Promise<void>;
 };
 
 const genId = (prefix: string) =>
@@ -174,26 +189,36 @@ export const useGanttStore = create<State>((set, get) => ({
   atividades: [],
   paradas: [],
   activeScenarioId: null,
+  projetoId: null,
+  organizacaoId: null,
   loading: true,
   error: null,
+  undoStack: [],
 
-  loadAll: async () => {
-    set({ loading: true, error: null });
+  loadAll: async (projetoId, organizacaoId) => {
+    set({ loading: true, error: null, projetoId, organizacaoId });
     try {
-      const [scnRes, eqRes, atvRes, prdRes] = await Promise.all([
-        supabase.from('scenarios').select('*').order('created_at'),
-        supabase.from('equipes').select('*'),
-        supabase.from('gantt_atividades').select('*').order('ordem'),
-        supabase.from('paradas').select('*'),
-      ]);
+      // equipes/gantt_atividades/paradas só têm scenario_id — pra filtrar por
+      // obra, primeiro resolve quais cenários são dela, depois filtra as
+      // outras três por esse conjunto de ids.
+      const scnRes = await supabase.from('scenarios').select('*').eq('projeto_id', projetoId).order('created_at');
+      reportError('carregar cenários', scnRes.error);
+      const scenarios = (scnRes.data || []) as Scenario[];
+      const scenarioIds = scenarios.map((s) => s.id);
+
+      const [eqRes, atvRes, prdRes] = scenarioIds.length > 0
+        ? await Promise.all([
+          supabase.from('equipes').select('*').in('scenario_id', scenarioIds),
+          supabase.from('gantt_atividades').select('*').in('scenario_id', scenarioIds).order('ordem'),
+          supabase.from('paradas').select('*').in('scenario_id', scenarioIds),
+        ])
+        : [{ data: [], error: null }, { data: [], error: null }, { data: [], error: null }] as const;
       // Erro de permissão numa tabela não deve travar as outras — reporta e segue
       // com o que deu certo, em vez de deixar a página inteira em branco.
-      reportError('carregar cenários', scnRes.error);
       reportError('carregar equipes', eqRes.error);
       reportError('carregar atividades', atvRes.error);
       reportError('carregar paradas', prdRes.error);
 
-      const scenarios = (scnRes.data || []) as Scenario[];
       const activeId = scenarios[0]?.id ?? null;
       set({
         scenarios,
@@ -207,6 +232,8 @@ export const useGanttStore = create<State>((set, get) => ({
         paradas: (prdRes.data || []) as Parada[],
         activeScenarioId: activeId,
         loading: false,
+        // Foto de outra obra não faz sentido pra desfazer aqui.
+        undoStack: [],
       });
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
@@ -216,18 +243,22 @@ export const useGanttStore = create<State>((set, get) => ({
   setActiveScenario: (id) => set({ activeScenarioId: id }),
 
   addScenario: async (name) => {
+    const { projetoId, organizacaoId } = get();
+    if (!projetoId || !organizacaoId) return;
     const id = genId('scn');
-    const { error } = await supabase.from('scenarios').insert({ id, name });
+    const { error } = await supabase.from('scenarios').insert({ id, name, projeto_id: projetoId, organizacao_id: organizacaoId });
     if (reportError('criar cenário', error)) return;
     set((s) => ({
-      scenarios: [...s.scenarios, { id, name }],
+      scenarios: [...s.scenarios, { id, name, projeto_id: projetoId, organizacao_id: organizacaoId }],
       activeScenarioId: id,
     }));
   },
 
   duplicateScenario: async (name, sourceScenarioId) => {
+    const { projetoId, organizacaoId } = get();
+    if (!projetoId || !organizacaoId) return;
     const id = genId('scn');
-    const { error: scnError } = await supabase.from('scenarios').insert({ id, name });
+    const { error: scnError } = await supabase.from('scenarios').insert({ id, name, projeto_id: projetoId, organizacao_id: organizacaoId });
     if (reportError('duplicar cenário', scnError)) return;
 
     const sourceEquipes = get().equipes.filter((e) => e.scenario_id === sourceScenarioId);
@@ -236,7 +267,7 @@ export const useGanttStore = create<State>((set, get) => ({
     const { equipes, atividades, paradas } = await copyScenarioData(id, sourceEquipes, sourceAtividades, sourceParadas);
 
     set((s) => ({
-      scenarios: [...s.scenarios, { id, name }],
+      scenarios: [...s.scenarios, { id, name, projeto_id: projetoId, organizacao_id: organizacaoId }],
       equipes: [...s.equipes, ...equipes],
       atividades: [...s.atividades, ...atividades],
       paradas: [...s.paradas, ...paradas],
@@ -245,14 +276,16 @@ export const useGanttStore = create<State>((set, get) => ({
   },
 
   importScenario: async (name, data) => {
+    const { projetoId, organizacaoId } = get();
+    if (!projetoId || !organizacaoId) return;
     const id = genId('scn');
-    const { error: scnError } = await supabase.from('scenarios').insert({ id, name });
+    const { error: scnError } = await supabase.from('scenarios').insert({ id, name, projeto_id: projetoId, organizacao_id: organizacaoId });
     if (reportError('importar cenário', scnError)) return;
 
     const { equipes, atividades, paradas } = await copyScenarioData(id, data.equipes, data.atividades, data.paradas);
 
     set((s) => ({
-      scenarios: [...s.scenarios, { id, name }],
+      scenarios: [...s.scenarios, { id, name, projeto_id: projetoId, organizacao_id: organizacaoId }],
       equipes: [...s.equipes, ...equipes],
       atividades: [...s.atividades, ...atividades],
       paradas: [...s.paradas, ...paradas],
@@ -537,5 +570,79 @@ export const useGanttStore = create<State>((set, get) => ({
       if (reportError('marcar parada', error)) return;
       set((s) => ({ paradas: [...s.paradas, { id, scenario_id: sid, data }] }));
     }
+  },
+
+  snapshotForUndo: () => {
+    const { atividades, paradas } = get();
+    set((s) => {
+      const next = [
+        ...s.undoStack,
+        {
+          atividades: atividades.map((a) => ({ ...a, predecessoras: [...a.predecessoras], equipes_alocadas: [...a.equipes_alocadas] })),
+          paradas: paradas.map((p) => ({ ...p })),
+        },
+      ];
+      // Só as últimas 20 fotos — o Gantt Livre não precisa de desfazer "desde
+      // sempre", e cada foto guarda a lista inteira de atividades da obra.
+      return { undoStack: next.length > 20 ? next.slice(next.length - 20) : next };
+    });
+  },
+
+  undo: async () => {
+    const stack = get().undoStack;
+    if (stack.length === 0) {
+      toast.info('Nada para desfazer.');
+      return;
+    }
+    const snapshot = stack[stack.length - 1];
+    set({ undoStack: stack.slice(0, -1) });
+
+    const atividadesAtuais = get().atividades;
+    const paradasAtuais = get().paradas;
+
+    const snapshotAtvIds = new Set(snapshot.atividades.map((a) => a.id));
+    const toDeleteAtv = atividadesAtuais.filter((a) => !snapshotAtvIds.has(a.id)).map((a) => a.id);
+    if (toDeleteAtv.length > 0) {
+      const { error } = await supabase.from('gantt_atividades').delete().in('id', toDeleteAtv);
+      if (reportError('desfazer (remover atividades)', error)) return;
+    }
+
+    // Pai antes do filho — mesma exigência de addAtividadesBulk/copyScenarioData
+    // (FK de parent_id) — reinserir/atualizar um filho antes do pai dele falharia.
+    const byId = new Map(snapshot.atividades.map((a) => [a.id, a]));
+    const ordered: Atividade[] = [];
+    const visited = new Set<string>();
+    const visit = (a: Atividade) => {
+      if (visited.has(a.id)) return;
+      visited.add(a.id);
+      if (a.parent_id && byId.has(a.parent_id)) visit(byId.get(a.parent_id)!);
+      ordered.push(a);
+    };
+    snapshot.atividades.forEach(visit);
+
+    for (const a of ordered) {
+      const { error } = await supabase.from('gantt_atividades').upsert({
+        id: a.id, scenario_id: a.scenario_id, nome: a.nome, data_inicio: a.data_inicio, data_fim: a.data_fim,
+        equipes_alocadas: a.equipes_alocadas, cor: a.cor, ordem: a.ordem, predecessoras: a.predecessoras,
+        parent_id: a.parent_id, percentual_concluido: a.percentual_concluido,
+      });
+      if (reportError(`desfazer atividade "${a.nome}"`, error)) return;
+    }
+
+    const snapshotParadaIds = new Set(snapshot.paradas.map((p) => p.id));
+    const toDeleteParada = paradasAtuais.filter((p) => !snapshotParadaIds.has(p.id)).map((p) => p.id);
+    if (toDeleteParada.length > 0) {
+      const { error } = await supabase.from('paradas').delete().in('id', toDeleteParada);
+      if (reportError('desfazer (remover paradas)', error)) return;
+    }
+    const paradaAtualIds = new Set(paradasAtuais.map((p) => p.id));
+    const toInsertParada = snapshot.paradas.filter((p) => !paradaAtualIds.has(p.id));
+    for (const p of toInsertParada) {
+      const { error } = await supabase.from('paradas').insert({ id: p.id, scenario_id: p.scenario_id, data: p.data });
+      if (reportError('desfazer (recriar parada)', error)) return;
+    }
+
+    set({ atividades: snapshot.atividades, paradas: snapshot.paradas });
+    toast.success('Última ação desfeita.');
   },
 }));

@@ -1,9 +1,28 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo, type ElementType } from 'react'
 import { toast } from 'sonner'
-import { X, Loader2, ChevronDown, ChevronRight, Save, Pencil, FolderKanban } from 'lucide-react'
+import {
+  X, Loader2, ChevronDown, ChevronRight, Save, Pencil, FolderKanban, Search,
+  Package, Users2, ShieldCheck, GanttChart, FlaskConical, AlertTriangle, PackageSearch, UserCog, Settings2, Boxes,
+} from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { useAuth, type PapelUsuario } from '@/lib/auth-context'
 import UserApprovalManagement from '@/pages/UserApprovalManagement'
+
+// Mesmos ícones já usados em nav-config.ts/OrganizacaoCard.tsx pra cada
+// módulo — só reaproveitados aqui pra dar identidade visual às listas de
+// módulo (contratados e por obra), em vez de checkbox cru sem contexto.
+const MODULO_ICONS: Record<string, ElementType> = {
+  engenharia: GanttChart,
+  qualidade: FlaskConical,
+  seguranca: AlertTriangle,
+  suprimentos: PackageSearch,
+  administracao: UserCog,
+  sistema: Settings2,
+}
+
+function iconeModulo(key: string): ElementType {
+  return MODULO_ICONS[key] ?? Boxes
+}
 
 interface PlanoRow {
   id: string
@@ -104,6 +123,15 @@ export default function OrganizacaoDetailModal({
   const [isLoadingAcessos, setIsLoadingAcessos] = useState(false)
   const [savingAcessoUserId, setSavingAcessoUserId] = useState<string | null>(null)
 
+  // Módulos ativos/inativos na obra selecionada — desativado aqui só afeta
+  // essa obra, não a empresa inteira (ver src/lib/projeto-modulos.ts). Set
+  // guarda os DESATIVADOS (ausência = ativo, herda o que a empresa contratou).
+  const [modulosDesativadosObra, setModulosDesativadosObra] = useState<Set<string>>(new Set())
+  const [isLoadingModulosObra, setIsLoadingModulosObra] = useState(false)
+  const [savingModuloObraKey, setSavingModuloObraKey] = useState<string | null>(null)
+
+  const [buscaMembro, setBuscaMembro] = useState('')
+
   const carregarProjetos = useCallback(async () => {
     setIsLoadingProjetos(true)
     const { data, error } = await supabase
@@ -144,6 +172,53 @@ export default function OrganizacaoDetailModal({
       })
     return () => { cancelado = true }
   }, [projetoSelecionadoId])
+
+  useEffect(() => {
+    if (!projetoSelecionadoId) {
+      setModulosDesativadosObra(new Set())
+      return
+    }
+    let cancelado = false
+    setIsLoadingModulosObra(true)
+    supabase.from('projeto_modulos_desativados').select('modulo_key').eq('projeto_id', projetoSelecionadoId)
+      .then(({ data, error }) => {
+        if (cancelado) return
+        if (error) {
+          toast.error(`Erro ao carregar módulos da obra: ${error.message}`)
+        } else {
+          setModulosDesativadosObra(new Set((data ?? []).map((r) => r.modulo_key as string)))
+        }
+        setIsLoadingModulosObra(false)
+      })
+    return () => { cancelado = true }
+  }, [projetoSelecionadoId])
+
+  const handleToggleModuloObra = async (moduloKey: string, ativoAtualmente: boolean) => {
+    if (!projetoSelecionadoId) return
+    setSavingModuloObraKey(moduloKey)
+    if (ativoAtualmente) {
+      const { error } = await supabase
+        .from('projeto_modulos_desativados')
+        .insert({ projeto_id: projetoSelecionadoId, modulo_key: moduloKey, desativado_por: user?.id ?? null })
+      if (error) {
+        toast.error(`Não foi possível desativar o módulo nessa obra: ${error.message}`)
+      } else {
+        setModulosDesativadosObra((prev) => new Set(prev).add(moduloKey))
+      }
+    } else {
+      const { error } = await supabase
+        .from('projeto_modulos_desativados')
+        .delete()
+        .eq('projeto_id', projetoSelecionadoId)
+        .eq('modulo_key', moduloKey)
+      if (error) {
+        toast.error(`Não foi possível reativar o módulo nessa obra: ${error.message}`)
+      } else {
+        setModulosDesativadosObra((prev) => { const n = new Set(prev); n.delete(moduloKey); return n })
+      }
+    }
+    setSavingModuloObraKey(null)
+  }
 
   const handleToggleAcessoObra = async (membro: MembroRow, concedido: boolean) => {
     if (!projetoSelecionadoId) return
@@ -296,6 +371,26 @@ export default function OrganizacaoDetailModal({
 
   const modulosContratados = modulosCatalogo.filter((m) => modulosAtivos.has(m.key))
 
+  const membrosFiltrados = useMemo(() => {
+    const termo = buscaMembro.trim().toLowerCase()
+    if (!termo) return membros
+    return membros.filter((m) =>
+      (m.email ?? '').toLowerCase().includes(termo) || (m.funcao ?? '').toLowerCase().includes(termo)
+    )
+  }, [membros, buscaMembro])
+
+  // Quem já está cadastrado na obra selecionada (automático + concedido
+  // explicitamente) vs. quem ainda pode ser adicionado — a lista completa dos
+  // 22 membros da empresa não cabe aqui, só quem realmente acessa essa obra.
+  const membrosComAcessoObra = useMemo(
+    () => membros.filter((m) => m.escopo_projetos === 'todos' || acessosProjeto.has(m.id)),
+    [membros, acessosProjeto],
+  )
+  const membrosSemAcessoObra = useMemo(
+    () => membros.filter((m) => m.escopo_projetos !== 'todos' && !acessosProjeto.has(m.id)),
+    [membros, acessosProjeto],
+  )
+
   const toggleModuloVisivel = (membroId: string, moduloKey: string) => {
     setModulosVisiveis((prev) => {
       const atual = prev[membroId]
@@ -390,8 +485,8 @@ export default function OrganizacaoDetailModal({
         <div className="p-6 space-y-8">
           {/* Pacote contratado */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-              Pacote contratado
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              <Package size={13} className="text-gray-400 dark:text-gray-500" /> Pacote contratado
             </h3>
             {isLoadingPlano ? (
               <div className="flex items-center py-2">
@@ -421,27 +516,35 @@ export default function OrganizacaoDetailModal({
 
           {/* Módulos contratados */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-              Módulos contratados
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">
+              <Boxes size={13} className="text-gray-400 dark:text-gray-500" /> Módulos contratados
             </h3>
+            <p className="text-[11px] text-gray-400 dark:text-gray-500 mb-3">
+              Teto da empresa — vale pra todas as obras, salvo desativação específica em "Módulos desta obra" abaixo.
+            </p>
             {modulosCatalogo.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">Nenhum módulo no catálogo.</p>
             ) : (
-              <div className="flex flex-wrap gap-4">
+              <div className="flex flex-wrap gap-2">
                 {modulosCatalogo.map((m) => {
                   const ativo = modulosAtivos.has(m.key)
                   const toggling = togglingModulo === m.key
+                  const Icone = iconeModulo(m.key)
                   return (
-                    <label key={m.key} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={ativo}
-                        disabled={toggling}
-                        onChange={() => onToggleModulo(m.key, ativo)}
-                        className="w-4 h-4"
-                      />
+                    <button
+                      key={m.key}
+                      type="button"
+                      disabled={toggling}
+                      onClick={() => onToggleModulo(m.key, ativo)}
+                      className={`flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
+                        ativo
+                          ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                          : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-500'
+                      }`}
+                    >
+                      {toggling ? <Loader2 size={13} className="animate-spin" /> : <Icone size={13} />}
                       {m.nome}
-                    </label>
+                    </button>
                   )
                 })}
               </div>
@@ -450,18 +553,33 @@ export default function OrganizacaoDetailModal({
 
           {/* Membros */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-              Membros
-            </h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h3 className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide">
+                <Users2 size={13} className="text-gray-400 dark:text-gray-500" /> Membros
+              </h3>
+              {membros.length > 5 && (
+                <div className="relative">
+                  <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-300 dark:text-gray-600" />
+                  <input
+                    value={buscaMembro}
+                    onChange={(e) => setBuscaMembro(e.target.value)}
+                    placeholder="Buscar por email ou função"
+                    className="text-xs border border-gray-200 dark:border-gray-700 rounded-full bg-white dark:bg-gray-900 pl-7 pr-3 py-1.5 w-56 max-w-full"
+                  />
+                </div>
+              )}
+            </div>
             {isLoadingMembros ? (
               <div className="flex items-center justify-center py-8">
                 <Loader2 className="animate-spin text-blue-600" size={24} />
               </div>
             ) : membros.length === 0 ? (
               <p className="text-sm text-gray-400 dark:text-gray-500">Nenhum membro aprovado nessa empresa ainda.</p>
+            ) : membrosFiltrados.length === 0 ? (
+              <p className="text-sm text-gray-400 dark:text-gray-500">Nenhum membro encontrado para "{buscaMembro}".</p>
             ) : (
               <div className="space-y-2">
-                {membros.map((membro) => {
+                {membrosFiltrados.map((membro) => {
                   const expanded = expandedMembroId === membro.id
                   const restricao = modulosVisiveis[membro.id]
                   const semRestricao = restricao === null || restricao === undefined
@@ -508,6 +626,7 @@ export default function OrganizacaoDetailModal({
                               <div className="flex flex-wrap gap-3 py-2">
                                 {modulosContratados.map((m) => {
                                   const checked = semRestricao ? true : restricao!.has(m.key)
+                                  const Icone = iconeModulo(m.key)
                                   return (
                                     <label key={m.key} className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-300 cursor-pointer">
                                       <input
@@ -516,6 +635,7 @@ export default function OrganizacaoDetailModal({
                                         onChange={() => toggleModuloVisivel(membro.id, m.key)}
                                         className="w-3.5 h-3.5"
                                       />
+                                      <Icone size={12} className="text-gray-400 dark:text-gray-500" />
                                       {m.nome}
                                     </label>
                                   )
@@ -539,10 +659,10 @@ export default function OrganizacaoDetailModal({
             )}
           </section>
 
-          {/* Acesso por obra */}
+          {/* Acesso por obra + módulos por obra — mesmo seletor de obra pras duas coisas */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-              Acesso por obra
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              <FolderKanban size={13} className="text-gray-400 dark:text-gray-500" /> Obra selecionada
             </h3>
             {isLoadingProjetos ? (
               <div className="flex items-center py-2">
@@ -564,7 +684,51 @@ export default function OrganizacaoDetailModal({
                     ))}
                   </select>
                 </div>
+
+                {/* Módulos desta obra */}
+                <div className="p-3 border-b border-gray-100 dark:border-gray-700">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-2">
+                    <Boxes size={12} /> Módulos ativos nesta obra
+                  </p>
+                  {modulosContratados.length === 0 ? (
+                    <p className="text-xs text-gray-400 dark:text-gray-500">Essa empresa não tem módulos contratados ainda.</p>
+                  ) : isLoadingModulosObra ? (
+                    <div className="flex items-center justify-center py-3">
+                      <Loader2 className="animate-spin text-blue-600" size={16} />
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {modulosContratados.map((m) => {
+                        const ativo = !modulosDesativadosObra.has(m.key)
+                        const toggling = savingModuloObraKey === m.key
+                        const Icone = iconeModulo(m.key)
+                        return (
+                          <button
+                            key={m.key}
+                            type="button"
+                            disabled={toggling}
+                            onClick={() => handleToggleModuloObra(m.key, ativo)}
+                            title={ativo ? 'Ativo nesta obra — clique pra desativar só aqui' : 'Desativado nesta obra — clique pra reativar'}
+                            className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                              ativo
+                                ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
+                                : 'border-gray-200 bg-gray-50 text-gray-400 dark:border-gray-700 dark:bg-gray-900/40 dark:text-gray-500 line-through'
+                            }`}
+                          >
+                            {toggling ? <Loader2 size={12} className="animate-spin" /> : <Icone size={12} />}
+                            {m.nome}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Quem acessa esta obra — só quem já está cadastrado nela, não a lista inteira da empresa */}
                 <div className="p-3">
+                  <p className="flex items-center gap-1.5 text-[11px] font-medium text-gray-500 dark:text-gray-400 mb-2">
+                    <Users2 size={12} /> Quem acessa esta obra
+                  </p>
                   {membros.length === 0 ? (
                     <p className="text-xs text-gray-400 dark:text-gray-500">Nenhum membro aprovado nessa empresa ainda.</p>
                   ) : isLoadingAcessos ? (
@@ -572,30 +736,50 @@ export default function OrganizacaoDetailModal({
                       <Loader2 className="animate-spin text-blue-600" size={18} />
                     </div>
                   ) : (
-                    <div className="space-y-1.5">
-                      {membros.map((membro) => {
-                        const acessoAutomatico = membro.escopo_projetos === 'todos'
-                        const temAcesso = acessoAutomatico || acessosProjeto.has(membro.id)
-                        return (
-                          <label
-                            key={membro.id}
-                            className={`flex items-center gap-2 text-sm py-1 ${acessoAutomatico ? 'text-gray-400 dark:text-gray-500' : 'text-gray-700 dark:text-gray-200 cursor-pointer'}`}
-                          >
-                            <input
-                              type="checkbox"
-                              checked={temAcesso}
-                              disabled={acessoAutomatico || savingAcessoUserId === membro.id}
-                              onChange={() => handleToggleAcessoObra(membro, temAcesso)}
-                              className="w-3.5 h-3.5"
-                            />
-                            <span className="flex-1 min-w-0 truncate">{membro.email ?? membro.id}</span>
-                            {acessoAutomatico && (
-                              <span className="text-[11px] shrink-0">acesso automático (todas as obras)</span>
-                            )}
-                          </label>
-                        )
-                      })}
-                    </div>
+                    <>
+                      {membrosComAcessoObra.length === 0 ? (
+                        <p className="text-xs text-gray-400 dark:text-gray-500 mb-2">Ninguém cadastrado nessa obra ainda.</p>
+                      ) : (
+                        <div className="space-y-1.5 mb-2">
+                          {membrosComAcessoObra.map((membro) => {
+                            const acessoAutomatico = membro.escopo_projetos === 'todos'
+                            return (
+                              <div key={membro.id} className="flex items-center gap-2 text-sm py-1 text-gray-700 dark:text-gray-200">
+                                <span className="flex-1 min-w-0 truncate">{membro.email ?? membro.id}</span>
+                                {acessoAutomatico ? (
+                                  <span className="text-[11px] text-gray-400 dark:text-gray-500 shrink-0">acesso automático (todas as obras)</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    disabled={savingAcessoUserId === membro.id}
+                                    onClick={() => handleToggleAcessoObra(membro, true)}
+                                    className="text-[11px] text-gray-400 hover:text-red-600 dark:text-gray-500 dark:hover:text-red-400 shrink-0 disabled:opacity-50"
+                                  >
+                                    remover
+                                  </button>
+                                )}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {membrosSemAcessoObra.length > 0 && (
+                        <select
+                          value=""
+                          disabled={!!savingAcessoUserId}
+                          onChange={(e) => {
+                            const membro = membrosSemAcessoObra.find((m) => m.id === e.target.value)
+                            if (membro) handleToggleAcessoObra(membro, false)
+                          }}
+                          className="w-full text-xs border border-gray-200 dark:border-gray-700 rounded bg-white dark:bg-gray-900 px-2 py-1.5"
+                        >
+                          <option value="">+ Adicionar membro a esta obra…</option>
+                          {membrosSemAcessoObra.map((m) => (
+                            <option key={m.id} value={m.id}>{m.email ?? m.id}</option>
+                          ))}
+                        </select>
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -606,8 +790,8 @@ export default function OrganizacaoDetailModal({
               própria empresa vê em Gestão de Usuários, só que o Dono pode
               abrir de qualquer empresa daqui, não só a que ele mesmo pertence. */}
           <section>
-            <h3 className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
-              Solicitações e convites
+            <h3 className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-3">
+              <ShieldCheck size={13} className="text-gray-400 dark:text-gray-500" /> Solicitações e convites
             </h3>
             <UserApprovalManagement
               organizacaoId={organizacao.id}

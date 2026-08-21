@@ -1,5 +1,12 @@
 -- Migrações SQL para o Gantt Livre
 -- Execute estas queries no Supabase SQL Editor
+--
+-- ATENÇÃO: este script cria as políticas de RLS originais ("Allow all for
+-- authenticated" — sem nenhum isolamento por obra). Se as tabelas já
+-- existirem, rode também supabase/migrations/20260821000000_gantt-livre-
+-- isolamento-por-obra-migration.sql em seguida (ou em vez deste, numa
+-- instalação nova) — sem ela, todo cenário do Gantt Livre fica visível e
+-- editável por qualquer obra de qualquer organização.
 
 -- Tabela de cenários
 CREATE TABLE IF NOT EXISTS scenarios (

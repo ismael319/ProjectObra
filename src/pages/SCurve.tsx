@@ -1,10 +1,12 @@
-import { useMemo, useState, useCallback, useEffect } from 'react'
+import { useMemo, useState, useCallback, useEffect, useRef } from 'react'
 import { BarChart3, Filter, SlidersHorizontal, Wrench, Layers, Download, FileText, Table2, FileCode, ChevronDown, ChevronUp, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useProject } from '@/lib/project-context'
 import { useProjects } from '@/lib/project-store'
 import { isHighImpact } from '@/lib/occurrence-types'
-import { exportToExcel, exportToPDF, exportSCurveToExcel } from '@/lib/export-utils'
+import { exportToExcel, exportSCurveToExcel } from '@/lib/export-utils'
+import { downloadNodeAsPdf } from '@/lib/png-export'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
@@ -65,6 +67,10 @@ function loadSaved<T>(key: string, fallback: T): T {
 export default function SCurve() {
   const { activities, resources, assignments, occurrences } = useProject()
   const { currentProject } = useProjects()
+  // Aponta pro container que envolve a página inteira (header, cards, gráfico,
+  // causa-raiz, tabelas) — usado pra exportar um PDF que é literalmente um
+  // "print" do que está na tela, em vez de um relatório de dados separado.
+  const pageRef = useRef<HTMLDivElement>(null)
   const [unit] = useState<CalculationUnit>(loadSaved(UNIT_KEY, 'HH'))
   const [selectedBL, setSelectedBL] = useState<string>(loadSaved(BL_KEY, 'BL0'))
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(loadSaved(CRONSEL_KEY, []))
@@ -607,7 +613,7 @@ export default function SCurve() {
 
   return (
     <TooltipProvider delayDuration={300}>
-    <div className="space-y-4 sm:space-y-6">
+    <div className="space-y-4 sm:space-y-6" ref={pageRef}>
       <SCurveHeader
         projectName={project.nome}
         unit={unit}
@@ -990,10 +996,19 @@ export default function SCurve() {
                   <Download size={16} className="text-green-600" /> Excel
                 </button>
                 <button
-                  onClick={() => { exportToPDF(activities, null, project.nome); setOpenPanel(null) }}
+                  onClick={async () => {
+                    setOpenPanel(null)
+                    if (!pageRef.current) return
+                    try {
+                      await downloadNodeAsPdf(pageRef.current, `${project.nome}_curva_s.pdf`, '#ffffff')
+                    } catch (e) {
+                      const msg = e instanceof Error ? e.message : 'Erro ao exportar PDF'
+                      toast.error(msg)
+                    }
+                  }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition"
                 >
-                  <FileText size={16} className="text-red-600" /> PDF
+                  <FileText size={16} className="text-red-600" /> PDF (página completa)
                 </button>
                 <div className="border-t border-gray-100 dark:border-gray-700 my-1" />
                 <button

@@ -6,6 +6,8 @@ export { supabase } from '@/lib/supabase';
 export type Scenario = {
   id: string;
   name: string;
+  projeto_id: string;
+  organizacao_id: string;
   created_at?: string;
 };
 

@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { Loader2, PanelLeftOpen, Presentation, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useGanttStore } from '@/lib/gantt/store';
+import { useProjects } from '@/lib/project-store';
+import { useAuth } from '@/lib/auth-context';
 import { usePresentationMode } from '@/lib/presentation-mode';
 import { ScenarioTabs } from '@/components/gantt/ScenarioTabs';
 import { Toolbar } from '@/components/gantt/Toolbar';
@@ -49,6 +51,9 @@ function excelToISODate(v: unknown, XLSX: typeof import('xlsx')): string | null 
 
 export default function GanttChartPage() {
   const { loading, error, loadAll, atividades, equipes, activeScenarioId, updateAtividade } = useGanttStore();
+  const { currentProject } = useProjects();
+  const { userProfile } = useAuth();
+  const organizacaoId = userProfile?.organizacao_id;
   const [granularidade, setGranularidade] = useState<Granularidade>('semana');
   const [showImportModal, setShowImportModal] = useState(false);
   const [equipesOpen, setEquipesOpen] = useState(() => window.innerWidth >= 1024);
@@ -112,8 +117,9 @@ export default function GanttChartPage() {
   const [dataFim, setDataFim] = useState<Date>(() => addDays(startOfWeek(new Date(2026, 5, 22)), 42));
 
   useEffect(() => {
-    loadAll();
-  }, [loadAll]);
+    if (!currentProject?.id || !organizacaoId) return;
+    loadAll(currentProject.id, organizacaoId);
+  }, [loadAll, currentProject?.id, organizacaoId]);
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 639px)');
@@ -262,6 +268,10 @@ export default function GanttChartPage() {
       toast.error(msg);
     }
   };
+
+  if (!currentProject) {
+    return <div className="p-6 text-muted-foreground">Selecione uma obra para ver o Gantt Livre.</div>;
+  }
 
   if (loading) {
     return (

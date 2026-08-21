@@ -7,13 +7,17 @@ import type { Atividade } from '@/lib/gantt/supabase';
 type Props = {
   atividade: Atividade | null;
   onClose: () => void;
+  // Ctrl+Z do Gantt Livre — chamado uma vez antes de cada mudança de equipe,
+  // pra essa mudança entrar na pilha de desfazer igual às demais (ver
+  // GanttChart.tsx).
+  onBeforeChange?: () => void;
 };
 
 // Aberto pelo menu de contexto (botão direito numa atividade) — junta os dois
 // pedidos numa tela só: marcar/desmarcar equipes já cadastradas, ou cadastrar
 // uma nova e ela já sair vinculada, sem precisar abrir o form de editar
 // atividade inteiro só pra isso.
-export function EquipeAssocModal({ atividade, onClose }: Props) {
+export function EquipeAssocModal({ atividade, onClose, onBeforeChange }: Props) {
   const { equipes, activeScenarioId, updateAtividade } = useGanttStore();
   const [novaEquipeOpen, setNovaEquipeOpen] = useState(false);
 
@@ -27,6 +31,7 @@ export function EquipeAssocModal({ atividade, onClose }: Props) {
     const next = alocadas.has(equipeId)
       ? atividade.equipes_alocadas.filter((id) => id !== equipeId)
       : [...atividade.equipes_alocadas, equipeId];
+    onBeforeChange?.();
     updateAtividade(atividade.id, { equipes_alocadas: next });
   };
 

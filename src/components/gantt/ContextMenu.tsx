@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowRight, ArrowUp, GitBranch, Link2Off, ListPlus, MoveDown, MoveUp, Palette, Pencil, Trash2, Users } from 'lucide-react';
+import { ArrowRight, ArrowUp, GitBranch, Link2Off, ListPlus, MoveDown, MoveUp, Palette, Pencil, Trash2, Ungroup, Users } from 'lucide-react';
 import type { Dependencia } from '@/lib/gantt/supabase';
 
 type Props = {
@@ -10,12 +10,16 @@ type Props = {
   outrasAtividades: { id: string; nome: string }[];
   podeSubir: boolean;
   podeDescer: boolean;
+  // Se a atividade estiver dentro de um resumo (parent_id setado) — só nesse
+  // caso faz sentido oferecer "Remover do resumo".
+  temPai: boolean;
   onClose: () => void;
   onEdit: () => void;
   onManageEquipes: () => void;
   onChangeColor: () => void;
   onAddAcima: () => void;
   onAddSubitem: () => void;
+  onRemoverDoResumo: () => void;
   onDelete: () => void;
   onMoverCima: () => void;
   onMoverBaixo: () => void;
@@ -32,12 +36,14 @@ export function ContextMenu({
   outrasAtividades,
   podeSubir,
   podeDescer,
+  temPai,
   onClose,
   onEdit,
   onManageEquipes,
   onChangeColor,
   onAddAcima,
   onAddSubitem,
+  onRemoverDoResumo,
   onDelete,
   onMoverCima,
   onMoverBaixo,
@@ -147,6 +153,16 @@ export function ContextMenu({
         <MoveDown size={14} className="text-indigo-500 dark:text-indigo-400" />
         Mover para baixo
       </button>
+
+      {temPai && (
+        <button
+          className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors text-left"
+          onClick={() => { onRemoverDoResumo(); onClose(); }}
+        >
+          <Ungroup size={14} className="text-orange-500 dark:text-orange-400" />
+          Remover do resumo
+        </button>
+      )}
 
       <div className="border-t border-gray-100 dark:border-slate-700 my-1" />
 

@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { todayISO, formatBR } from "./lib/date-utils";
@@ -9,6 +9,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { MultiCombobox } from "@/components/ui/combobox";
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -25,6 +28,8 @@ import {
   HardHat,
   LineChart as LineChartIcon,
   Loader2,
+  RotateCcw,
+  Settings2,
   TrendingUp,
   UserCog,
   Users,
@@ -66,6 +71,90 @@ function summarizeFilter(label: string, ids: string[], options: { id: string; no
   return `${label}: ${firstName}${ids.length > 1 ? ` +${ids.length - 1}` : ""}`;
 }
 
+// Dimensão por onde os quadros configuráveis do Resumo podem agrupar os
+// apontamentos — as mesmas seis usadas nos filtros acima, só que aqui como
+// "por onde essa tabela/gráfico enxerga o efetivo" em vez de "o que incluir".
+type Dimensao = "empresa" | "lideranca" | "setor" | "area" | "subarea" | "atividade";
+
+const DIMENSAO_LABEL: Record<Dimensao, string> = {
+  empresa: "Empresa", lideranca: "Encarregado", setor: "Setor", area: "Área", subarea: "Etapa", atividade: "Atividade",
+};
+
+const DIMENSAO_OPCOES: Dimensao[] = ["empresa", "lideranca", "setor", "area", "subarea", "atividade"];
+
+function chaveDimensao(a: Apontamento, dim: Dimensao): string {
+  switch (dim) {
+    case "empresa": return a.empresa_nome;
+    case "lideranca": return a.lideranca_nome;
+    case "setor": return a.setor_nome;
+    case "area": return a.area_nome ?? "Sem área";
+    case "subarea": return a.subarea_nome ?? "Sem etapa";
+    case "atividade": return a.atividade_nome;
+  }
+}
+
+// Quais quadros do Resumo diário aparecem e por qual dimensão cada um agrupa
+// — os valores abaixo são exatamente o layout que já existia antes disso virar
+// configurável, então quem nunca mexeu continua vendo a mesma tela de sempre.
+type QuadrosConfig = {
+  kpiRegistros: boolean;
+  kpiTotal: boolean;
+  kpiPedreiro: boolean;
+  kpiServente: boolean;
+  kpiCarpinteiro: boolean;
+  kpiOutros: boolean;
+  graficoBarras: boolean;
+  graficoBarrasDimensao: Dimensao;
+  graficoPizza: boolean;
+  tabelaDetalhe: boolean;
+  tabelaDetalheDimensao: Dimensao;
+  tabelaDetalheSepararBDR: boolean;
+  tabelaArea: boolean;
+  tabelaAreaDimensao: Dimensao;
+};
+
+const QUADROS_CONFIG_PADRAO: QuadrosConfig = {
+  kpiRegistros: true,
+  kpiTotal: true,
+  kpiPedreiro: true,
+  kpiServente: true,
+  kpiCarpinteiro: true,
+  kpiOutros: true,
+  graficoBarras: true,
+  graficoBarrasDimensao: "empresa",
+  graficoPizza: true,
+  tabelaDetalhe: true,
+  tabelaDetalheDimensao: "lideranca",
+  tabelaDetalheSepararBDR: true,
+  tabelaArea: true,
+  tabelaAreaDimensao: "area",
+};
+
+// Preferência pessoal de exibição (não é dado de obra) — guardada só no
+// navegador, por usuário, sem precisar de tabela nova no Supabase pra isso.
+function quadrosConfigStorageKey(userId: string) {
+  return `apontamento-resumo-quadros:v1:${userId}`;
+}
+
+function loadQuadrosConfig(userId: string): QuadrosConfig {
+  try {
+    const raw = localStorage.getItem(quadrosConfigStorageKey(userId));
+    if (!raw) return QUADROS_CONFIG_PADRAO;
+    return { ...QUADROS_CONFIG_PADRAO, ...JSON.parse(raw) };
+  } catch {
+    return QUADROS_CONFIG_PADRAO;
+  }
+}
+
+function saveQuadrosConfig(userId: string, config: QuadrosConfig) {
+  try {
+    localStorage.setItem(quadrosConfigStorageKey(userId), JSON.stringify(config));
+  } catch {
+    // localStorage indisponível (modo privado, cota cheia etc.) — a tela
+    // continua funcionando, só não lembra a configuração na próxima visita.
+  }
+}
+
 function CachedDataNotice({ cachedAt }: { cachedAt: number }) {
   const updatedAt = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" }).format(new Date(cachedAt));
   return (
@@ -97,10 +186,22 @@ function isoDaysAgo(n: number): string {
   return `${y}-${m}-${day}`;
 }
 
+// Balão padrão de detalhe: a quebra por função (pedreiro/servente/carpinteiro/
+// outros) que o próprio Aggregate de groupSum já carrega — sem precisar de
+// nenhum mapa de detalhe à parte por fora da tabela.
+function tooltipPorFuncao(row: Aggregate): ReactNode {
+  if (row.pedreiro === 0 && row.servente === 0 && row.carpinteiro === 0 && row.qntdd_funcao === 0) return null;
+  return (
+    <p>
+      Pedreiro {row.pedreiro} · Servente {row.servente} · Carpinteiro {row.carpinteiro} · Outros {row.qntdd_funcao}
+    </p>
+  );
+}
+
 function ResumoTable({
   titulo, coluna, rows, isMobile, tooltipFor,
 }: {
-  titulo: string; coluna: string; rows: Aggregate[]; isMobile: boolean; tooltipFor?: (key: string) => ReactNode;
+  titulo: string; coluna: string; rows: Aggregate[]; isMobile: boolean; tooltipFor?: (row: Aggregate) => ReactNode;
 }) {
   const totalGeral = rows.reduce((s, r) => s + r.total, 0);
 
@@ -119,7 +220,7 @@ function ResumoTable({
           ) : (
             <div className="divide-y border-t">
               {rows.map((row) => {
-                const content = tooltipFor?.(row.key);
+                const content = tooltipFor?.(row);
                 if (!content) {
                   return (
                     <div key={row.key} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3">
@@ -177,7 +278,7 @@ function ResumoTable({
                 </TableRow>
               ) : (
                 rows.map((r) => {
-                  const conteudo = tooltipFor?.(r.key);
+                  const conteudo = tooltipFor?.(r);
                   if (!conteudo) {
                     return (
                       <TableRow key={r.key}>
@@ -214,6 +315,124 @@ function ResumoTable({
         </InfoTooltipProvider>
       </CardContent>
     </Card>
+  );
+}
+
+function DimensaoSelect({ value, onChange }: { value: Dimensao; onChange: (d: Dimensao) => void }) {
+  return (
+    <Select value={value} onValueChange={(v) => onChange(v as Dimensao)}>
+      <SelectTrigger className="w-full sm:w-56"><SelectValue /></SelectTrigger>
+      <SelectContent>
+        {DIMENSAO_OPCOES.map((d) => <SelectItem key={d} value={d}>{DIMENSAO_LABEL[d]}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// Painel de "Configurar quadros" do Resumo diário — os quadros de sempre
+// continuam sendo a proposta (QUADROS_CONFIG_PADRAO), mas aqui dá pra
+// esconder qualquer um deles ou trocar por qual dimensão cada tabela/gráfico
+// agrupa o efetivo.
+function ConfigurarQuadrosDialog({
+  open, onOpenChange, config, onChange,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  config: QuadrosConfig;
+  onChange: (config: QuadrosConfig) => void;
+}) {
+  const set = <K extends keyof QuadrosConfig>(key: K, value: QuadrosConfig[K]) => onChange({ ...config, [key]: value });
+  type KpiKey = "kpiRegistros" | "kpiTotal" | "kpiPedreiro" | "kpiServente" | "kpiCarpinteiro" | "kpiOutros";
+  const kpiOpcoes: { key: KpiKey; label: string }[] = [
+    { key: "kpiRegistros", label: "Registros" },
+    { key: "kpiTotal", label: "Total pessoas" },
+    { key: "kpiPedreiro", label: "Pedreiros" },
+    { key: "kpiServente", label: "Serventes" },
+    { key: "kpiCarpinteiro", label: "Carpinteiros" },
+    { key: "kpiOutros", label: "Outros" },
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Configurar quadros do resumo</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-5">
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Quadros de números</p>
+            <div className="grid grid-cols-2 gap-2">
+              {kpiOpcoes.map(({ key, label }) => (
+                <label key={key} className="flex min-h-9 items-center gap-2 text-sm">
+                  <Checkbox checked={config[key]} onCheckedChange={(v) => set(key, !!v)} />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-2 border-t pt-4">
+            <label className="flex min-h-9 items-center gap-2 text-sm font-medium">
+              <Checkbox checked={config.graficoBarras} onCheckedChange={(v) => set("graficoBarras", !!v)} />
+              Gráfico de barras
+            </label>
+            {config.graficoBarras && (
+              <div className="space-y-1.5 pl-6">
+                <Label className="text-xs text-muted-foreground">Agrupar por</Label>
+                <DimensaoSelect value={config.graficoBarrasDimensao} onChange={(d) => set("graficoBarrasDimensao", d)} />
+              </div>
+            )}
+          </div>
+
+          <div className="border-t pt-4">
+            <label className="flex min-h-9 items-center gap-2 text-sm font-medium">
+              <Checkbox checked={config.graficoPizza} onCheckedChange={(v) => set("graficoPizza", !!v)} />
+              Gráfico de pizza (Por Função)
+            </label>
+          </div>
+
+          <div className="space-y-2 border-t pt-4">
+            <label className="flex min-h-9 items-center gap-2 text-sm font-medium">
+              <Checkbox checked={config.tabelaDetalhe} onCheckedChange={(v) => set("tabelaDetalhe", !!v)} />
+              Tabela de detalhamento
+            </label>
+            {config.tabelaDetalhe && (
+              <div className="space-y-2 pl-6">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Agrupar por</Label>
+                  <DimensaoSelect value={config.tabelaDetalheDimensao} onChange={(d) => set("tabelaDetalheDimensao", d)} />
+                </div>
+                <label className="flex min-h-9 items-center gap-2 text-sm">
+                  <Checkbox checked={config.tabelaDetalheSepararBDR} onCheckedChange={(v) => set("tabelaDetalheSepararBDR", !!v)} />
+                  Separar encarregados próprios (BDR) das empresas terceirizadas
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2 border-t pt-4">
+            <label className="flex min-h-9 items-center gap-2 text-sm font-medium">
+              <Checkbox checked={config.tabelaArea} onCheckedChange={(v) => set("tabelaArea", !!v)} />
+              Segunda tabela
+            </label>
+            {config.tabelaArea && (
+              <div className="space-y-1.5 pl-6">
+                <Label className="text-xs text-muted-foreground">Agrupar por</Label>
+                <DimensaoSelect value={config.tabelaAreaDimensao} onChange={(d) => set("tabelaAreaDimensao", d)} />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <DialogFooter className="sm:justify-between">
+          <Button variant="ghost" onClick={() => onChange(QUADROS_CONFIG_PADRAO)} className="min-h-11">
+            <RotateCcw className="h-4 w-4 mr-1.5" /> Restaurar padrão
+          </Button>
+          <Button onClick={() => onOpenChange(false)} className="min-h-11">Fechar</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -327,67 +546,53 @@ function ResumoDiarioTab() {
     return acc;
   }, [apontamentos]);
 
-  const porEmpresa = useMemo(() => {
+  // Layout dos quadros (quais aparecem, por qual dimensão cada um agrupa) —
+  // preferência pessoal salva no navegador; QUADROS_CONFIG_PADRAO reproduz
+  // exatamente o que a tela sempre mostrou, então quem nunca abriu "Configurar
+  // quadros" não percebe diferença nenhuma.
+  const [quadrosConfigOpen, setQuadrosConfigOpen] = useState(false);
+  const [quadrosConfig, setQuadrosConfig] = useState<QuadrosConfig>(() => loadQuadrosConfig(user?.id ?? "anon"));
+  useEffect(() => {
+    if (user?.id) saveQuadrosConfig(user.id, quadrosConfig);
+  }, [quadrosConfig, user?.id]);
+
+  const porDimensaoGrafico = useMemo(() => {
     const map = new Map<string, number>();
-    for (const a of apontamentos) map.set(a.empresa_nome, (map.get(a.empresa_nome) ?? 0) + a.total);
+    for (const a of apontamentos) {
+      const k = chaveDimensao(a, quadrosConfig.graficoBarrasDimensao);
+      map.set(k, (map.get(k) ?? 0) + a.total);
+    }
     return [...map.entries()].map(([name, value]) => ({ name, value })).sort((a, b) => b.value - a.value);
-  }, [apontamentos]);
-  const porEmpresaGrafico = useMemo(() => {
-    if (!isMobile || porEmpresa.length <= 5) return porEmpresa;
-    const principais = porEmpresa.slice(0, 5);
-    const outros = porEmpresa.slice(5).reduce((total, item) => total + item.value, 0);
+  }, [apontamentos, quadrosConfig.graficoBarrasDimensao]);
+  const porDimensaoGraficoExibicao = useMemo(() => {
+    if (!isMobile || porDimensaoGrafico.length <= 5) return porDimensaoGrafico;
+    const principais = porDimensaoGrafico.slice(0, 5);
+    const outros = porDimensaoGrafico.slice(5).reduce((total, item) => total + item.value, 0);
     return [...principais, { name: "Outros", value: outros }];
-  }, [isMobile, porEmpresa]);
+  }, [isMobile, porDimensaoGrafico]);
 
   // Encarregados da BDR (empresa própria) separados do restante das
   // empreiteiras — dois quadros em vez de uma lista só misturada, mais fácil
-  // de bater o efetivo próprio contra o terceirizado de relance.
+  // de bater o efetivo próprio contra o terceirizado de relance. Opcional:
+  // "Separar por BDR" pode ser desligado em Configurar quadros, virando uma
+  // tabela só com todo mundo junto.
   const ehBDR = (a: Apontamento) => a.empresa_nome?.trim().toUpperCase().includes("BDR") ?? false;
   const apontamentosBDR = useMemo(() => apontamentos.filter(ehBDR), [apontamentos]);
   const apontamentosOutrasEmpresas = useMemo(() => apontamentos.filter((a) => !ehBDR(a)), [apontamentos]);
 
-  const porEncarregadoBDR = useMemo(
-    () => groupSum(apontamentosBDR, (a) => a.lideranca_nome).sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
-    [apontamentosBDR]
-  );
-  // Outras empresas: por empresa (nome + quantidade), não por encarregado —
-  // BDR já tem o quadro próprio de encarregados ao lado.
-  const porEmpresaOutras = useMemo(
-    () => groupSum(apontamentosOutrasEmpresas, (a) => a.empresa_nome).sort((a, b) => b.total - a.total),
-    [apontamentosOutrasEmpresas]
+  const tabelaDetalhePrincipal = useMemo(() => {
+    const base = quadrosConfig.tabelaDetalheSepararBDR ? apontamentosBDR : apontamentos;
+    return groupSum(base, (a) => chaveDimensao(a, quadrosConfig.tabelaDetalheDimensao)).sort((a, b) => a.key.localeCompare(b.key, "pt-BR"));
+  }, [apontamentos, apontamentosBDR, quadrosConfig.tabelaDetalheDimensao, quadrosConfig.tabelaDetalheSepararBDR]);
+  const tabelaDetalheOutras = useMemo(
+    () => groupSum(apontamentosOutrasEmpresas, (a) => chaveDimensao(a, quadrosConfig.tabelaDetalheDimensao)).sort((a, b) => b.total - a.total),
+    [apontamentosOutrasEmpresas, quadrosConfig.tabelaDetalheDimensao]
   );
 
-  const porArea = useMemo(
-    () => groupSum(apontamentos, (a) => a.area_nome ?? "Sem área").sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
-    [apontamentos]
+  const tabelaArea = useMemo(
+    () => groupSum(apontamentos, (a) => chaveDimensao(a, quadrosConfig.tabelaAreaDimensao)).sort((a, b) => a.key.localeCompare(b.key, "pt-BR")),
+    [apontamentos, quadrosConfig.tabelaAreaDimensao]
   );
-
-  // Detalhe pro balão de cada encarregado: quebra por função (pedreiro/
-  // servente/carpinteiro/outros) e por atividade em que ele apareceu.
-  const detalheEncarregado = useMemo(() => {
-    const map = new Map<string, { pedreiro: number; servente: number; carpinteiro: number; qntdd_funcao: number; atividades: Map<string, number> }>();
-    for (const a of apontamentos) {
-      const k = a.lideranca_nome;
-      if (!map.has(k)) map.set(k, { pedreiro: 0, servente: 0, carpinteiro: 0, qntdd_funcao: 0, atividades: new Map() });
-      const g = map.get(k)!;
-      g.pedreiro += a.pedreiro; g.servente += a.servente; g.carpinteiro += a.carpinteiro; g.qntdd_funcao += a.qntdd_funcao;
-      g.atividades.set(a.atividade_nome, (g.atividades.get(a.atividade_nome) ?? 0) + a.total);
-    }
-    return map;
-  }, [apontamentos]);
-
-  // Detalhe pro balão de cada área: quais encarregados tiveram gente
-  // apontada ali e quantas pessoas cada um.
-  const detalheArea = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
-    for (const a of apontamentos) {
-      const k = a.area_nome ?? "Sem área";
-      if (!map.has(k)) map.set(k, new Map());
-      const g = map.get(k)!;
-      g.set(a.lideranca_nome, (g.get(a.lideranca_nome) ?? 0) + a.total);
-    }
-    return map;
-  }, [apontamentos]);
 
   const porFuncao = useMemo(() => {
     const items: { name: string; value: number }[] = [];
@@ -426,11 +631,24 @@ function ResumoDiarioTab() {
     <div className="space-y-4 sm:space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <p className="text-sm text-muted-foreground">Visão geral dos apontamentos de mão de obra em {formatBR(data)}.</p>
-        <Button onClick={handleDownloadPdf} disabled={isLoading || isError} className="min-h-11 w-full sm:w-auto">
-          {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-          Exportar PDF
-        </Button>
+        <div className="flex flex-col sm:flex-row gap-2">
+          <Button variant="outline" onClick={() => setQuadrosConfigOpen(true)} className="min-h-11 w-full sm:w-auto">
+            <Settings2 className="h-4 w-4" />
+            Configurar quadros
+          </Button>
+          <Button onClick={handleDownloadPdf} disabled={isLoading || isError} className="min-h-11 w-full sm:w-auto">
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            Exportar PDF
+          </Button>
+        </div>
       </div>
+
+      <ConfigurarQuadrosDialog
+        open={quadrosConfigOpen}
+        onOpenChange={setQuadrosConfigOpen}
+        config={quadrosConfig}
+        onChange={setQuadrosConfig}
+      />
 
       {apontamentosResult?.source === "cache" && <CachedDataNotice cachedAt={apontamentosResult.cachedAt} />}
 
@@ -468,25 +686,29 @@ function ResumoDiarioTab() {
       </FilterPanel>
 
       {isLoading ? <EffortDashboardSkeleton kpiCount={6} desktopColumns={6} /> : isError ? <DataUnavailableNotice /> : <>
-      <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
-        <EffortKpiCard title="Registros" value={resumo.registros} icon={ClipboardList} accent="#2563eb" iconBackgroundClassName="bg-blue-50 dark:bg-blue-500/10" iconClassName="text-blue-600 dark:text-blue-400" />
-        <EffortKpiCard title="Total pessoas" value={resumo.total} icon={Users} accent="#0891b2" iconBackgroundClassName="bg-cyan-50 dark:bg-cyan-500/10" iconClassName="text-cyan-600 dark:text-cyan-400" />
-        <EffortKpiCard title="Pedreiros" value={resumo.pedreiro} icon={HardHat} accent="#d97706" iconBackgroundClassName="bg-amber-50 dark:bg-amber-500/10" iconClassName="text-amber-600 dark:text-amber-400" />
-        <EffortKpiCard title="Serventes" value={resumo.servente} icon={UserCog} accent="#16a34a" iconBackgroundClassName="bg-green-50 dark:bg-green-500/10" iconClassName="text-green-600 dark:text-green-400" />
-        <EffortKpiCard title="Carpinteiros" value={resumo.carpinteiro} icon={Wrench} accent="#7c3aed" iconBackgroundClassName="bg-violet-50 dark:bg-violet-500/10" iconClassName="text-violet-600 dark:text-violet-400" />
-        <EffortKpiCard title="Outros" value={resumo.qntdd_funcao} icon={Users} accent="#db2777" iconBackgroundClassName="bg-pink-50 dark:bg-pink-500/10" iconClassName="text-pink-600 dark:text-pink-400" />
-      </div>
+      {(quadrosConfig.kpiRegistros || quadrosConfig.kpiTotal || quadrosConfig.kpiPedreiro || quadrosConfig.kpiServente || quadrosConfig.kpiCarpinteiro || quadrosConfig.kpiOutros) && (
+        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-6">
+          {quadrosConfig.kpiRegistros && <EffortKpiCard title="Registros" value={resumo.registros} icon={ClipboardList} accent="#2563eb" iconBackgroundClassName="bg-blue-50 dark:bg-blue-500/10" iconClassName="text-blue-600 dark:text-blue-400" />}
+          {quadrosConfig.kpiTotal && <EffortKpiCard title="Total pessoas" value={resumo.total} icon={Users} accent="#0891b2" iconBackgroundClassName="bg-cyan-50 dark:bg-cyan-500/10" iconClassName="text-cyan-600 dark:text-cyan-400" />}
+          {quadrosConfig.kpiPedreiro && <EffortKpiCard title="Pedreiros" value={resumo.pedreiro} icon={HardHat} accent="#d97706" iconBackgroundClassName="bg-amber-50 dark:bg-amber-500/10" iconClassName="text-amber-600 dark:text-amber-400" />}
+          {quadrosConfig.kpiServente && <EffortKpiCard title="Serventes" value={resumo.servente} icon={UserCog} accent="#16a34a" iconBackgroundClassName="bg-green-50 dark:bg-green-500/10" iconClassName="text-green-600 dark:text-green-400" />}
+          {quadrosConfig.kpiCarpinteiro && <EffortKpiCard title="Carpinteiros" value={resumo.carpinteiro} icon={Wrench} accent="#7c3aed" iconBackgroundClassName="bg-violet-50 dark:bg-violet-500/10" iconClassName="text-violet-600 dark:text-violet-400" />}
+          {quadrosConfig.kpiOutros && <EffortKpiCard title="Outros" value={resumo.qntdd_funcao} icon={Users} accent="#db2777" iconBackgroundClassName="bg-pink-50 dark:bg-pink-500/10" iconClassName="text-pink-600 dark:text-pink-400" />}
+        </div>
+      )}
 
+      {(quadrosConfig.graficoBarras || (quadrosConfig.graficoPizza && !isMobile)) && (
       <div className="grid gap-6 lg:grid-cols-2">
+        {quadrosConfig.graficoBarras && (
         <Card className="rounded-2xl sm:rounded-xl">
-          <CardHeader><CardTitle className="text-base">Por Empresa</CardTitle></CardHeader>
+          <CardHeader><CardTitle className="text-base">Por {DIMENSAO_LABEL[quadrosConfig.graficoBarrasDimensao]}</CardTitle></CardHeader>
           <CardContent>
-            {porEmpresaGrafico.length === 0 ? (
-              <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">Nenhuma empresa no filtro selecionado.</div>
-            ) : <div role="img" aria-label={`Distribuição por empresa: ${porEmpresaGrafico.map((item) => `${item.name}, ${item.value} pessoas`).join("; ")}`}>
+            {porDimensaoGraficoExibicao.length === 0 ? (
+              <div className="flex h-60 items-center justify-center text-sm text-muted-foreground">Nenhum registro no filtro selecionado.</div>
+            ) : <div role="img" aria-label={`Distribuição por ${DIMENSAO_LABEL[quadrosConfig.graficoBarrasDimensao]}: ${porDimensaoGraficoExibicao.map((item) => `${item.name}, ${item.value} pessoas`).join("; ")}`}>
               <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <BarChart
-                data={porEmpresaGrafico}
+                data={porDimensaoGraficoExibicao}
                 layout={isMobile ? "vertical" : "horizontal"}
                 margin={isMobile ? { top: 0, right: 8, left: 0, bottom: 0 } : undefined}
               >
@@ -504,15 +726,16 @@ function ResumoDiarioTab() {
                 )}
                 <Tooltip contentStyle={CHART_TOOLTIP_STYLE} labelStyle={{ color: "var(--popover-foreground)" }} />
                 <Bar dataKey="value" name="Pessoas" fill="#2563eb" radius={isMobile ? [0, 4, 4, 0] : [4, 4, 0, 0]}>
-                  {porEmpresaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
+                  {porDimensaoGraficoExibicao.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Bar>
               </BarChart>
               </ResponsiveContainer>
             </div>}
           </CardContent>
         </Card>
+        )}
 
-        {!isMobile && <Card>
+        {!isMobile && quadrosConfig.graficoPizza && <Card>
           <CardHeader><CardTitle className="text-base">Por Função</CardTitle></CardHeader>
           <CardContent>
             {porFuncao.length === 0 ? (
@@ -540,62 +763,42 @@ function ResumoDiarioTab() {
           </CardContent>
         </Card>}
       </div>
+      )}
 
+      {(quadrosConfig.tabelaDetalhe || quadrosConfig.tabelaArea) && (
       <div className="grid gap-6 lg:grid-cols-2">
-        <ResumoTable
-          titulo="Encarregados BDR"
-          coluna="Encarregado"
-          rows={porEncarregadoBDR}
-          isMobile={isMobile}
-          tooltipFor={(key) => {
-            const det = detalheEncarregado.get(key);
-            if (!det) return null;
-            const atividades = [...det.atividades.entries()].sort((a, b) => b[1] - a[1]);
-            return (
-              <div className="space-y-1.5">
-                <div>
-                  <p className="font-semibold">Por função</p>
-                  <p>Pedreiro {det.pedreiro} · Servente {det.servente} · Carpinteiro {det.carpinteiro} · Outros {det.qntdd_funcao}</p>
-                </div>
-                <div>
-                  <p className="font-semibold">Por atividade</p>
-                  <ul className="list-disc pl-4">
-                    {atividades.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
-                  </ul>
-                </div>
-              </div>
-            );
-          }}
-        />
+        {quadrosConfig.tabelaDetalhe && (
+          <ResumoTable
+            titulo={quadrosConfig.tabelaDetalheSepararBDR ? `${DIMENSAO_LABEL[quadrosConfig.tabelaDetalheDimensao]} — Próprios (BDR)` : `Por ${DIMENSAO_LABEL[quadrosConfig.tabelaDetalheDimensao]}`}
+            coluna={DIMENSAO_LABEL[quadrosConfig.tabelaDetalheDimensao]}
+            rows={tabelaDetalhePrincipal}
+            isMobile={isMobile}
+            tooltipFor={tooltipPorFuncao}
+          />
+        )}
 
         <div className="space-y-6">
-          <ResumoTable
-            titulo="Funcionários por Área"
-            coluna="Área"
-            rows={porArea}
-            isMobile={isMobile}
-            tooltipFor={(key) => {
-              const det = detalheArea.get(key);
-              if (!det || det.size === 0) return null;
-              const encarregados = [...det.entries()].sort((a, b) => b[1] - a[1]);
-              return (
-                <div>
-                  <p className="font-semibold">Encarregados</p>
-                  <ul className="list-disc pl-4">
-                    {encarregados.map(([nome, total]) => <li key={nome}>{nome}: {total}</li>)}
-                  </ul>
-                </div>
-              );
-            }}
-          />
-          <ResumoTable
-            titulo="Outras Empresas"
-            coluna="Empresa"
-            rows={porEmpresaOutras}
-            isMobile={isMobile}
-          />
+          {quadrosConfig.tabelaArea && (
+            <ResumoTable
+              titulo={`Por ${DIMENSAO_LABEL[quadrosConfig.tabelaAreaDimensao]}`}
+              coluna={DIMENSAO_LABEL[quadrosConfig.tabelaAreaDimensao]}
+              rows={tabelaArea}
+              isMobile={isMobile}
+              tooltipFor={tooltipPorFuncao}
+            />
+          )}
+          {quadrosConfig.tabelaDetalhe && quadrosConfig.tabelaDetalheSepararBDR && (
+            <ResumoTable
+              titulo={`${DIMENSAO_LABEL[quadrosConfig.tabelaDetalheDimensao]} — Terceirizados`}
+              coluna={DIMENSAO_LABEL[quadrosConfig.tabelaDetalheDimensao]}
+              rows={tabelaDetalheOutras}
+              isMobile={isMobile}
+              tooltipFor={tooltipPorFuncao}
+            />
+          )}
         </div>
       </div>
+      )}
       </>}
     </div>
   );

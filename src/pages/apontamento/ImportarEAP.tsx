@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -13,14 +14,16 @@ import { toast } from "sonner";
 import {
   CheckCircle2, AlertCircle, Loader2, ChevronRight,
   ChevronDown, Map as MapIcon, MapPin, Wrench, Building2,
-  Calendar, ListTree,
+  Calendar, ListTree, Search, X,
 } from "lucide-react";
 import { useProjects } from "@/lib/project-store";
 import { useAuth } from "@/lib/auth-context";
 import type { WBSActivity } from "@/lib/xml-parser";
+import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from "@/components/ColumnValueFilter";
 
 interface EapRow {
   id: string;
+  uid: number;
   nome: string;
   codigo: string;
   nivel: number;
@@ -46,7 +49,7 @@ function activitiesToEapRows(activities: WBSActivity[], levelOffset: number): Ea
       : null;
     // "selected" (já existe na EAP) só é decidido depois, por resolveExistingMatches
     // — aqui ainda não dá pra saber, porque depende de casar com o banco.
-    return { id: `act-${a.uid}`, nome: a.name, codigo, nivel, parentCodigo, ativo: true, selected: false };
+    return { id: `act-${a.uid}`, uid: a.uid, nome: a.name, codigo, nivel, parentCodigo, ativo: true, selected: false };
   });
 }
 
@@ -170,6 +173,12 @@ export default function ImportarEapPage() {
   const [defaultLevelMap, setDefaultLevelMap] = useState<Record<number, number>>({ 1: 1, 2: 2, 3: 3, 4: 4 });
   const [showEstrutura, setShowEstrutura] = useState(false);
   const [nivelFilter, setNivelFilter] = useState<Record<number, boolean>>({ 1: true, 2: true, 3: true, 4: true });
+  const [searchTerm, setSearchTerm] = useState("");
+  // Mesmo filtro por coluna da Curva S (Disciplina, Responsável ou um campo
+  // personalizado do MS Project como "Fase") — reaproveita o componente e a
+  // função de exclusão de lá, só que aplicado às linhas da EAP em vez dos
+  // pontos da curva.
+  const [columnFilters, setColumnFilters] = useState<ColumnFilterState[]>([]);
 
   const cronogramas = useMemo(
     () => (currentProject?.cronogramas ?? []).filter((c) => c.ativo),
@@ -352,6 +361,14 @@ export default function ImportarEapPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCronograma, levelOffset, existingIndex, targetSetorId]);
 
+  // Filtro de busca/coluna é por cronograma (a coluna "Fase" de um pode nem
+  // existir no outro) — troca de cronograma limpa pra não deixar um filtro
+  // que não faz mais sentido escondendo tudo silenciosamente.
+  useEffect(() => {
+    setSearchTerm("");
+    setColumnFilters([]);
+  }, [selectedCronograma?.id]);
+
   const importMut = useMutation({
     mutationFn: async () => {
       if (!organizacaoId || !projetoId) throw new Error("Selecione uma obra para continuar.");
@@ -484,10 +501,49 @@ export default function ImportarEapPage() {
 
   const canImport = hasScope && rows.length > 0 && !importMut.isPending && stats.selected > 0;
 
+  // Quais uids o filtro por coluna (Disciplina, Responsável ou um campo
+  // personalizado como "Fase") exclui — mesma função usada na Curva S,
+  // aplicada aqui sobre as atividades do cronograma selecionado.
+  const columnExcludedUids = useMemo(
+    () => computeColumnFilterExcludedUids(selectedCronograma?.dados?.activities ?? [], columnFilters, selectedCronograma?.dados?.customFieldDefs ?? []),
+    [selectedCronograma, columnFilters],
+  );
+
+  // Quais linhas a busca por texto + o filtro por coluna deixam passar — null
+  // quando nenhum dos dois está ativo (mostra tudo). Uma linha "passa" se bate
+  // com o texto buscado (quando há busca) E não está excluída pela coluna
+  // (quando há filtro de coluna); toda linha que passa arrasta a cadeia de
+  // ancestrais junto — senão a busca por uma Atividade faria sumir o
+  // Setor/Área/Etapa dela e a árvore ficaria sem contexto nenhum.
+  const visibleIds = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    if (!term && columnExcludedUids.size === 0) return null;
+    const byCodigo = new Map(rows.map((r) => [r.codigo, r]));
+    const visible = new Set<string>();
+    for (const r of rows) {
+      if (term && !r.nome.toLowerCase().includes(term) && !r.codigo.toLowerCase().includes(term)) continue;
+      if (columnExcludedUids.has(r.uid)) continue;
+      let cur: EapRow | undefined = r;
+      visible.add(cur.id);
+      while (cur?.parentCodigo) {
+        const parent: EapRow | undefined = byCodigo.get(cur.parentCodigo);
+        if (!parent) break;
+        visible.add(parent.id);
+        cur = parent;
+      }
+    }
+    return visible;
+  }, [rows, searchTerm, columnExcludedUids]);
+
+  const displayRows = useMemo(
+    () => (visibleIds ? rows.filter((r) => visibleIds.has(r.id)) : rows),
+    [rows, visibleIds],
+  );
+
   const estruturaTree = useMemo(() => {
-    const filtered = rows.filter((r) => nivelFilter[r.nivel]);
+    const filtered = rows.filter((r) => nivelFilter[r.nivel] && (!visibleIds || visibleIds.has(r.id)));
     return buildTree(filtered);
-  }, [rows, nivelFilter]);
+  }, [rows, nivelFilter, visibleIds]);
 
   return (
     <div className="space-y-6">
@@ -675,7 +731,7 @@ export default function ImportarEapPage() {
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={selectAll}>Selecionar Todos</Button>
                 <Button variant="outline" size="sm" onClick={deselectAll}>Desmarcar Todos</Button>
                 <Button variant="outline" size="sm" onClick={() => setShowEstrutura(true)} className="gap-2">
@@ -683,9 +739,43 @@ export default function ImportarEapPage() {
                   Estrutura de Tópicos
                 </Button>
               </div>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  placeholder="Filtrar por nome ou código..."
+                  className="pl-8 pr-8"
+                />
+                {searchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchTerm("")}
+                    aria-label="Limpar filtro"
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </div>
+              {selectedCronograma && (
+                <ColumnValueFilter
+                  sources={[{
+                    activities: selectedCronograma.dados?.activities || [],
+                    customFieldDefs: selectedCronograma.dados?.customFieldDefs || [],
+                  }]}
+                  filters={columnFilters}
+                  onChange={setColumnFilters}
+                />
+              )}
+              {visibleIds && (
+                <p className="text-xs text-muted-foreground">
+                  {displayRows.length === 0 ? "Nenhum item encontrado." : `${displayRows.length} de ${rows.length} itens exibidos (com os pais pra manter o contexto).`}
+                </p>
+              )}
               <div className="max-h-[400px] overflow-y-auto space-y-0.5 border rounded-md p-2">
-                {buildTree(rows).roots.map((row) => (
-                  <EapPreviewNode key={row.id} row={row} allRows={rows} depth={0} onToggle={toggleSelect} />
+                {buildTree(displayRows).roots.map((row) => (
+                  <EapPreviewNode key={row.id} row={row} allRows={displayRows} depth={0} onToggle={toggleSelect} />
                 ))}
               </div>
               <div className="flex items-center gap-3 pt-2 border-t">
@@ -713,6 +803,25 @@ export default function ImportarEapPage() {
             Marcar/desmarcar um nível abaixo também marca/desmarca pra importação todos os itens desse nível
             (e a cadeia de pais, quando marca).
           </p>
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Filtrar por nome ou código..."
+              className="pl-8 pr-8"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm("")}
+                aria-label="Limpar filtro"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <div className="flex flex-wrap gap-3 py-2 border-b">
             {[1, 2, 3, 4].map((nivel) => (
               <label key={nivel} className="flex items-center gap-2 text-sm cursor-pointer">

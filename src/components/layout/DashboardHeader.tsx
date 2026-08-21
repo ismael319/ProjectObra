@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Bell, Building2, ChevronDown, CreditCard, FileText, FolderOpen, LogOut, Menu, MessageCircle, Moon, ShieldCheck, Sun, User } from 'lucide-react'
+import { Bell, Building2, ChevronDown, CreditCard, FileText, FolderOpen, LogOut, Menu, MessageCircle, Moon, Sun, User } from 'lucide-react'
 import fgiLogo from '@/assets/fgi-logo.png'
 
 export interface OrganizacaoMembership {
@@ -228,7 +228,7 @@ export function DashboardHeader({
                   : 'Lançamentos aguardando sua conferência'
               }
             >
-              <ShieldCheck size={19} />
+              <Bell size={19} />
               <span
                 className={`absolute top-0.5 right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-bold text-white rounded-full ring-2 ring-slate-900 ${
                   meusRejeitados > 0 ? 'bg-red-500' : 'bg-amber-500'

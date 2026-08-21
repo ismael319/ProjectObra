@@ -2,22 +2,48 @@ import { useEffect, useMemo, useState, useCallback } from 'react'
 import { BarChart3, Filter, Layers, SlidersHorizontal, Table2 } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Legend, ResponsiveContainer, ReferenceLine } from 'recharts'
-import { calcularCurvaSPorPeso, CURVA_S_CONFIG_PADRAO, CURVA_S_DISCIPLINA_GERAL, DIAS_SEMANA, type CurvaSConfig, type CurvaSSemana, type CurvaSResultado } from '@/lib/curva-s-peso'
+import { calcularCurvaSPorPeso, CURVA_S_CONFIG_PADRAO, CURVA_S_DISCIPLINA_GERAL, type CurvaSConfig, type CurvaSSemana, type CurvaSResultado } from '@/lib/curva-s-peso'
 import { loadCurvaSConfig, loadCurvaSFeriados, salvarCurvaSSemanas, type CurvaSFeriado } from '@/lib/curva-s-config-store'
-import { COLOR_REAL, COLOR_FORECAST, COLOR_PLANNED, BL_COLORS } from '@/lib/curve-utils'
+import { COLOR_REAL, COLOR_FORECAST, COLOR_PLANNED, BL_COLORS, PERIOD_LABEL, PERIOD_TABLE_LABEL, bucketKey, type CurveGranularity } from '@/lib/curve-utils'
 import { SCurveHeader } from '@/components/scurve/SCurveHeader'
 import { SCurveAdvanceCard } from '@/components/scurve/SCurveAdvanceCard'
+import { SCurveRootCauseCards } from '@/components/scurve/SCurveRootCauseCards'
 import { PesoTooltip } from '@/components/scurve/PesoTooltip'
 import { CurvaSConfigPanel } from '@/components/scurve/CurvaSConfigPanel'
 import ColumnValueFilter, { computeColumnFilterExcludedUids, type ColumnFilterState } from '@/components/ColumnValueFilter'
 import ActivityFilterTree from '@/components/ActivityFilterTree'
 import { useAuth } from '@/lib/auth-context'
+import { useProject } from '@/lib/project-context'
 import type { CronogramaInfo, Project } from '@/lib/project-store'
 import type { WBSActivity } from '@/lib/xml-parser'
 
 interface Props {
   project: Project
   cronogramas: CronogramaInfo[]
+}
+
+const GRANULARITY_KEY = 'obracontrol_scurvapeso_granularity'
+const GRANULARITY_OPTIONS: { value: CurveGranularity; short: string; title: string }[] = [
+  { value: 'day', short: 'D', title: 'Diário' },
+  { value: 'week', short: 'S', title: 'Semanal' },
+  { value: 'month', short: 'M', title: 'Mensal' },
+  { value: 'year', short: 'A', title: 'Anual' },
+]
+
+function loadSavedGranularity(): CurveGranularity {
+  try {
+    const v = localStorage.getItem(GRANULARITY_KEY)
+    if (v === 'day' || v === 'week' || v === 'month' || v === 'year') return v
+  } catch { /* */ }
+  return 'week'
+}
+
+/** Rótulo de um ponto de corte na granularidade ativa — reaproveita o mesmo
+ * padrão de rótulo do modo HH (bucketKey), pra não mostrar "S00" quando a
+ * granularidade não é semanal. */
+function periodoLabel(s: CurvaSSemana, granularity: CurveGranularity): string {
+  if (granularity === 'week') return `S${String(s.semanaIndice).padStart(2, '0')}`
+  return bucketKey(s.dataCorte, granularity).label
 }
 
 function fmtPct(v: number | null | undefined): string {
@@ -106,6 +132,7 @@ function filterActivitiesForPeso(activities: WBSActivity[], excludedUids: Set<nu
 
 export function CurvaSPesoView({ project, cronogramas }: Props) {
   const { userProfile } = useAuth()
+  const { occurrences } = useProject()
   const organizacaoId = userProfile?.organizacao_id ?? undefined
 
   const [disciplina, setDisciplina] = useState<string>(CURVA_S_DISCIPLINA_GERAL)
@@ -113,6 +140,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
   const [feriados, setFeriados] = useState<CurvaSFeriado[]>([])
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [showTable, setShowTable] = useState(false)
+  const [granularity, setGranularity] = useState<CurveGranularity>(loadSavedGranularity())
   const [selectedCronogramas, setSelectedCronogramas] = useState<string[]>(cronogramas.map((c) => c.id))
   const [openPanel, setOpenPanel] = useState<'filtros' | 'opcoes' | null>(null)
   const [collapsedFilterCronogramas, setCollapsedFilterCronogramas] = useState<Set<string>>(new Set())
@@ -146,6 +174,11 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
     })
   }, [])
 
+  const handleGranularityChange = useCallback((g: CurveGranularity) => {
+    setGranularity(g)
+    try { localStorage.setItem(GRANULARITY_KEY, g) } catch { /* */ }
+  }, [])
+
   const toggleFilterCronogramaCollapse = useCallback((id: string) => {
     setCollapsedFilterCronogramas((prev) => {
       const next = new Set(prev)
@@ -177,15 +210,26 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
 
   const resultados = useMemo(() => {
     if (loadingConfig) return []
-    return calcularCurvaSPorPeso({ cronogramas: cronogramasFiltrados, config, feriados: feriadosDatas })
-  }, [cronogramasFiltrados, config, feriadosDatas, loadingConfig])
+    return calcularCurvaSPorPeso({ cronogramas: cronogramasFiltrados, config, feriados: feriadosDatas, granularity })
+  }, [cronogramasFiltrados, config, feriadosDatas, loadingConfig, granularity])
+
+  // Cache semanal (tabela curva_s_semanas) sempre em granularidade semanal,
+  // independente do que está selecionado na tela — o schema da tabela é semanal
+  // por natureza e outros consumidores (relatórios futuros) dependem disso.
+  // Reaproveita `resultados` quando a tela já está em Semanal (caso mais comum),
+  // evitando um segundo cálculo redundante.
+  const resultadosSemanais = useMemo(() => {
+    if (loadingConfig) return []
+    if (granularity === 'week') return resultados
+    return calcularCurvaSPorPeso({ cronogramas: cronogramasFiltrados, config, feriados: feriadosDatas, granularity: 'week' })
+  }, [cronogramasFiltrados, config, feriadosDatas, loadingConfig, granularity, resultados])
 
   useEffect(() => {
-    if (resultados.length === 0 || !organizacaoId) return
-    salvarCurvaSSemanas(project.id, organizacaoId, resultados).catch((err) =>
+    if (resultadosSemanais.length === 0 || !organizacaoId) return
+    salvarCurvaSSemanas(project.id, organizacaoId, resultadosSemanais).catch((err) =>
       console.error('[CurvaSPesoView] Falha ao salvar cache semanal:', err)
     )
-  }, [resultados, project.id, organizacaoId])
+  }, [resultadosSemanais, project.id, organizacaoId])
 
   const grupoAtual = resultados.find((r) => r.disciplina === disciplina) ?? resultados[0]
 
@@ -219,20 +263,28 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
 
   const chartData = useMemo(() => {
     if (!grupoAtual) return []
-    return grupoAtual.semanas.map((s) => ({
-      semana: `S${String(s.semanaIndice).padStart(2, '0')}`,
-      Planejado: s.avancoPlanejadoAcum,
-      Executado: s.avancoExecutadoAcum,
-      Forecast: s.forecastAcum,
-    }))
-  }, [grupoAtual])
+    const statusIdx = findStatusIndexSemanas(grupoAtual.semanas)
+    // No índice de status, o Forecast entra com o mesmo valor do Executado (que é
+    // null a partir dali) — sem isso, as duas linhas ficam com um vão entre o
+    // último ponto do Executado e o primeiro do Forecast, em vez de se encontrarem.
+    return grupoAtual.semanas.map((s, i) => {
+      const row: Record<string, string | number | null> = {
+        semana: periodoLabel(s, granularity),
+        Planejado: s.avancoPlanejadoAcum,
+        Executado: s.avancoExecutadoAcum,
+        Forecast: i === statusIdx ? s.avancoExecutadoAcum : s.forecastAcum,
+      }
+      for (const bl of grupoAtual.baselinesExtras) row[bl.id] = s.baselinesAcum[bl.id] ?? null
+      return row
+    })
+  }, [grupoAtual, granularity])
 
   const statusWeekLabel = useMemo(() => {
     if (!grupoAtual) return null
     const idx = findStatusIndexSemanas(grupoAtual.semanas)
     if (idx < 0) return null
-    return `S${String(grupoAtual.semanas[idx].semanaIndice).padStart(2, '0')}`
-  }, [grupoAtual])
+    return periodoLabel(grupoAtual.semanas[idx], granularity)
+  }, [grupoAtual, granularity])
 
   const hasActivityFilter = useMemo(
     () => columnFilters.length > 0 || cronogramasAtivos.some((c) => (activityExclusions[c.id]?.length || 0) > 0),
@@ -297,7 +349,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
           real={advanceMetrics.real}
           baselines={advanceMetrics.baselines}
           unit="HH"
-          periodColLabel="Sem."
+          periodColLabel={PERIOD_LABEL[granularity]}
         />
       )}
 
@@ -307,6 +359,29 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
             Curva S - Percentual Acumulado (%)
           </h3>
           <div className="flex flex-wrap items-center gap-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700">
+                  {GRANULARITY_OPTIONS.map((g) => (
+                    <button
+                      key={g.value}
+                      onClick={() => handleGranularityChange(g.value)}
+                      title={g.title}
+                      className={`px-4 py-2.5 text-base font-semibold transition ${
+                        granularity === g.value
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                      }`}
+                    >
+                      {g.short}
+                    </button>
+                  ))}
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-xs">
+                Granularidade dos pontos de corte da curva e das tabelas: Diário, Semanal, Mensal ou Anual.
+              </TooltipContent>
+            </Tooltip>
             <div className="relative">
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -333,7 +408,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               {openPanel === 'filtros' && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-                  <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-[min(380px,calc(100vw-1rem))] space-y-4">
+                  <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:right-0 sm:left-auto sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-[min(380px,calc(100vw-1rem))] space-y-4">
                     {resultados.length > 1 && (
                       <div>
                         <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Disciplina</span>
@@ -463,14 +538,15 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               {openPanel === 'opcoes' && (
                 <>
                   <div className="fixed inset-0 z-10" onClick={() => setOpenPanel(null)} />
-                  <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:left-0 sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-64 space-y-4">
+                  <div className="fixed inset-x-2 top-20 z-20 max-h-[calc(100dvh-6rem)] overflow-y-auto rounded-lg border border-gray-200 bg-white p-4 shadow-xl dark:border-gray-700 dark:bg-gray-800 sm:absolute sm:inset-x-auto sm:right-0 sm:left-auto sm:top-full sm:mt-1 sm:max-h-[70vh] sm:w-64 space-y-4">
                     <div>
                       <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400 block mb-1.5">Curvas visiveis</span>
                       <div className="space-y-1">
                         {[
-                          { key: 'Planejado', color: COLOR_PLANNED },
-                          { key: 'Executado', color: COLOR_REAL },
-                          { key: 'Forecast', color: COLOR_FORECAST },
+                          { key: 'Planejado', label: 'Planejado (LB0)', color: COLOR_PLANNED },
+                          { key: 'Executado', label: 'Executado', color: COLOR_REAL },
+                          { key: 'Forecast', label: 'Forecast', color: COLOR_FORECAST },
+                          ...grupoAtual.baselinesExtras.map((bl) => ({ key: bl.id, label: bl.label, color: BL_COLORS[bl.index] })),
                         ].map((curve) => (
                           <label key={curve.key} className="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-200 cursor-pointer">
                             <input
@@ -480,7 +556,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
                               className="w-3.5 h-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-500"
                             />
                             <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: curve.color }} />
-                            {curve.key}
+                            {curve.label}
                           </label>
                         ))}
                       </div>
@@ -508,7 +584,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
             </span>
           ))}
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-            Semanal
+            {PERIOD_TABLE_LABEL[granularity]}
           </span>
           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
             Peso (R$)
@@ -528,9 +604,9 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
           </span>
         </p>
 
-        <div style={{ width: '100%', height: 360 }}>
+        <div style={{ width: '100%', height: 390 }}>
           <ResponsiveContainer>
-            <LineChart data={chartData} margin={{ top: 8, right: 16, left: 0, bottom: 8 }}>
+            <LineChart data={chartData} margin={{ top: 28, right: 16, left: 0, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
               <XAxis dataKey="semana" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
               <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
@@ -541,33 +617,34 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               {statusWeekLabel && (
                 <ReferenceLine x={statusWeekLabel} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1.5} label={{ value: 'Status', position: 'top', fill: '#ef4444', fontSize: 10, fontWeight: 600 }} />
               )}
-              {!hiddenCurves.includes('Planejado') && <Line type="monotone" dataKey="Planejado" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />}
-              {!hiddenCurves.includes('Executado') && <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />}
+              {!hiddenCurves.includes('Planejado') && <Line type="monotone" dataKey="Planejado" name="Planejado (LB0)" stroke={COLOR_PLANNED} strokeWidth={2} dot={false} />}
+              {grupoAtual.baselinesExtras.filter((bl) => !hiddenCurves.includes(bl.id)).map((bl) => (
+                <Line key={bl.id} type="monotone" dataKey={bl.id} name={bl.label} stroke={BL_COLORS[bl.index]} strokeWidth={1.5} strokeDasharray="2 2" dot={false} connectNulls={false} />
+              ))}
+              {/* Forecast desenhado antes do Executado, pra ficar atrás dele onde as duas se sobrepõem. */}
               {!hiddenCurves.includes('Forecast') && <Line type="monotone" dataKey="Forecast" stroke={COLOR_FORECAST} strokeWidth={2} strokeDasharray="5 5" dot={false} connectNulls={false} />}
+              {!hiddenCurves.includes('Executado') && <Line type="monotone" dataKey="Executado" stroke={COLOR_REAL} strokeWidth={2} dot={false} connectNulls={false} />}
             </LineChart>
           </ResponsiveContainer>
         </div>
-
-        <p className="text-xs text-gray-400 dark:text-gray-500 mt-3">
-          Corte semanal: {DIAS_SEMANA[config.diaCorteSemana]} - Folga: {DIAS_SEMANA[config.diaFolgaSemanal]} - {feriados.length} feriado{feriados.length !== 1 ? 's' : ''} cadastrado{feriados.length !== 1 ? 's' : ''}.
-          {' '}Pra ajustar, va em Gerenciar Cronograma.
-        </p>
       </div>
+
+      <SCurveRootCauseCards openOccurrencesCount={occurrences.filter((o) => o.status === 'aberta').length} />
 
       {showTable && (
         <div className="rounded-xl border border-gray-100 bg-white shadow-sm dark:border-gray-700 dark:bg-gray-800 overflow-hidden">
           <div className="px-4 py-3 sm:px-6 border-b border-gray-100 dark:border-gray-700">
-            <span className="text-sm font-semibold text-gray-900 dark:text-white">Detalhamento semanal</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">Detalhamento {PERIOD_TABLE_LABEL[granularity].toLowerCase()}</span>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-gray-50 dark:bg-gray-700/30 text-gray-500 dark:text-gray-400">
                 <tr>
-                  <th className="px-3 py-2 text-left font-medium">Semana</th>
+                  <th className="px-3 py-2 text-left font-medium">{PERIOD_LABEL[granularity]}</th>
                   <th className="px-3 py-2 text-left font-medium">Data de Corte</th>
-                  <th className="px-3 py-2 text-right font-medium">Planej. (Sem.)</th>
+                  <th className="px-3 py-2 text-right font-medium">Planej. (Período)</th>
                   <th className="px-3 py-2 text-right font-medium">Planej. (Acum.)</th>
-                  <th className="px-3 py-2 text-right font-medium">Exec. (Sem.)</th>
+                  <th className="px-3 py-2 text-right font-medium">Exec. (Período)</th>
                   <th className="px-3 py-2 text-right font-medium">Exec. (Acum.)</th>
                   <th className="px-3 py-2 text-right font-medium">Forecast</th>
                   <th className="px-3 py-2 text-right font-medium">Desvio</th>
@@ -576,7 +653,7 @@ export function CurvaSPesoView({ project, cronogramas }: Props) {
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700/50">
                 {grupoAtual.semanas.map((s) => (
                   <tr key={s.semanaIndice} className="text-gray-700 dark:text-gray-200">
-                    <td className="px-3 py-1.5 font-mono">S{String(s.semanaIndice).padStart(2, '0')}</td>
+                    <td className="px-3 py-1.5 font-mono">{periodoLabel(s, granularity)}</td>
                     <td className="px-3 py-1.5">{fmtDataCorte(s.dataCorte)}</td>
                     <td className="px-3 py-1.5 text-right">{fmtPct(s.avancoPlanejadoSemana)}</td>
                     <td className="px-3 py-1.5 text-right font-medium">{fmtPct(s.avancoPlanejadoAcum)}</td>
