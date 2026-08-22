@@ -389,8 +389,14 @@ export default function ConcretoDashboard() {
                 <XAxis dataKey="anoMes" tick={{ fontSize: isMobile ? 9 : 13 }} interval={intervaloMeses} />
                 <YAxis tick={{ fontSize: isMobile ? 9 : 13 }} tickCount={isMobile ? 4 : 5} />
                 <Tooltip />
-                <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]}>
-                  {!isMobile && <LabelList dataKey="total" position="top" fontSize={13} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />}
+                {/* isAnimationActive=false: sem isso, a barra/label às vezes nasce vazia
+                    (bug conhecido do Recharts — a animação de entrada corre contra o
+                    cálculo do tamanho do ResponsiveContainer e perde a corrida em
+                    alguns carregamentos, deixando o gráfico "sumido" até um refresh). */}
+                <Bar dataKey="total" name="m³" fill="#2563eb" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                  {/* fill explícito (não className="fill-foreground") — texto sumia em alguns
+                      carregamentos porque o valor da variável CSS não chegava a tempo do SVG. */}
+                  {!isMobile && <LabelList dataKey="total" position="top" fontSize={13} style={{ fill: 'var(--foreground, #111827)' }} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -403,7 +409,7 @@ export default function ConcretoDashboard() {
             <ResponsiveContainer width="100%" height={isMobile ? 240 : 300}>
               <PieChart>
                 {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-                <Pie data={porUsinaGrafico} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={isMobile ? 64 : 90} label={isMobile ? false : (entry: any) => `${(entry.percent * 100).toFixed(1)}%`}>
+                <Pie data={porUsinaGrafico} dataKey="total" nameKey="nome" cx="50%" cy="50%" outerRadius={isMobile ? 64 : 90} isAnimationActive={false} label={isMobile ? false : (entry: any) => `${(entry.percent * 100).toFixed(1)}%`}>
                   {porUsinaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                 </Pie>
                 <Tooltip formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
@@ -424,7 +430,7 @@ export default function ConcretoDashboard() {
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: isMobile ? 10 : 14 }} iconSize={isMobile ? 8 : 14} />
                 {anos.map((ano, i) => (
-                  <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]}>
+                  <Bar key={ano} dataKey={ano} name={ano} stackId="total" fill={COLORS[i % COLORS.length]} isAnimationActive={false}>
                     {/* center, não top: num segmento empilhado "top" cai bem em
                         cima da linha de divisão com o próximo segmento, ilegível
                         contra qualquer uma das duas cores — centralizado no meio
@@ -448,8 +454,8 @@ export default function ConcretoDashboard() {
               <XAxis dataKey="nome" interval={0} height={isMobile ? 42 : 64} tick={isMobile ? ((props: any) => <AreaAxisTick {...props} compact />) : AreaAxisTick as any} />
               <YAxis tick={{ fontSize: isMobile ? 9 : 13 }} tickCount={isMobile ? 4 : 5} />
               <Tooltip />
-              <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]}>
-                <LabelList dataKey="total" position="top" fontSize={isMobile ? 9 : 14} className="fill-foreground" formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
+              <Bar dataKey="total" name="m³" radius={[4, 4, 0, 0]} isAnimationActive={false}>
+                <LabelList dataKey="total" position="top" fontSize={isMobile ? 9 : 14} style={{ fill: 'var(--foreground, #111827)' }} formatter={(v: any) => Number(v).toLocaleString("pt-BR")} />
                 {porAreaGrafico.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
               </Bar>
             </BarChart>

@@ -199,8 +199,24 @@ export default function UserApprovalManagement({ organizacaoId, organizacaoPilot
       })
       toast.success(`Convite enviado para ${conviteEmail.trim()}.`)
     } catch (emailError) {
+      // O token só existe aqui, na resposta de criar_convite — o banco guarda
+      // só o hash dele (por segurança), então depois desse instante não tem
+      // mais como recuperar o link. Enquanto o envio automático não funciona
+      // (ex.: remetente do Resend sem domínio verificado), copia o link pro
+      // clipboard pra dar um jeito de mandar manualmente.
+      const link = `${window.location.origin}/signup?convite=${convite.token}`
+      let copiado = false
+      try {
+        await navigator.clipboard.writeText(link)
+        copiado = true
+      } catch {
+        /* clipboard indisponível (ex.: contexto não-seguro) — link ainda aparece no toast */
+      }
       toast.warning(
-        `Convite criado, mas o email não pôde ser enviado agora: ${(emailError as Error).message}`,
+        `Convite criado, mas o email não pôde ser enviado agora (${(emailError as Error).message}). ${
+          copiado ? 'Link copiado — cole e envie manualmente:' : 'Copie e envie manualmente:'
+        } ${link}`,
+        { duration: 20000 },
       )
     }
 
